@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>net.oneandone.maven.poms</groupId>
+		<artifactId>foss-parent</artifactId>
+		<version>1.5.1</version>
+	</parent>
+
+	<groupId>net.oneandone.reactive</groupId>
+	<artifactId>reactive-parent</artifactId>
+	<version>0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
+
+
+	<name>reactive-parent multimodule</name>
+	<modules>
+		<module>reactive-flow</module>
+		<module>reactive-http</module>
+	</modules>
+
+
+	<properties>
+	    <jacoco.check.instructionRatio>0.80</jacoco.check.instructionRatio>
+	    <jacoco.check.lineRatio>0.80</jacoco.check.lineRatio>
+	    <jacoco.check.methodRatio>0.80</jacoco.check.methodRatio>
+		<jacoco.check.classRatio>0.80</jacoco.check.classRatio>
+	    <jacoco.check.branchRatio>0.60</jacoco.check.branchRatio>
+		<jacoco.check.complexityRatio>0.60</jacoco.check.complexityRatio>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.google.guava</groupId>
+			<artifactId>guava</artifactId>
+			<version>18.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.reactivestreams</groupId>
+			<artifactId>reactive-streams</artifactId>
+			<version>1.0.0.M2</version>
+		</dependency>
+
+		<!-- test -->
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.12</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.codehaus.mojo</groupId>
+					<artifactId>findbugs-maven-plugin</artifactId>
+					<configuration>
+						<xmlOutput>true</xmlOutput>
+						<!-- revert parent configuration back to default. -->
+						<threshold>Default</threshold>
+					</configuration>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+	</build>
+</project>
+

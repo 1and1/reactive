@@ -1,7 +1,7 @@
 # reactive-http
 
 ## reactive JAX-RS Client
-Enhanced JAX-RS client which supports Java8 CompletableFuture 
+Provides an enhanced JAX-RS client which supports Java8 `CompletableFuture` 
 
 ``` java
 import net.oneandone.reactive.rest.client.CompletableClient;
@@ -17,6 +17,7 @@ client.target("http://myservice/hotelbookingsystem/hotels/BUP932432")
 
 
 ## reactive JAX-RS Service
+Provides convenience artifacts such as `ResultConsumer`
 
 ``` java
 // ...
@@ -41,6 +42,7 @@ public class HotelsResource {
 
 
 ## reactive Server-Sent Events-based Service
+Provides real Servlet-I/O based reactive `Publisher` and `Subscriber` 
 
 ``` java
 // ...    
@@ -52,6 +54,8 @@ import net.oneandone.reactive.sse.servlet.ServletSseEventSubscriber;
 
 
 public class ReactiveSseServlet extends HttpServlet {
+    private final Publisher<KafkaMessage> kafkaPublisher = ...
+	private final Subscriber<KafkaMessage> kafkaSubscriber = ... 
     // ...    
     
     @Override
@@ -80,17 +84,17 @@ public class ReactiveSseServlet extends HttpServlet {
 
 
 # reactive-pipe
-Represents a unidirectional, reactive pipe which is sourced by a [reactive puplisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
+Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive puplisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
 
 ``` java
 import net.oneandone.reactive.pipe.Pipes;
 
 
-Publisher<KafkaMessage> publisher = ...
-Subscriber<SseEvent> subscriber = 
+Publisher<KafkaMessage> kafkaPublisher = ...
+Subscriber<SseEvent> sseSubscriber = ...
 
-Pipes.newPipe(publisher)
+Pipes.newPipe(kafkaPublisher)
      .filter(kafkaMessage -> kafkaMessage.getType() == KafkaMessage.TEXT)
      .map(kafkaMessage -> SSEEvent.newEvent().data(kafkaMessage.getData()))
-	 .consume(subscriber);
+	 .consume(sseSubscriber);
 ```

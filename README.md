@@ -1,9 +1,6 @@
-# reactive
+# reactive-http
 
-
-## reactive-http
-
-### reactive JAX-RS Client
+## reactive JAX-RS Client
 Enhanced JAX-RS client which supports Java8 CompletableFuture 
 
 ``` java
@@ -19,7 +16,7 @@ client.target("http://myservice/hotelbookingsystem/hotels/BUP932432")
 ```
 
 
-### reactive JAX-RS Service
+## reactive JAX-RS Service
 
 ``` java
 // ...
@@ -43,7 +40,7 @@ public class HotelsResource {
 ```
 
 
-### reactive Server-Sent Events-based Service
+## reactive Server-Sent Events-based Service
 
 ``` java
 // ...    
@@ -82,7 +79,7 @@ public class ReactiveSseServlet extends HttpServlet {
 
 
 
-## reactive-pipe
+# reactive-pipe
 Represents a unidirectional, reactive pipe which is sourced by a [reactive puplisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
 
 ``` java

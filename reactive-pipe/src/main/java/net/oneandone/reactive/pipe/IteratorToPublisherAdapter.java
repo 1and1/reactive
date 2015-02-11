@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.flow;
+package net.oneandone.reactive.pipe;
 
 
 
@@ -28,11 +28,11 @@ import org.reactivestreams.Subscription;
 
 
 
-class SupplierToPublisherAdapter<T> implements Publisher<T> {
+class IteratorToPublisherAdapter<T> implements Publisher<T> {
     
     private final Iterator<T> it;
 
-    public SupplierToPublisherAdapter(Iterator<T> it) {
+    public IteratorToPublisherAdapter(Iterator<T> it) {
         this.it = it;
     }
     

@@ -27,7 +27,7 @@ import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.MediaType;
 
-import static net.oneandone.reactive.rest.container.ResultConsumer.*;
+import static net.oneandone.reactive.rest.container.ResultConsumer.writeTo;
 
 
 
@@ -39,7 +39,7 @@ public class MyResource {
     
     @Path("/{id}")
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
     public void retrieveAsync(@PathParam("id") long id, @Suspended AsyncResponse resp) {
         dao.readAsync(id)
            .whenComplete(writeTo(resp));

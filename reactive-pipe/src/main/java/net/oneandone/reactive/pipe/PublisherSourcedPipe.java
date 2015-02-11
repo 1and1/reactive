@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.flow;
+package net.oneandone.reactive.pipe;
 
 
 
@@ -34,17 +34,17 @@ import org.reactivestreams.Subscription;
 
 
 /**
- * Publisher-based flow implementation 
+ * Publisher-based pipe implementation 
  * @param <T> the element type
  */
-class PublisherSourcedFlow<T> implements Flow<T> {
+class PublisherSourcedPipe<T> implements Pipe<T> {
     private final Publisher<T> publisher;
     
 
     /**
      * @param publisher the publisher
      */
-    public PublisherSourcedFlow(Publisher<T> publisher) {
+    public PublisherSourcedPipe(Publisher<T> publisher) {
         this.publisher = publisher;
     }
 
@@ -122,8 +122,8 @@ class PublisherSourcedFlow<T> implements Flow<T> {
     
     
     @Override
-    public <V> PublisherSourcedFlow<V> map(Function<? super T, ? extends V> fn) {
-        return new PublisherSourcedFlow<>(new ForwardingPublisher<T, V>(publisher, fn));
+    public <V> PublisherSourcedPipe<V> map(Function<? super T, ? extends V> fn) {
+        return new PublisherSourcedPipe<>(new ForwardingPublisher<T, V>(publisher, fn));
     }
   
     
@@ -262,8 +262,8 @@ class PublisherSourcedFlow<T> implements Flow<T> {
     
     
     @Override
-    public Flow<T> filter(Predicate<? super T> predicate) {
-        return new PublisherSourcedFlow<>(new FilteringPublisher<T>(publisher, predicate));
+    public Pipe<T> filter(Predicate<? super T> predicate) {
+        return new PublisherSourcedPipe<>(new FilteringPublisher<T>(publisher, predicate));
     }
  
     
@@ -289,8 +289,8 @@ class PublisherSourcedFlow<T> implements Flow<T> {
     
     
     @Override
-    public Flow<T> skip(long n) {
-        return new PublisherSourcedFlow<>(new SkippingPublisher<T>(publisher, n));
+    public Pipe<T> skip(long n) {
+        return new PublisherSourcedPipe<>(new SkippingPublisher<T>(publisher, n));
     }
  
     
@@ -316,8 +316,8 @@ class PublisherSourcedFlow<T> implements Flow<T> {
     
     
     @Override
-    public Flow<T> limit(long maxSize) {
-        return new PublisherSourcedFlow<>(new LimittingPublisher<T>(publisher, maxSize));
+    public Pipe<T> limit(long maxSize) {
+        return new PublisherSourcedPipe<>(new LimittingPublisher<T>(publisher, maxSize));
     }
  
     

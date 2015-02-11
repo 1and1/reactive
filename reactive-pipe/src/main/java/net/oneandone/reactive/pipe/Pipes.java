@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.flow;
+package net.oneandone.reactive.pipe;
 
 import java.util.Iterator;
 
@@ -26,26 +26,26 @@ import org.reactivestreams.Publisher;
 
 
 /**
- * Flow factory
+ * Pipe factory
  *
  */
-public class Flows {
+public class Pipes {
 
     /**
-     * creates a new flow instance 
+     * creates a new pipe instance 
      * @param publisher   the underlying publisher
-     * @return a new flow instance
+     * @return a new pipe instance
      */
-    public static <T> Flow<T> newFlow(Publisher<T> publisher) {
-        return new PublisherSourcedFlow<>(publisher);
+    public static <T> Pipe<T> newPipe(Publisher<T> publisher) {
+        return new PublisherSourcedPipe<>(publisher);
     }
     
     /**
-     * creates a new flow instance
+     * creates a new pipe instance
      * @param it  the underlying iterator
-     * @return a new flow instance
+     * @return a new pipe instance
      */
-    public static <T> Flow<T> newFlow(Iterator<T> it) {
-        return new PublisherSourcedFlow<>(new SupplierToPublisherAdapter<>(it));
+    public static <T> Pipe<T> newPipe(Iterator<T> it) {
+        return new PublisherSourcedPipe<>(new IteratorToPublisherAdapter<>(it));
     }
 }

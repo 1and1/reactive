@@ -14,7 +14,7 @@
 	<dependencies>
 		<dependency>
 			<groupId>net.oneandone.reactive</groupId>
-			<artifactId>reactive-flow</artifactId>
+			<artifactId>reactive-pipe</artifactId>
 			<version>0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>

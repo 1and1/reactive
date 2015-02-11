@@ -97,6 +97,14 @@ public class ResultConsumerTest {
         Assert.assertNull(resp);
         
         
+        
+        
+        client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
+              .request()
+              .async()
+              .get(String.class)
+              .thenAccept(data -> System.out.println(data));
+        
         client.close();
     }
 }

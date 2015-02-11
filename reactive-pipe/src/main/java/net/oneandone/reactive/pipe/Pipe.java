@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.flow;
+package net.oneandone.reactive.pipe;
 
 
 
@@ -25,11 +25,11 @@ import org.reactivestreams.Subscriber;
 
 
 /**
- * Flow
+ * Pipe
  *
  * @param <T> the element type
  */
-public interface Flow<T> {
+public interface Pipe<T> {
         
     /**
      * maps the elements
@@ -37,28 +37,28 @@ public interface Flow<T> {
      * @param <V> the new element type 
      * @return the mapped flow
      */
-    <V> Flow<V> map(Function<? super T, ? extends V> fn);
+    <V> Pipe<V> map(Function<? super T, ? extends V> fn);
     
     
     /**
      * @param predicate a non-interfering, stateless predicate to apply to each element to determine if it should be included
      * @return a stream consisting of the elements of this stream that match the given predicate
      */
-    Flow<T> filter(Predicate<? super T> predicate);
+    Pipe<T> filter(Predicate<? super T> predicate);
     
     
     /**
      * @param maxSize   the number of elements the stream should be limited to
      * @return a stream consisting of the elements of this stream, truncated to be no longer than maxSize in length
      */
-    Flow<T> limit(long maxSize);
+    Pipe<T> limit(long maxSize);
     
     
     /**
      * @param n  the number of leading elements to skip
      * @return a stream consisting of the remaining elements of this stream after discarding the first n elements of the stream
      */
-    Flow<T> skip(long n);
+    Pipe<T> skip(long n);
     
     
     /**

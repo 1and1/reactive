@@ -17,7 +17,7 @@
 
 	<name>reactive-parent multimodule</name>
 	<modules>
-		<module>reactive-flow</module>
+		<module>reactive-pipe</module>
 		<module>reactive-http</module>
 	</modules>
 

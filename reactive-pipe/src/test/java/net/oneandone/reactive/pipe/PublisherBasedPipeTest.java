@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.flow;
+package net.oneandone.reactive.pipe;
 
 
 
@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
+import net.oneandone.reactive.pipe.Pipes;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -36,7 +38,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.UnmodifiableIterator;
 
 
-public class PublisherBasedFlowTest {
+public class PublisherBasedPipeTest {
   
   
     @Test
@@ -45,7 +47,7 @@ public class PublisherBasedFlowTest {
         TestSubscriber<String> subscriber = new TestSubscriber<>();
         
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .consume(subscriber);
         
         publisher.push("1");
@@ -69,7 +71,7 @@ public class PublisherBasedFlowTest {
         TestPublisher<String> publisher = new TestPublisher<>();
         TestSubscriber<String> subscriber = new TestSubscriber<>();
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .filter(num -> (Integer.parseInt(num) % 2) == 0)
              .consume(subscriber);
         
@@ -93,7 +95,7 @@ public class PublisherBasedFlowTest {
         TestSubscriber<Integer> subscriber = new TestSubscriber<>();
         
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .consume(subscriber);
         
@@ -118,7 +120,7 @@ public class PublisherBasedFlowTest {
         TestSubscriber<Integer> subscriber = new TestSubscriber<>();
         
         
-        Flows.newFlow(publisher).map(element -> Integer.parseInt(element))
+        Pipes.newPipe(publisher).map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .skip(1)
              .consume(subscriber);
@@ -154,7 +156,7 @@ public class PublisherBasedFlowTest {
         list.add("6");
         list.add("7");
         
-        Flows.newFlow(list.iterator()).map(element -> Integer.parseInt(element))
+        Pipes.newPipe(list.iterator()).map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .skip(1)
              .consume(subscriber);
@@ -174,7 +176,7 @@ public class PublisherBasedFlowTest {
         TestSubscriber<Integer> subscriber = new TestSubscriber<>();
         
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .limit(2)
@@ -206,7 +208,7 @@ public class PublisherBasedFlowTest {
         TestSubscriber<Integer> subscriber = new TestSubscriber<>();
         
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .consume(subscriber);
 
@@ -231,7 +233,7 @@ public class PublisherBasedFlowTest {
         CompleteConsumer completeConsumer = new CompleteConsumer();
         
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .consume(consumer, null, completeConsumer);
@@ -261,7 +263,7 @@ public class PublisherBasedFlowTest {
         CompleteConsumer completeConsumer = new CompleteConsumer();
 
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .consume(consumer, errorConsumer, completeConsumer);
@@ -298,7 +300,7 @@ public class PublisherBasedFlowTest {
         CompleteConsumer completeConsumer = new CompleteConsumer();
 
         
-        Flows.newFlow(publisher)
+        Pipes.newPipe(publisher)
              .map(element -> Integer.parseInt(element))
              .filter(num -> (num % 2) == 0)
              .consume(consumer, null, completeConsumer);

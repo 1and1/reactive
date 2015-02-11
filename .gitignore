@@ -8,3 +8,7 @@
 /reactive-http/target
 /reactive-http/tomcat.0
 /reactive-http/.classpath
+/reactive-pipe/.project
+/reactive-pipe/.settings
+/reactive-pipe/target
+/reactive-pipe/.classpath

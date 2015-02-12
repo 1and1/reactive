@@ -39,12 +39,7 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
     
     @Override
     public void accept(Object result, Throwable error) {
-        
-        if (error == null) {
-            asyncResponse.resume(result);            
-        } else {
-            asyncResponse.resume(unwrapIfNecessary(error, 10));
-        }
+        asyncResponse.resume((error == null) ? result : unwrapIfNecessary(error, 10));            
     }
     
     

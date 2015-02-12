@@ -42,7 +42,7 @@ public class HotelsResource {
 
 
 ## reactive Server-Sent Events-based Service
-Provides real Servlet-I/O based reactive [Publisher](http://www.reactive-streams.org)  and [Subscriber](http://www.reactive-streams.org) 
+Provides full async/non-blocking Servlet 3.1 based reactive [Publisher](http://www.reactive-streams.org) and [Subscriber](http://www.reactive-streams.org) 
 
 ``` java
 // ...    

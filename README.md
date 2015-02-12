@@ -95,6 +95,6 @@ Subscriber<SseEvent> sseSubscriber = ...
 
 Pipes.newPipe(kafkaPublisher)
      .filter(kafkaMessage -> kafkaMessage.getType() == KafkaMessage.TEXT)
-     .map(kafkaMessage -> SSEEvent.newEvent().data(kafkaMessage.getData()))
+     .map(kafkaMessage -> SseEvent.newEvent().data(kafkaMessage.getData()))
 	 .consume(sseSubscriber);
 ```

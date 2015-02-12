@@ -42,7 +42,7 @@ public class HotelsResource {
 
 
 ## reactive Server-Sent Events-based Service
-Provides real Servlet-I/O based reactive `Publisher` and `Subscriber` 
+Provides real Servlet-I/O based reactive [Publisher](http://www.reactive-streams.org)  and [Subscriber](http://www.reactive-streams.org) 
 
 ``` java
 // ...    
@@ -84,7 +84,7 @@ public class ReactiveSseServlet extends HttpServlet {
 
 
 # reactive-pipe
-Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive puplisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
+Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive publisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
 
 ``` java
 import net.oneandone.reactive.pipe.Pipes;

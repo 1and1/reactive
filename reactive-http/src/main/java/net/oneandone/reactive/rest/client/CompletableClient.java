@@ -59,9 +59,15 @@ import javax.ws.rs.core.UriBuilder;
 
 
 
+/**
+ * Completable JAX-RS Client
+ */
 public class CompletableClient implements Client {
     private final Client client;
 
+    /**
+     * @param client thr underlying client
+     */
     public CompletableClient(Client client) {
         this.client = client;
     }
@@ -160,11 +166,13 @@ public class CompletableClient implements Client {
 
     
    
+    /**
+     * Completable JAX-RS WebTarget
+     */
     public static class CompletableWebTarget implements WebTarget {
         private final WebTarget webTarget;
-
       
-        public CompletableWebTarget(WebTarget webTarget) {
+        private CompletableWebTarget(WebTarget webTarget) {
             this.webTarget = webTarget;
         }
 
@@ -292,10 +300,13 @@ public class CompletableClient implements Client {
 
     
     
+    /**
+     * Completable JAX-RS Builder
+     */
     public static class CompletableBuilder implements Builder {
         private final Builder builder;
         
-        public CompletableBuilder(Builder builder) {
+        private CompletableBuilder(Builder builder) {
             this.builder = builder;
         }
         
@@ -518,10 +529,13 @@ public class CompletableClient implements Client {
     
         
 
+    /**
+     * Completable JAX-RS AsyncInvoker
+     */
     public static class CompletableFutureAsyncInvoker implements AsyncInvoker {
         private final AsyncInvoker asyncInvoker;
         
-        public CompletableFutureAsyncInvoker(AsyncInvoker asyncInvoker) {
+        private CompletableFutureAsyncInvoker(AsyncInvoker asyncInvoker) {
             this.asyncInvoker = asyncInvoker;
         }
 
@@ -746,8 +760,6 @@ public class CompletableClient implements Client {
         }
         
         
-        
-
         private static class CompletableFutureCallbackAdapter implements InvocationCallback<Response> {
             
             private final CompletableFuture<Response> future = new CompletableFuture<Response>();

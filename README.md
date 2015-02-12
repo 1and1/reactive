@@ -62,7 +62,7 @@ public class ReactiveSseServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.startAsync();
          
-        Publisher<SseEvent> ssePublisher = new ServletSsePublisher(req.getInputStream());
+        Publisher<ServerSentEvent> ssePublisher = new ServletSsePublisher(req.getInputStream());
         Pipes.newPipe(ssePublisher)
              .map(sseEvent -> KafkaMessage.newMessage().data(sseEvent.getData()))
              .consume(kafkaSubscriber);
@@ -73,7 +73,7 @@ public class ReactiveSseServlet extends HttpServlet {
         req.startAsync();
         resp.setContentType("text/event-stream");
         
-        Subscriber<SseEvent> sseSubscriber = new ServletSseSubscriber(resp.getOutputStream());
+        Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(resp.getOutputStream());
         Pipes.newPipe(kafkaPublisher)
              .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))
              .consume(sseSubscriber);
@@ -91,7 +91,7 @@ import net.oneandone.reactive.pipe.Pipes;
 
 
 Publisher<KafkaMessage> kafkaPublisher = ...
-Subscriber<SseEvent> sseSubscriber = ...
+Subscriber<ServerSentEvent> sseSubscriber = ...
 
 Pipes.newPipe(kafkaPublisher)
      .filter(kafkaMessage -> kafkaMessage.getType() == KafkaMessage.TEXT)

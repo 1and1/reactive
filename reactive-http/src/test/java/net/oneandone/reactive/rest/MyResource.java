@@ -39,7 +39,7 @@ public class MyResource {
     
     @Path("/{id}")
     @GET
-    @Produces(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
     public void retrieveAsync(@PathParam("id") long id, @Suspended AsyncResponse resp) {
         dao.readAsync(id)
            .whenComplete(writeTo(resp));

@@ -50,16 +50,22 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
     
     private static Throwable unwrapIfNecessary(Throwable ex, int maxDepth)  {
 
-        if (CompletionException.class.isAssignableFrom(ex.getClass())) {
+        if (isCompletionException(ex)) {
             Throwable e = ((CompletionException) ex).getCause();
-
-            if (maxDepth > 1) {
-                return unwrapIfNecessary(e, maxDepth - 1);
-            } else {
-                return e;
+            if (e != null) {
+                if (maxDepth > 1) {
+                    return unwrapIfNecessary(e, maxDepth - 1);
+                } else {
+                    return e;
+                }
             }
-        } else {
-            return ex;
         }
+            
+        return ex;
+    }
+    
+    
+    private static boolean isCompletionException(Throwable t) {
+        return CompletionException.class.isAssignableFrom(t.getClass());
     }
 }

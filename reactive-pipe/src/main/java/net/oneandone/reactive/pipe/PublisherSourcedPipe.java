@@ -129,15 +129,15 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     private static class ForwardingPublisher<T, V> implements Publisher<V>, Subscriber<T>, Subscription {
         private final ForwardingSubscription forwardingSubscription = new ForwardingSubscription();
-        private final AtomicReference<Subscriber<? super V>> sinkSubscriberRef = new AtomicReference<>(new EmptySubscriber<>());
         private final Function<? super T, ? extends V> mapper;
+        private final AtomicReference<Optional<Subscriber<? super V>>> sinkSubscriberRef = new AtomicReference<>(Optional.empty());
         
         
         public ForwardingPublisher(Publisher<T> source, Function<? super T, ? extends V> mapper) {
-            source.subscribe(this);
             this.mapper = mapper;
+            source.subscribe(this);
         }
-
+        
         /////////////////////////
         //  consumes the source
         
@@ -150,31 +150,28 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         
         @Override
         public void onNext(T element) {
-            sinkSubscriberRef.get().onNext(mapper.apply(element));
+            sinkSubscriberRef.get().ifPresent(subscription -> subscription.onNext(mapper.apply(element)));
         }
         
         @Override
         public void onError(Throwable t) {
-            sinkSubscriberRef.get().onError(t);
+            sinkSubscriberRef.get().ifPresent(subscription -> subscription.onError(t));
         }
         
         @Override
         public void onComplete() {
-            sinkSubscriberRef.get().onComplete();
+            sinkSubscriberRef.get().ifPresent(subscription -> subscription.onComplete());
         }
         
-        
-      
           
         /////////////////////////////////////
         // handle the sink 
         
         @Override
         public void subscribe(Subscriber<? super V> subscriber) {
-            sinkSubscriberRef.set(subscriber);
+            sinkSubscriberRef.set(Optional.of(subscriber));
             subscriber.onSubscribe(this);
         }
-        
         
         @Override
         public void request(long n) {
@@ -187,32 +184,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
             forwardingSubscription.cancel();
         }
         
-        
-        
-        private static final class EmptySubscriber<E> implements Subscriber<E> {
-            
-            @Override
-            public void onSubscribe(Subscription s) {
-                throw new IllegalStateException();
-            }
-            
-            @Override
-            public void onNext(E t) {
-                throw new IllegalStateException();
-            }
-            
-            @Override
-            public void onError(Throwable t) {
-                throw new IllegalStateException();
-            }
-            
-            @Override
-            public void onComplete() {
-                throw new IllegalStateException();
-            }
-        }
-        
-        
+     
         private static final class ForwardingSubscription implements Subscription {
             private long pendingRequests = 0;
             private boolean pendingCancel = false; 

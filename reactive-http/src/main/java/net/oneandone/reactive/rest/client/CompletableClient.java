@@ -175,7 +175,6 @@ public class CompletableClient implements Client {
         private CompletableWebTarget(WebTarget webTarget) {
             this.webTarget = webTarget;
         }
-
         
         @Override    
         public URI getUri() {
@@ -299,7 +298,6 @@ public class CompletableClient implements Client {
     }
 
     
-    
     /**
      * Completable JAX-RS Builder
      */
@@ -308,8 +306,7 @@ public class CompletableClient implements Client {
         
         private CompletableBuilder(Builder builder) {
             this.builder = builder;
-        }
-        
+        }        
        
         @Override
         public Response get() {
@@ -761,9 +758,7 @@ public class CompletableClient implements Client {
         
         
         private static class CompletableFutureCallbackAdapter implements InvocationCallback<Response> {
-            
             private final CompletableFuture<Response> future = new CompletableFuture<Response>();
-            
             
             CompletableFuture<Response> getCompletableFuture() {
                 return future;
@@ -783,14 +778,12 @@ public class CompletableClient implements Client {
         
         
         private static class CompletableFutureGenericObjectCallbackAdapter<T> implements InvocationCallback<Response> {
-            
             private final GenericType<T> responseType;
             private final CompletableFuture<T> future = new CompletableFuture<T>();
             
             public CompletableFutureGenericObjectCallbackAdapter(GenericType<T> responseType) {
                 this.responseType = responseType;
             }
-            
             
             CompletableFuture<T> getCompletableFuture() {
                 return future;
@@ -805,7 +798,6 @@ public class CompletableClient implements Client {
                     failed(t);
                     return;
                 }
-                
             }
         
             @Override
@@ -884,6 +876,7 @@ public class CompletableClient implements Client {
             // FROM RESTEASY 
             ///////////////////////////////////////
         }
+        
         
         
         private static class CompletableFutureObjectCallbackAdapter<T> extends CompletableFutureGenericObjectCallbackAdapter<T> {

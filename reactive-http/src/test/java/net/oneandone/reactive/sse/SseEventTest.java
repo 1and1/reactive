@@ -19,7 +19,7 @@ package net.oneandone.reactive.sse;
 
 
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,9 +34,9 @@ public class SseEventTest {
     
     @Test
     public void testSSeEventSimple() throws Exception {
-        Assert.assertEquals(SseEvent.newEvent().id("1"), SseEvent.newEvent().id("1"));
-        Assert.assertEquals(SseEvent.newEvent().id("1").data("data"), SseEvent.newEvent().id("1").data("data"));
-        Assert.assertEquals(SseEvent.newEvent().id("1").data("data").event("evt2"), SseEvent.newEvent().id("1").data("data").event("evt2"));
-        Assert.assertNotEquals(SseEvent.newEvent().id("1"), SseEvent.newEvent().id("1").data("data").event("evt2"));
+        Assert.assertEquals(ServerSentEvent.newEvent().id("1"), ServerSentEvent.newEvent().id("1"));
+        Assert.assertEquals(ServerSentEvent.newEvent().id("1").data("data"), ServerSentEvent.newEvent().id("1").data("data"));
+        Assert.assertEquals(ServerSentEvent.newEvent().id("1").data("data").event("evt2"), ServerSentEvent.newEvent().id("1").data("data").event("evt2"));
+        Assert.assertNotEquals(ServerSentEvent.newEvent().id("1"), ServerSentEvent.newEvent().id("1").data("data").event("evt2"));
     }
 }

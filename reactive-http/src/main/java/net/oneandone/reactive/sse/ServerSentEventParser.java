@@ -49,8 +49,8 @@ public class ServerSentEventParser {
      * @param buf      the buffer
      * @return the parsed events  
      */
-    public ImmutableList<SseEvent> parse(ByteBuffer buf) {
-        List<SseEvent> events = Lists.newArrayList();
+    public ImmutableList<ServerSentEvent> parse(ByteBuffer buf) {
+        List<ServerSentEvent> events = Lists.newArrayList();
         
         lineParser.parse(buf, lines);
         
@@ -71,7 +71,7 @@ public class ServerSentEventParser {
                     // buffer to the empty string and abort these steps.
 
                     if ((data.length() > 0 ) || (id != null) || (event != null)) {
-                        events.add(SseEvent.newEvent()
+                        events.add(ServerSentEvent.newEvent()
                                            .id(id)
                                            .event(event)
                                            .data(data)

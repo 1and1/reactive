@@ -27,7 +27,7 @@ import java.util.logging.Logger;
 
 import javax.servlet.ServletOutputStream;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -39,8 +39,8 @@ import org.reactivestreams.Subscription;
  * Maps Server-sent events (reactive) stream into a servlet output streamr 
  * 
  */
-public class ServletSseEventSubscriber implements Subscriber<SseEvent> {
-    private static final Logger LOG = Logger.getLogger(ServletSseEventSubscriber.class.getName());
+public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
+    private static final Logger LOG = Logger.getLogger(ServletSseSubscriber.class.getName());
     
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(new IllegalStateSubscription());
@@ -52,7 +52,7 @@ public class ServletSseEventSubscriber implements Subscriber<SseEvent> {
      * @param out       the servlet output stream
      * @param executor  the scheduled executor to emit keep alive messages 
      */
-    public ServletSseEventSubscriber(ServletOutputStream out, ScheduledExecutorService executor) {
+    public ServletSseSubscriber(ServletOutputStream out, ScheduledExecutorService executor) {
         this(out, executor, Duration.ofSeconds(25));
     }   
 
@@ -62,7 +62,7 @@ public class ServletSseEventSubscriber implements Subscriber<SseEvent> {
      * @param executor          the scheduled executor to emit keep alive messages 
      * @param keepAlivePeriod   the keep alive period
      */
-    public ServletSseEventSubscriber(ServletOutputStream out,ScheduledExecutorService executor, Duration keepAlivePeriod) {
+    public ServletSseSubscriber(ServletOutputStream out,ScheduledExecutorService executor, Duration keepAlivePeriod) {
         this.channel = new SseWriteableChannel(out, error -> onError(error), keepAlivePeriod, executor);
     }   
 
@@ -78,7 +78,7 @@ public class ServletSseEventSubscriber implements Subscriber<SseEvent> {
     
     
     @Override
-    public void onNext(SseEvent event) {
+    public void onNext(ServerSentEvent event) {
         channel.writeEventAsync(event)           
                .thenAccept(written -> subscriptionRef.get().request(1)); 
     }

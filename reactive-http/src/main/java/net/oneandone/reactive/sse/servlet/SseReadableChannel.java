@@ -28,7 +28,7 @@ import java.util.function.Consumer;
 import javax.servlet.ReadListener;
 import javax.servlet.ServletInputStream;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 
 import com.google.common.collect.Lists;
@@ -43,13 +43,13 @@ class SseReadableChannel {
 
     private final SSEInputStream serverSentEventsStream;
     
-    private final Consumer<SseEvent> eventConsumer;
+    private final Consumer<ServerSentEvent> eventConsumer;
     private final Consumer<Throwable> errorConsumer;
     private final Consumer<Void> completionConsumer;
     
 
     
-    public SseReadableChannel(ServletInputStream in, Consumer<SseEvent> eventConsumer, Consumer<Throwable> errorConsumer, Consumer<Void> completionConsumer) {
+    public SseReadableChannel(ServletInputStream in, Consumer<ServerSentEvent> eventConsumer, Consumer<Throwable> errorConsumer, Consumer<Void> completionConsumer) {
         this.eventConsumer = eventConsumer;
         this.errorConsumer = errorConsumer;
         this.completionConsumer = completionConsumer;
@@ -88,7 +88,7 @@ class SseReadableChannel {
         synchronized (pendingConsumesLock) {   
             try {
                 // reading has to be processed inside the sync block to avoid shuffling events 
-                Optional<SseEvent> optionalEvent = serverSentEventsStream.next();
+                Optional<ServerSentEvent> optionalEvent = serverSentEventsStream.next();
                 
                 // got an event?
                 if (optionalEvent.isPresent()) {
@@ -112,7 +112,7 @@ class SseReadableChannel {
         synchronized (pendingConsumesLock) {
             try {
                 while(numPendingConsumes.get() > 0) {
-                    Optional<SseEvent> optionalEvent = serverSentEventsStream.next();
+                    Optional<ServerSentEvent> optionalEvent = serverSentEventsStream.next();
                     if (optionalEvent.isPresent()) {
                         numPendingConsumes.decrementAndGet();
                         eventConsumer.accept(optionalEvent.get());
@@ -146,7 +146,7 @@ class SseReadableChannel {
     private static class SSEInputStream implements Closeable {
         
         // buffer
-        private final Queue<SseEvent> bufferedEvents = Lists.newLinkedList();
+        private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
     
         // sse parser
         private final ServerSentEventParser parser = new ServerSentEventParser();
@@ -166,7 +166,7 @@ class SseReadableChannel {
         }
     
         
-        public Optional<SseEvent> next() throws IOException {
+        public Optional<ServerSentEvent> next() throws IOException {
             
             // no events buffered        
             if (bufferedEvents.isEmpty()) {

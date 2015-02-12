@@ -48,9 +48,9 @@ Provides full async/non-blocking Servlet 3.1 based reactive [Publisher](http://w
 // ...    
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
-import net.oneandone.reactive.sse.SseEvent;
-import net.oneandone.reactive.sse.servlet.ServletSseEventPublisher;
-import net.oneandone.reactive.sse.servlet.ServletSseEventSubscriber;
+import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.sse.servlet.ServletSsePublisher;
+import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
 
 
 public class ReactiveSseServlet extends HttpServlet {
@@ -62,7 +62,7 @@ public class ReactiveSseServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.startAsync();
          
-        Publisher<SseEvent> ssePublisher = new ServletSseEventPublisher(req.getInputStream());
+        Publisher<SseEvent> ssePublisher = new ServletSsePublisher(req.getInputStream());
         Pipes.newPipe(ssePublisher)
              .map(sseEvent -> KafkaMessage.newMessage().data(sseEvent.getData()))
              .consume(kafkaSubscriber);
@@ -73,9 +73,9 @@ public class ReactiveSseServlet extends HttpServlet {
         req.startAsync();
         resp.setContentType("text/event-stream");
         
-        Subscriber<SseEvent> sseSubscriber = new ServletSseEventSubscriber(resp.getOutputStream());
+        Subscriber<SseEvent> sseSubscriber = new ServletSseSubscriber(resp.getOutputStream());
         Pipes.newPipe(kafkaPublisher)
-             .map(kafkaMessage -> SseEvent.newEvent().data(kafkaMessage.getData()))
+             .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))
              .consume(sseSubscriber);
     }
 }
@@ -95,6 +95,6 @@ Subscriber<SseEvent> sseSubscriber = ...
 
 Pipes.newPipe(kafkaPublisher)
      .filter(kafkaMessage -> kafkaMessage.getType() == KafkaMessage.TEXT)
-     .map(kafkaMessage -> SseEvent.newEvent().data(kafkaMessage.getData()))
+     .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))
 	 .consume(sseSubscriber);
 ```

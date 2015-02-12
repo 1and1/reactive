@@ -22,7 +22,7 @@ package net.oneandone.reactive.sse;
  *
  * @author grro
  */
-public interface SseEvent {
+public interface ServerSentEvent {
     
     
     /**
@@ -108,7 +108,7 @@ public interface SseEvent {
     /**
      * A buildable sse event
      */
-    public static class SSEBuildableEvent implements SseEvent {
+    public static class SSEBuildableEvent implements ServerSentEvent {
         private final String id;
         private final String event;
         private final String data;
@@ -226,7 +226,7 @@ public interface SseEvent {
         
         @Override
         public boolean equals(Object other) {
-            return (other instanceof SseEvent) ? ((SseEvent) other).toWire().equals(this.toWire()) : false;
+            return (other instanceof ServerSentEvent) ? ((ServerSentEvent) other).toWire().equals(this.toWire()) : false;
         }
         
         @Override

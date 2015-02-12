@@ -29,7 +29,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -56,7 +56,7 @@ public class ReactiveSseServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.startAsync();
          
-        Publisher<SseEvent> publisher = new ServletSseEventPublisher(req.getInputStream());
+        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req.getInputStream());
         broker.registerPublisher(req.getPathInfo(), publisher);
     }
     
@@ -67,25 +67,25 @@ public class ReactiveSseServlet extends HttpServlet {
         req.startAsync();
         
         resp.setContentType("text/event-stream");
-        Subscriber<SseEvent> subscriber = new ServletSseEventSubscriber(resp.getOutputStream(), executor, Duration.ofSeconds(1));
+        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp.getOutputStream(), executor, Duration.ofSeconds(1));
         broker.registerSubscriber(req.getPathInfo(), subscriber, 5 * 1000);
     }
     
     
     
     private static final class Broker {
-        private final Map<String, Publisher<SseEvent>> publishers = Maps.newConcurrentMap();
+        private final Map<String, Publisher<ServerSentEvent>> publishers = Maps.newConcurrentMap();
 
-        public synchronized void registerPublisher(String id, Publisher<SseEvent> publisher) {
+        public synchronized void registerPublisher(String id, Publisher<ServerSentEvent> publisher) {
             publishers.put(id, publisher);
             notifyAll();
         }
         
-        public synchronized void registerSubscriber(String id, Subscriber<SseEvent> subscriber, int maxMillis) {
+        public synchronized void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber, int maxMillis) {
             long start = System.currentTimeMillis();
             
             while (System.currentTimeMillis() < (start + maxMillis)) {
-                Publisher<SseEvent> publisher = publishers.get(id);
+                Publisher<ServerSentEvent> publisher = publishers.get(id);
                 
                 if (publisher == null) {
                     try {

@@ -22,7 +22,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 
 public class ServerSentEventSink {
@@ -43,7 +43,7 @@ public class ServerSentEventSink {
     }
     
     
-    public void write(SseEvent event) {
+    public void write(ServerSentEvent event) {
         try {
             os.write(event.toString().getBytes("UTF-8"));
             os.flush();

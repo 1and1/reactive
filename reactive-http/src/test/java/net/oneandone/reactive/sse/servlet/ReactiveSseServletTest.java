@@ -21,7 +21,7 @@ import java.net.URI;
 import java.util.UUID;
 
 import net.oneandone.reactive.WebContainer;
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -56,7 +56,7 @@ public class ReactiveSseServletTest {
         URI url = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
 
         ServerSentEventSink sseOut = new ServerSentEventSink(url);
-        sseOut.write(SseEvent.newEvent()
+        sseOut.write(ServerSentEvent.newEvent()
                              .id("1")
                              .event("evt2")
                              .data("data")
@@ -67,7 +67,7 @@ public class ReactiveSseServletTest {
         
         ServerSentEventSource sseIn = new ServerSentEventSource(url);
         
-        SseEvent event = sseIn.next();
+        ServerSentEvent event = sseIn.next();
         Assert.assertEquals("1", event.getId());
         Assert.assertEquals("evt2", event.getEvent());
         Assert.assertEquals("data", event.getData());
@@ -90,7 +90,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 10; i++) {
-                    sseOut.write(SseEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    sseOut.write(ServerSentEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             
@@ -121,7 +121,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 1000000; i++) {
-                    sseOut.write(SseEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    sseOut.write(ServerSentEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             

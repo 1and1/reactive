@@ -29,7 +29,7 @@ import java.util.function.Consumer;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.WriteListener;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import com.google.common.collect.Lists;
 
@@ -65,7 +65,7 @@ class SseWriteableChannel  {
     }
 
     
-    public CompletableFuture<Integer> writeEventAsync(SseEvent event) {       
+    public CompletableFuture<Integer> writeEventAsync(ServerSentEvent event) {       
         CompletableFuture<Integer> writtenFuture = new CompletableFuture<>();
         requestWriteNotificationAsync().thenAccept(Void -> writeToWrite(event, writtenFuture));
         
@@ -73,7 +73,7 @@ class SseWriteableChannel  {
     }   
     
     
-    private void writeToWrite(SseEvent event, CompletableFuture<Integer> writtenSizeFuture) {       
+    private void writeToWrite(ServerSentEvent event, CompletableFuture<Integer> writtenSizeFuture) {       
         try {
             synchronized (out) {
                 byte[] data = event.toWire().getBytes("UTF-8");
@@ -179,7 +179,7 @@ class SseWriteableChannel  {
         }
         
         private void scheduleNextKeepAliveEvent() {
-            Runnable task = () -> channel.writeEventAsync(SseEvent.newEvent().comment("keep alive"))
+            Runnable task = () -> channel.writeEventAsync(ServerSentEvent.newEvent().comment("keep alive"))
                                          .thenAccept(numWritten -> scheduleNextKeepAliveEvent());
             
             executor.schedule(task, keepAlivePeriod.getSeconds(), TimeUnit.SECONDS);

@@ -24,7 +24,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Queue;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 
 
@@ -37,7 +37,7 @@ public class ServerSentEventSource {
     private final HttpURLConnection httpCon;
     private final InputStream is;
     
-    private final Queue<SseEvent> bufferedEvents = Lists.newLinkedList();
+    private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
     private final ServerSentEventParser parser = new ServerSentEventParser();
     private final byte buf[] = new byte[1024];
     private int len = -1;
@@ -60,7 +60,7 @@ public class ServerSentEventSource {
     
     
     
-    public SseEvent next() throws IOException {
+    public ServerSentEvent next() throws IOException {
         
         // no events buffered        
         if (bufferedEvents.isEmpty()) {

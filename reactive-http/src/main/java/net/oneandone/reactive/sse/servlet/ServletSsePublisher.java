@@ -21,7 +21,7 @@ import java.util.concurrent.ForkJoinPool;
 
 import javax.servlet.ServletInputStream;
 
-import net.oneandone.reactive.sse.SseEvent;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -32,7 +32,7 @@ import org.reactivestreams.Subscription;
 /**
  * Maps the servlet input stream (which have to receive Server-sent events) into a publisher 
  */
-public class ServletSseEventPublisher implements Publisher<SseEvent> {     
+public class ServletSsePublisher implements Publisher<ServerSentEvent> {     
     private final ServletInputStream in;
     private boolean subscribed = false; // true after first subscribe
     
@@ -40,13 +40,13 @@ public class ServletSseEventPublisher implements Publisher<SseEvent> {
     /**
      * @param in the underlying servlet input stream
      */
-    public ServletSseEventPublisher(ServletInputStream in) {
+    public ServletSsePublisher(ServletInputStream in) {
         this.in = in;
     }
     
     
     @Override
-    public void subscribe(Subscriber<? super SseEvent> subscriber) {
+    public void subscribe(Subscriber<? super ServerSentEvent> subscriber) {
         synchronized (this) {
             if (subscribed == true) {
                 subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
@@ -61,11 +61,11 @@ public class ServletSseEventPublisher implements Publisher<SseEvent> {
  
     
     private static final class SEEEventReaderSubscription implements Subscription {
-        private final Subscriber<? super SseEvent> subscriberProxy;
+        private final Subscriber<? super ServerSentEvent> subscriberProxy;
         private final SseReadableChannel channel;
         
        
-        public SEEEventReaderSubscription(ServletInputStream in, Subscriber<? super SseEvent> subscriber) {
+        public SEEEventReaderSubscription(ServletInputStream in, Subscriber<? super ServerSentEvent> subscriber) {
             this.subscriberProxy = new SubscriberProxy(subscriber);
             this.channel = new SseReadableChannel(in,                                        // servlet input stream
                                                   event -> subscriberProxy.onNext(event),    // event consumer
@@ -95,11 +95,11 @@ public class ServletSseEventPublisher implements Publisher<SseEvent> {
         }
       
         
-        private final class SubscriberProxy implements Subscriber<SseEvent> {
+        private final class SubscriberProxy implements Subscriber<ServerSentEvent> {
             private boolean isOpen = true;
-            private final Subscriber<? super SseEvent> subscriber;
+            private final Subscriber<? super ServerSentEvent> subscriber;
             
-            public SubscriberProxy(Subscriber<? super SseEvent> subscriber) {
+            public SubscriberProxy(Subscriber<? super ServerSentEvent> subscriber) {
                 this.subscriber = subscriber;
             }
             
@@ -108,7 +108,7 @@ public class ServletSseEventPublisher implements Publisher<SseEvent> {
             }
             
             @Override
-            public synchronized void onNext(SseEvent event) {
+            public synchronized void onNext(ServerSentEvent event) {
                 try {
                     if (isOpen) {
                         subscriber.onNext(event);

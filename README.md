@@ -1,7 +1,7 @@
 # reactive-http
 
 ## reactive JAX-RS Client
-Provides an enhanced JAX-RS client which supports Java8 `CompletableFuture`. This client supports CompletableFuture methods such as thenAccept(...) consuming a function which will be called as soon as the http response is received. The thenAccept(..) call returns immediately without waiting for the http response         
+Provides an enhanced JAX-RS client which supports Java8 `CompletableFuture`. This client supports CompletableFuture methods such as thenAccept(...) consuming a function which will be executed as soon as the http response is received. The thenAccept(..) call returns immediately without waiting for the http response         
 
 ``` java
 import net.oneandone.reactive.rest.client.CompletableClient;

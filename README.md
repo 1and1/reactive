@@ -99,7 +99,7 @@ public class ReactiveSseServlet extends HttpServlet {
 </dependency>
 ```
 
-Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive publisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
+Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive publisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org). The `Pipe` supports mapping, filtering, skipping and limiting the stream.    
 
 ``` java
 import net.oneandone.reactive.pipe.Pipes;

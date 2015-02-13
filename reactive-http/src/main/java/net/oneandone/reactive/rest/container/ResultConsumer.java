@@ -25,6 +25,10 @@ import javax.ws.rs.container.AsyncResponse;
 
 
 
+/**
+ * ResultConsumer
+ *
+ */
 public class ResultConsumer implements BiConsumer<Object, Throwable> {
     
     private final AsyncResponse asyncResponse;
@@ -33,9 +37,6 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
         this.asyncResponse = asyncResponse;
     }
 
-    public static final BiConsumer<Object, Throwable> writeTo(AsyncResponse asyncResponse) {
-        return new ResultConsumer(asyncResponse);
-    }
     
     @Override
     public void accept(Object result, Throwable error) {
@@ -62,5 +63,16 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
     
     private static boolean isCompletionException(Throwable t) {
         return CompletionException.class.isAssignableFrom(t.getClass());
+    }
+    
+    
+    
+    /**
+     * forwards the response to the REST response object. Includes error handling also 
+     * @param asyncResponse the REST response
+     * @return the BiConsumer consuming the response/error pair
+     */
+    public static final BiConsumer<Object, Throwable> writeTo(AsyncResponse asyncResponse) {
+        return new ResultConsumer(asyncResponse);
     }
 }

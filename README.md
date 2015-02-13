@@ -1,4 +1,11 @@
 # reactive-http
+``` java
+<dependency>
+    <groupId>net.oneandone.reactive</groupId>
+    <artifactId>reactive-http</artifactId>
+    <version>0.1</version>
+</dependency>
+```
 
 ## reactive JAX-RS Client
 Provides an enhanced JAX-RS client which supports Java8 `CompletableFuture`. This client supports CompletableFuture methods such as thenAccept(...) consuming a function which will be executed, if the http response is received. The thenAccept(..) call returns immediately without waiting for the http response         
@@ -84,6 +91,14 @@ public class ReactiveSseServlet extends HttpServlet {
 
 
 # reactive-pipe
+``` java
+<dependency>
+    <groupId>net.oneandone.reactive</groupId>
+    <artifactId>reactive-pipe</artifactId>
+    <version>0.1</version>
+</dependency>
+```
+
 Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive publisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org)
 
 ``` java

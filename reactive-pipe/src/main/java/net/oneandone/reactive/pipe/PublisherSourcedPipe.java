@@ -56,13 +56,13 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public void consume(Consumer<? super T> consumer) {
-        consume(consumer, null);
+        consume(consumer, error -> { });
     }
     
     
     @Override
     public void consume(Consumer<? super T> consumer, Consumer<? super Throwable> errorConsumer) {
-        consume(consumer, errorConsumer, null);
+        consume(consumer, errorConsumer, Void -> { });
     }
     
     @Override
@@ -102,9 +102,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         @Override
         public void onError(Throwable t) {
             try {
-                if (errorConsumer != null) {
-                    errorConsumer.accept(t);
-                }
+                errorConsumer.accept(t);
             } finally {
                 subscriptionRef.get().ifPresent(subscription -> subscription.cancel());
             }
@@ -112,9 +110,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         
         @Override
         public void onComplete() {
-            if (completeConsumer != null) {
-                completeConsumer.accept(null);
-            }
+            completeConsumer.accept(null);
         }
     }
     

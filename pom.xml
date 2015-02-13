@@ -10,7 +10,7 @@
 
 	<groupId>net.oneandone.reactive</groupId>
 	<artifactId>reactive-parent</artifactId>
-	<version>0.1</version>
+	<version>0.2-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 
@@ -66,9 +66,5 @@
 			</plugins>
 		</pluginManagement>
 	</build>
-
-  <scm>
-    <tag>reactive-parent-0.1</tag>
-  </scm>
 </project>
 

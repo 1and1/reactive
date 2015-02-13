@@ -23,12 +23,12 @@
 
 
 	<properties>
-	    <jacoco.check.instructionRatio>0.80</jacoco.check.instructionRatio>
-	    <jacoco.check.lineRatio>0.80</jacoco.check.lineRatio>
-	    <jacoco.check.methodRatio>0.80</jacoco.check.methodRatio>
-		<jacoco.check.classRatio>0.80</jacoco.check.classRatio>
-	    <jacoco.check.branchRatio>0.60</jacoco.check.branchRatio>
-		<jacoco.check.complexityRatio>0.60</jacoco.check.complexityRatio>
+	    <jacoco.check.instructionRatio>0.40</jacoco.check.instructionRatio>
+	    <jacoco.check.lineRatio>0.40</jacoco.check.lineRatio>
+	    <jacoco.check.methodRatio>0.40</jacoco.check.methodRatio>
+		<jacoco.check.classRatio>0.40</jacoco.check.classRatio>
+	    <jacoco.check.branchRatio>0.30</jacoco.check.branchRatio>
+		<jacoco.check.complexityRatio>0.30</jacoco.check.complexityRatio>
 	</properties>
 
 	<dependencies>

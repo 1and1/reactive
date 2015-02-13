@@ -53,7 +53,6 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     public void consume(Subscriber<? super T> subscriber) {
         publisher.subscribe(subscriber);
     }
-        
     
     @Override
     public void consume(Consumer<? super T> consumer) {
@@ -66,7 +65,6 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         consume(consumer, errorConsumer, null);
     }
     
-    
     @Override
     public void consume(Consumer<? super T> consumer, Consumer<? super Throwable> errorConsumer, Consumer<Void> completeConsumer) {
         consume(new ConsumerAdapter<>(consumer, errorConsumer, completeConsumer));        
@@ -76,7 +74,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         private final Consumer<? super E> consumer;
         private final Consumer<? super Throwable> errorConsumer;
         private final Consumer<Void> completeConsumer;
-        private final AtomicReference<Optional<Subscription>> subscriptionRef = new AtomicReference<>(); 
+        private final AtomicReference<Optional<Subscription>> subscriptionRef = new AtomicReference<>(Optional.empty()); 
         
         
         public ConsumerAdapter(Consumer<? super E> consumer, Consumer<? super Throwable> errorConsumer, Consumer<Void> completeConsumer) {
@@ -138,6 +136,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
             source.subscribe(this);
         }
         
+        
         /////////////////////////
         //  consumes the source
         
@@ -162,6 +161,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         public void onComplete() {
             sinkSubscriberRef.get().ifPresent(subscription -> subscription.onComplete());
         }
+        
         
           
         /////////////////////////////////////

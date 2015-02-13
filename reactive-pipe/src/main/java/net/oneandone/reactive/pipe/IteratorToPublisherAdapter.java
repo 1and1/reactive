@@ -22,24 +22,41 @@ package net.oneandone.reactive.pipe;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 
 
+/**
+ * IteratorToPublisherAdapter
+ *
+ * @param <T> the element type
+ */
 class IteratorToPublisherAdapter<T> implements Publisher<T> {
-    
+    private boolean subscribed = false; // true after first subscribe
     private final Iterator<T> it;
 
+    /**
+     * @param it the underlying iterator 
+     */
     public IteratorToPublisherAdapter(Iterator<T> it) {
         this.it = it;
     }
     
     @Override
     public void subscribe(Subscriber<? super T> subscriber) {
-        subscriber.onSubscribe(new IteratorbasedSubscription<>(it, subscriber));
+        synchronized (this) {
+            if (subscribed == true) {
+                subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
+            } else {
+                subscribed = true;
+                subscriber.onSubscribe(new IteratorbasedSubscription<>(it, subscriber));
+            }
+        }
     }
+    
     
     
     private static final class IteratorbasedSubscription<T> implements Subscription {
@@ -48,8 +65,7 @@ class IteratorToPublisherAdapter<T> implements Publisher<T> {
         private final Iterator<T> it;
 
         
-        
-        public IteratorbasedSubscription(Iterator<T> it, Subscriber<? super T> subscriber) {
+        private IteratorbasedSubscription(Iterator<T> it, Subscriber<? super T> subscriber) {
             this.it = it;
             this.subscriber = subscriber;
         }
@@ -63,33 +79,23 @@ class IteratorToPublisherAdapter<T> implements Publisher<T> {
         }
         
         private void request() {
-            
             try {
                 if (it.hasNext()) {
                     subscriber.onNext(it.next());
                 } else {
-                    terminateRegularly();
+                    cancel();
                 }
             } catch (RuntimeException rt) {
-                teminateWithError(rt);
+                if (isOpen.getAndSet(false)) {
+                    subscriber.onError(rt);
+                }
             }
         }
 
-        
         @Override
         public void cancel() {
-            terminateRegularly();
-        }
-        
-        private void terminateRegularly() {
             if (isOpen.getAndSet(false)) {
                 subscriber.onComplete();
-            }
-        }
-        
-        private void teminateWithError(Throwable t) {
-            if (isOpen.getAndSet(false)) {
-                subscriber.onError(t);
             }
         }
     }

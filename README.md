@@ -39,10 +39,10 @@ public class HotelsResource {
     @Path("/{id}")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse resp) {
+    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
         hotelDao.readHotelAsync(id)
                 .thenApply(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
-                .whenComplete(writeTo(resp));
+                .whenComplete(writeTo(response));
     }
 }
 ```
@@ -66,21 +66,21 @@ public class ReactiveSseServlet extends HttpServlet {
     // ...    
     
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync();
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        request.startAsync();
          
-        Publisher<ServerSentEvent> ssePublisher = new ServletSsePublisher(req.getInputStream());
+        Publisher<ServerSentEvent> ssePublisher = new ServletSsePublisher(request.getInputStream());
         Pipes.newPipe(ssePublisher)
              .map(sseEvent -> KafkaMessage.newMessage().data(sseEvent.getData()))
              .consume(kafkaSubscriber);
     }
     
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync();
-        resp.setContentType("text/event-stream");
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        request.startAsync();
+        response.setContentType("text/event-stream");
         
-        Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(resp.getOutputStream());
+        Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(response.getOutputStream());
         Pipes.newPipe(kafkaPublisher)
              .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))
              .consume(sseSubscriber);

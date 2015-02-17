@@ -26,6 +26,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
+import org.reactivestreams.Processor;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -117,17 +118,16 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public <V> PublisherSourcedPipe<V> map(Function<? super T, ? extends V> fn) {
-        return new PublisherSourcedPipe<>(new ForwardingPublisher<T, V>(publisher, fn));
+        return new PublisherSourcedPipe<>(new ForwardingProcessor<T, V>(publisher, fn));
     }
   
-    
-    private static class ForwardingPublisher<T, V> implements Publisher<V>, Subscriber<T>, Subscription {
+    private static class ForwardingProcessor<T, R> implements Processor<T, R>, Subscription {
         private final ForwardingSubscription forwardingSubscription = new ForwardingSubscription();
-        private final Function<? super T, ? extends V> mapper;
-        private final AtomicReference<Optional<Subscriber<? super V>>> sinkSubscriberRef = new AtomicReference<>(Optional.empty());
+        private final Function<? super T, ? extends R> mapper;
+        private final AtomicReference<Optional<Subscriber<? super R>>> sinkSubscriberRef = new AtomicReference<>(Optional.empty());
         
         
-        public ForwardingPublisher(Publisher<T> source, Function<? super T, ? extends V> mapper) {
+        public ForwardingProcessor(Publisher<T> source, Function<? super T, ? extends R> mapper) {
             this.mapper = mapper;
             source.subscribe(this);
         }
@@ -164,7 +164,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         // handle the sink 
         
         @Override
-        public void subscribe(Subscriber<? super V> subscriber) {
+        public void subscribe(Subscriber<? super R> subscriber) {
             sinkSubscriberRef.set(Optional.of(subscriber));
             subscriber.onSubscribe(this);
         }
@@ -231,15 +231,13 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public Pipe<T> filter(Predicate<? super T> predicate) {
-        return new PublisherSourcedPipe<>(new FilteringPublisher<T>(publisher, predicate));
+        return new PublisherSourcedPipe<>(new FilteringProcessor<T>(publisher, predicate));
     }
  
-    
-    private static final class FilteringPublisher<T> extends ForwardingPublisher<T, T> {
-        
+    private static final class FilteringProcessor<T> extends ForwardingProcessor<T, T> {
         private final Predicate<? super T> predicate;
         
-        public FilteringPublisher(Publisher<T> source, Predicate<? super T> predicate) {
+        public FilteringProcessor(Publisher<T> source, Predicate<? super T> predicate) {
             super(source, element -> element);
             this.predicate = predicate;
         }
@@ -258,15 +256,14 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public Pipe<T> skip(long n) {
-        return new PublisherSourcedPipe<>(new SkippingPublisher<T>(publisher, n));
+        return new PublisherSourcedPipe<>(new SkippingProcessor<T>(publisher, n));
     }
  
-    
-    private static final class SkippingPublisher<T> extends ForwardingPublisher<T, T> {
+    private static final class SkippingProcessor<T> extends ForwardingProcessor<T, T> {
         private final long numToSkip;
         private long numProcessed;
         
-        public SkippingPublisher(Publisher<T> source, long numToSkip) {
+        public SkippingProcessor(Publisher<T> source, long numToSkip) {
             super(source, element -> element);
             this.numToSkip = numToSkip;
         }
@@ -288,8 +285,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         return new PublisherSourcedPipe<>(new LimittingPublisher<T>(publisher, maxSize));
     }
  
-    
-    private static final class LimittingPublisher<T> extends ForwardingPublisher<T, T> {
+    private static final class LimittingPublisher<T> extends ForwardingProcessor<T, T> {
         private final long max;
         private long numProcessed;
         

@@ -62,13 +62,13 @@ import javax.ws.rs.core.UriBuilder;
 /**
  * Completable JAX-RS Client
  */
-public class CompletableClient implements Client {
+public class RxClient implements Client {
     private final Client client;
 
     /**
      * @param client thr underlying client
      */
-    public CompletableClient(Client client) {
+    public RxClient(Client client) {
         this.client = client;
     }
     
@@ -78,28 +78,28 @@ public class CompletableClient implements Client {
     }
 
     @Override
-    public CompletableWebTarget target(String uri) {
-        return new CompletableWebTarget(client.target(uri));
+    public RxWebTarget target(String uri) {
+        return new RxWebTarget(client.target(uri));
     }
 
     @Override
-    public CompletableWebTarget target(URI uri) {
-        return new CompletableWebTarget(client.target(uri));
+    public RxWebTarget target(URI uri) {
+        return new RxWebTarget(client.target(uri));
     }
 
     @Override
-    public CompletableWebTarget target(UriBuilder uriBuilder) {
-        return new CompletableWebTarget(client.target(uriBuilder));
+    public RxWebTarget target(UriBuilder uriBuilder) {
+        return new RxWebTarget(client.target(uriBuilder));
     }
 
     @Override
-    public CompletableWebTarget target(Link link) {
-        return new CompletableWebTarget(client.target(link));
+    public RxWebTarget target(Link link) {
+        return new RxWebTarget(client.target(link));
     }
 
     @Override
-    public CompletableBuilder invocation(Link link) {
-        return new CompletableBuilder(client.invocation(link));
+    public RxBuilder invocation(Link link) {
+        return new RxBuilder(client.invocation(link));
     }
 
     @Override
@@ -118,48 +118,48 @@ public class CompletableClient implements Client {
     }
 
     @Override
-    public CompletableClient property(String name, Object value) {
-        return new CompletableClient(client.property(name, value));
+    public RxClient property(String name, Object value) {
+        return new RxClient(client.property(name, value));
     }
 
     @Override
-    public CompletableClient register(Class<?> componentClass) {
-        return new CompletableClient(client.register(componentClass));
+    public RxClient register(Class<?> componentClass) {
+        return new RxClient(client.register(componentClass));
     }
 
     @Override
-    public CompletableClient register(Class<?> componentClass, int priority) {
-        return new CompletableClient(client.register(componentClass, priority));
+    public RxClient register(Class<?> componentClass, int priority) {
+        return new RxClient(client.register(componentClass, priority));
     }
 
     @Override
-    public CompletableClient register(Class<?> componentClass, Class<?>... contracts) {
-        return new CompletableClient(client.register(componentClass, contracts));
+    public RxClient register(Class<?> componentClass, Class<?>... contracts) {
+        return new RxClient(client.register(componentClass, contracts));
     }
 
     @Override
-    public CompletableClient register(Class<?> componentClass, Map<Class<?>, Integer> contracts) {
-        return new CompletableClient(client.register(componentClass, contracts));
+    public RxClient register(Class<?> componentClass, Map<Class<?>, Integer> contracts) {
+        return new RxClient(client.register(componentClass, contracts));
     }
 
     @Override
-    public CompletableClient register(Object component) {
-        return new CompletableClient(client.register(component));
+    public RxClient register(Object component) {
+        return new RxClient(client.register(component));
     }
 
     @Override
-    public CompletableClient register(Object component, int priority) {
-        return new CompletableClient(client.register(component, priority));
+    public RxClient register(Object component, int priority) {
+        return new RxClient(client.register(component, priority));
     }
 
     @Override
-    public CompletableClient register(Object component, Class<?>... contracts) {
-        return new CompletableClient(client.register(component, contracts));
+    public RxClient register(Object component, Class<?>... contracts) {
+        return new RxClient(client.register(component, contracts));
     }
 
     @Override
-    public CompletableClient register(Object component, Map<Class<?>, Integer> contracts) {
-        return new CompletableClient(client.register(component, contracts));
+    public RxClient register(Object component, Map<Class<?>, Integer> contracts) {
+        return new RxClient(client.register(component, contracts));
     }
     
    
@@ -169,10 +169,10 @@ public class CompletableClient implements Client {
     /**
      * Completable JAX-RS WebTarget
      */
-    public static class CompletableWebTarget implements WebTarget {
+    public static class RxWebTarget implements WebTarget {
         private final WebTarget webTarget;
       
-        private CompletableWebTarget(WebTarget webTarget) {
+        private RxWebTarget(WebTarget webTarget) {
             this.webTarget = webTarget;
         }
         
@@ -187,28 +187,28 @@ public class CompletableClient implements Client {
         }
 
         @Override
-        public CompletableWebTarget path(String path) {
-            return new CompletableWebTarget(webTarget.path(path));
+        public RxWebTarget path(String path) {
+            return new RxWebTarget(webTarget.path(path));
         }
 
         @Override
-        public CompletableWebTarget resolveTemplate(String name, Object value) {
-            return new CompletableWebTarget(webTarget.resolveTemplate(name, value));
+        public RxWebTarget resolveTemplate(String name, Object value) {
+            return new RxWebTarget(webTarget.resolveTemplate(name, value));
         }
 
         @Override
-        public CompletableWebTarget resolveTemplate(String name, Object value, boolean encodeSlashInPath) {
-            return new CompletableWebTarget(webTarget.resolveTemplate(name, value, encodeSlashInPath));
+        public RxWebTarget resolveTemplate(String name, Object value, boolean encodeSlashInPath) {
+            return new RxWebTarget(webTarget.resolveTemplate(name, value, encodeSlashInPath));
         }
 
         @Override
-        public CompletableWebTarget resolveTemplateFromEncoded(String name, Object value) {
-            return new CompletableWebTarget(webTarget.resolveTemplateFromEncoded(name, value));
+        public RxWebTarget resolveTemplateFromEncoded(String name, Object value) {
+            return new RxWebTarget(webTarget.resolveTemplateFromEncoded(name, value));
         }
 
         @Override
-        public CompletableWebTarget resolveTemplates(Map<String, Object> templateValues) {
-            return new CompletableWebTarget(webTarget.resolveTemplates(templateValues));
+        public RxWebTarget resolveTemplates(Map<String, Object> templateValues) {
+            return new RxWebTarget(webTarget.resolveTemplates(templateValues));
         }
 
         @Override
@@ -217,83 +217,83 @@ public class CompletableClient implements Client {
         }
 
         @Override
-        public CompletableWebTarget resolveTemplates(Map<String, Object> templateValues, boolean encodeSlashInPath) {
-            return new CompletableWebTarget(webTarget.resolveTemplates(templateValues, encodeSlashInPath));
+        public RxWebTarget resolveTemplates(Map<String, Object> templateValues, boolean encodeSlashInPath) {
+            return new RxWebTarget(webTarget.resolveTemplates(templateValues, encodeSlashInPath));
         }
 
         @Override
-        public CompletableWebTarget property(String name, Object value) {
-            return new CompletableWebTarget(webTarget.property(name, value));
+        public RxWebTarget property(String name, Object value) {
+            return new RxWebTarget(webTarget.property(name, value));
         }
 
         @Override
-        public CompletableWebTarget register(Class<?> componentClass) {
-            return new CompletableWebTarget(webTarget.register(componentClass));
+        public RxWebTarget register(Class<?> componentClass) {
+            return new RxWebTarget(webTarget.register(componentClass));
         }
 
         @Override
-        public CompletableWebTarget resolveTemplatesFromEncoded(Map<String, Object> templateValues) {
-            return new CompletableWebTarget(webTarget.resolveTemplatesFromEncoded(templateValues));
+        public RxWebTarget resolveTemplatesFromEncoded(Map<String, Object> templateValues) {
+            return new RxWebTarget(webTarget.resolveTemplatesFromEncoded(templateValues));
         }
 
         @Override
-        public CompletableWebTarget register(Class<?> componentClass, int priority) {
-            return new CompletableWebTarget(webTarget.register(componentClass, priority));
+        public RxWebTarget register(Class<?> componentClass, int priority) {
+            return new RxWebTarget(webTarget.register(componentClass, priority));
         }
 
         @Override
-        public CompletableWebTarget matrixParam(String name, Object... values) {
-            return new CompletableWebTarget(webTarget.matrixParam(name, values));
+        public RxWebTarget matrixParam(String name, Object... values) {
+            return new RxWebTarget(webTarget.matrixParam(name, values));
         }
 
         @Override
-        public CompletableWebTarget register(Class<?> componentClass, Class<?>... contracts) {
-            return new CompletableWebTarget(webTarget.register(componentClass, contracts));
+        public RxWebTarget register(Class<?> componentClass, Class<?>... contracts) {
+            return new RxWebTarget(webTarget.register(componentClass, contracts));
         }
 
         @Override
-        public CompletableWebTarget queryParam(String name, Object... values) {
-            return new CompletableWebTarget(webTarget.queryParam(name, values));
+        public RxWebTarget queryParam(String name, Object... values) {
+            return new RxWebTarget(webTarget.queryParam(name, values));
         }
 
         @Override
-        public CompletableWebTarget register(Class<?> componentClass, Map<Class<?>, Integer> contracts) {
-            return new CompletableWebTarget(webTarget.register(componentClass, contracts));
+        public RxWebTarget register(Class<?> componentClass, Map<Class<?>, Integer> contracts) {
+            return new RxWebTarget(webTarget.register(componentClass, contracts));
         }
 
         @Override
-        public CompletableBuilder request() {
-            return new CompletableBuilder(webTarget.request());
+        public RxBuilder request() {
+            return new RxBuilder(webTarget.request());
         }
 
         @Override
-        public CompletableBuilder request(String... acceptedResponseTypes) {
-            return new CompletableBuilder(webTarget.request(acceptedResponseTypes));
+        public RxBuilder request(String... acceptedResponseTypes) {
+            return new RxBuilder(webTarget.request(acceptedResponseTypes));
         }
 
         @Override
-        public CompletableBuilder request(MediaType... acceptedResponseTypes) {
-            return new CompletableBuilder(webTarget.request(acceptedResponseTypes));
+        public RxBuilder request(MediaType... acceptedResponseTypes) {
+            return new RxBuilder(webTarget.request(acceptedResponseTypes));
         }
 
         @Override
-        public CompletableWebTarget register(Object component) {
-            return new CompletableWebTarget(webTarget.register(component));
+        public RxWebTarget register(Object component) {
+            return new RxWebTarget(webTarget.register(component));
         }
 
         @Override
-        public CompletableWebTarget register(Object component, int priority) {
-            return new CompletableWebTarget(webTarget.register(component, priority));
+        public RxWebTarget register(Object component, int priority) {
+            return new RxWebTarget(webTarget.register(component, priority));
         }
 
         @Override
-        public CompletableWebTarget register(Object component, Class<?>... contracts) {
-            return new CompletableWebTarget(webTarget.register(component, contracts));
+        public RxWebTarget register(Object component, Class<?>... contracts) {
+            return new RxWebTarget(webTarget.register(component, contracts));
         }
 
         @Override
-        public CompletableWebTarget register(Object component, Map<Class<?>, Integer> contracts) {
-            return new CompletableWebTarget(webTarget.register(component, contracts));
+        public RxWebTarget register(Object component, Map<Class<?>, Integer> contracts) {
+            return new RxWebTarget(webTarget.register(component, contracts));
         }
     }
 
@@ -301,10 +301,10 @@ public class CompletableClient implements Client {
     /**
      * Completable JAX-RS Builder
      */
-    public static class CompletableBuilder implements Builder {
+    public static class RxBuilder implements Builder {
         private final Builder builder;
         
-        private CompletableBuilder(Builder builder) {
+        private RxBuilder(Builder builder) {
             this.builder = builder;
         }        
        
@@ -369,33 +369,38 @@ public class CompletableClient implements Client {
         }
 
         @Override
-        public CompletableFutureAsyncInvoker async() {
-            return new CompletableFutureAsyncInvoker(builder.async());
+        public AsyncInvoker async() {
+            return new RxInvoker(builder.async());
+        }
+
+        public RxInvoker rx() {
+            return new RxInvoker(builder.async());
+        }
+
+        
+        @Override
+        public RxBuilder accept(String... mediaTypes) {
+            return new RxBuilder(builder.accept(mediaTypes));
         }
 
         @Override
-        public CompletableBuilder accept(String... mediaTypes) {
-            return new CompletableBuilder(builder.accept(mediaTypes));
+        public RxBuilder accept(MediaType... mediaTypes) {
+            return new RxBuilder(builder.accept(mediaTypes));
         }
 
         @Override
-        public CompletableBuilder accept(MediaType... mediaTypes) {
-            return new CompletableBuilder(builder.accept(mediaTypes));
+        public RxBuilder acceptLanguage(Locale... locales) {
+            return new RxBuilder(builder.acceptLanguage(locales));
         }
 
         @Override
-        public CompletableBuilder acceptLanguage(Locale... locales) {
-            return new CompletableBuilder(builder.acceptLanguage(locales));
+        public RxBuilder acceptLanguage(String... locales) {
+            return new RxBuilder(builder.acceptLanguage(locales));
         }
 
         @Override
-        public CompletableBuilder acceptLanguage(String... locales) {
-            return new CompletableBuilder(builder.acceptLanguage(locales));
-        }
-
-        @Override
-        public CompletableBuilder acceptEncoding(String... encodings) {
-            return new CompletableBuilder(builder.acceptEncoding(encodings));
+        public RxBuilder acceptEncoding(String... encodings) {
+            return new RxBuilder(builder.acceptEncoding(encodings));
         }
 
         @Override
@@ -404,23 +409,23 @@ public class CompletableClient implements Client {
         }
 
         @Override
-        public CompletableBuilder cookie(Cookie cookie) {
-            return new CompletableBuilder(builder.cookie(cookie));
+        public RxBuilder cookie(Cookie cookie) {
+            return new RxBuilder(builder.cookie(cookie));
         }
 
         @Override
-        public CompletableBuilder cookie(String name, String value) {
-            return new CompletableBuilder(builder.cookie(name, value));
+        public RxBuilder cookie(String name, String value) {
+            return new RxBuilder(builder.cookie(name, value));
         }
 
         @Override
-        public CompletableBuilder cacheControl(CacheControl cacheControl) {
-            return new CompletableBuilder(builder.cacheControl(cacheControl));
+        public RxBuilder cacheControl(CacheControl cacheControl) {
+            return new RxBuilder(builder.cacheControl(cacheControl));
         }
 
         @Override
-        public CompletableBuilder header(String name, Object value) {
-            return new CompletableBuilder(builder.header(name, value));
+        public RxBuilder header(String name, Object value) {
+            return new RxBuilder(builder.header(name, value));
         }
 
         @Override
@@ -429,13 +434,13 @@ public class CompletableClient implements Client {
         }
 
         @Override
-        public CompletableBuilder headers(MultivaluedMap<String, Object> headers) {
-            return new CompletableBuilder(builder.headers(headers));
+        public RxBuilder headers(MultivaluedMap<String, Object> headers) {
+            return new RxBuilder(builder.headers(headers));
         }
 
         @Override
-        public CompletableBuilder property(String name, Object value) {
-            return new CompletableBuilder(builder.property(name, value));
+        public RxBuilder property(String name, Object value) {
+            return new RxBuilder(builder.property(name, value));
         }
 
         @Override
@@ -529,10 +534,10 @@ public class CompletableClient implements Client {
     /**
      * Completable JAX-RS AsyncInvoker
      */
-    public static class CompletableFutureAsyncInvoker implements AsyncInvoker {
+    public static class RxInvoker implements AsyncInvoker {
         private final AsyncInvoker asyncInvoker;
         
-        private CompletableFutureAsyncInvoker(AsyncInvoker asyncInvoker) {
+        private RxInvoker(AsyncInvoker asyncInvoker) {
             this.asyncInvoker = asyncInvoker;
         }
 

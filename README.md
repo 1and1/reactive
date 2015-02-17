@@ -8,16 +8,16 @@
 ```
 
 ## reactive JAX-RS Client
-Provides an enhanced JAX-RS client which supports Java8 `CompletableFuture`. This client supports CompletableFuture methods such as thenAccept(...) consuming a function which will be executed, if the http response is received. The thenAccept(..) call returns immediately without waiting for the http response         
+The `RxClient` extends the [JAX-RX 2.0 Client](http://docs.oracle.com/javaee/7/api/javax/ws/rs/client/Client.html) by supporting an additional method `rx()`. This method returns a reactive invoker which supports  Java8 `CompletableFuture`.The CompletableFuture provides methods such as thenAccept(...) consuming a function which will be executed, if the http response is received. The thenAccept(..) call returns immediately without waiting for the http response         
 
 ``` java
-import net.oneandone.reactive.rest.client.CompletableClient;
+import net.oneandone.reactive.rest.client.RxClient;
 
-CompletableClient client = new CompletableClient(ClientBuilder.newClient());
+RxClient client = new RxClient(ClientBuilder.newClient());
 
 client.target("http://myservice/hotelbookingsystem/hotels/BUP932432")
       .request()
-	  .async()
+	  .rx()        
       .get(HotelRepresentation.class)
       .thenAccept(hotel -> System.out.println(hotel));
 ```

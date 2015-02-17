@@ -26,7 +26,7 @@ import javax.ws.rs.ServerErrorException;
 import javax.ws.rs.client.ClientBuilder;
 
 import net.oneandone.reactive.WebContainer;
-import net.oneandone.reactive.rest.client.CompletableClient;
+import net.oneandone.reactive.rest.client.RxClient;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -58,11 +58,11 @@ public class ResultConsumerTest {
     
     @Test
     public void testSimple() throws Exception {
-        CompletableClient client = new CompletableClient(ClientBuilder.newClient());
+        RxClient client = new RxClient(ClientBuilder.newClient());
         
         String resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
                             .request()
-                            .async()
+                            .rx()
                             .get(String.class)
                             .get();
         Assert.assertEquals("45", resp);
@@ -79,7 +79,7 @@ public class ResultConsumerTest {
         try {
             resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/666"))
                          .request()
-                         .async()
+                         .rx()
                          .get(String.class)
                          .get();
             Assert.fail("ExecutionException expected");
@@ -91,7 +91,7 @@ public class ResultConsumerTest {
         
         resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
                      .request()
-                     .async()
+                     .rx()
                      .delete(String.class)
                      .get();
         Assert.assertNull(resp);
@@ -101,7 +101,7 @@ public class ResultConsumerTest {
         
         client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
               .request()
-              .async()
+              .rx()
               .get(String.class)
               .thenAccept(data -> System.out.println(data));
         

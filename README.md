@@ -3,7 +3,7 @@
 <dependency>
     <groupId>net.oneandone.reactive</groupId>
     <artifactId>reactive-http</artifactId>
-    <version>0.1</version>
+    <version>0.2</version>
 </dependency>
 ```
 
@@ -95,7 +95,7 @@ public class ReactiveSseServlet extends HttpServlet {
 <dependency>
     <groupId>net.oneandone.reactive</groupId>
     <artifactId>reactive-pipe</artifactId>
-    <version>0.1</version>
+    <version>0.2</version>
 </dependency>
 ```
 

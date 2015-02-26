@@ -18,8 +18,8 @@ package net.oneandone.reactive.rest;
 
 
 import javax.ws.rs.DELETE;
-
 import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
@@ -41,6 +41,23 @@ public class MyResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public void retrieveAsync(@PathParam("id") long id, @Suspended AsyncResponse resp) {
+        
+        if (id == 999)  {
+
+            new Thread() {
+                
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException ignore) { }
+                    
+                    resp.resume(new NotFoundException("not found"));
+                }
+                
+            }.start();
+        }
+        
         dao.readAsync(id)
            .whenComplete(writeTo(resp));
     }
@@ -52,6 +69,4 @@ public class MyResource {
         dao.deleteAsync(id)
            .whenComplete(writeTo(resp));
     }
-    
-    
 }

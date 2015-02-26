@@ -19,9 +19,11 @@ package net.oneandone.reactive.rest;
 
 
 import java.net.URI;
+
 import java.util.concurrent.ExecutionException;
 
 import javax.ws.rs.InternalServerErrorException;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.ServerErrorException;
 import javax.ws.rs.client.ClientBuilder;
 
@@ -59,6 +61,20 @@ public class ResultConsumerTest {
     @Test
     public void testSimple() throws Exception {
         RxClient client = new RxClient(ClientBuilder.newClient());
+        
+        
+        try {
+            client.target(URI.create(server.getBaseUrl() + "/MyResource/999"))
+                  .request()
+                  .rx()
+                  .get(String.class)
+                  .get();
+            Assert.fail("ExecutionException expected");
+        } catch (ExecutionException expected) {
+            if (!(expected.getCause() instanceof NotFoundException)) {
+                Assert.fail("NotFoundException expected");
+            }
+        }
         
         String resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
                             .request()
@@ -105,6 +121,8 @@ public class ResultConsumerTest {
               .get(String.class)
               .thenAccept(data -> System.out.println(data));
         
+        
+            
         client.close();
     }
 }

@@ -20,6 +20,7 @@ package net.oneandone.reactive.pipe;
 
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -118,16 +119,24 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public <V> PublisherSourcedPipe<V> map(Function<? super T, ? extends V> fn) {
+        return new PublisherSourcedPipe<>(new ForwardingProcessor<T, V>(publisher, in -> CompletableFuture.completedFuture(fn.apply(in))));
+    }
+    
+    
+    
+    @Override
+    public <V> Pipe<V> mapAsync(Function<? super T, CompletableFuture<? extends V>> fn) {
         return new PublisherSourcedPipe<>(new ForwardingProcessor<T, V>(publisher, fn));
     }
-  
+    
+    
     private static class ForwardingProcessor<T, R> implements Processor<T, R>, Subscription {
         private final ForwardingSubscription forwardingSubscription = new ForwardingSubscription();
-        private final Function<? super T, ? extends R> mapper;
+        private final Function<? super T,  CompletableFuture<? extends R>> mapper;
         private final AtomicReference<Optional<Subscriber<? super R>>> sinkSubscriberRef = new AtomicReference<>(Optional.empty());
         
         
-        public ForwardingProcessor(Publisher<T> source, Function<? super T, ? extends R> mapper) {
+        public ForwardingProcessor(Publisher<T> source, Function<? super T, CompletableFuture<? extends R>> mapper) {
             this.mapper = mapper;
             source.subscribe(this);
         }
@@ -145,12 +154,25 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         
         @Override
         public void onNext(T element) {
-            sinkSubscriberRef.get().ifPresent(subscription -> subscription.onNext(mapper.apply(element)));
+            sinkSubscriberRef.get().ifPresent(subscriber -> handleElement(subscriber, element));
         }
+
+        private void handleElement(Subscriber<? super R> subscriber, T element) {
+            mapper.apply(element)
+                  .whenCompleteAsync((result , error) -> {
+                                                              if (error == null) {
+                                                                  subscriber.onNext(result);
+                                                              } else {
+                                                                  subscriber.onError(error);
+                                                              }
+                      
+                                                         });
+        }
+        
         
         @Override
         public void onError(Throwable t) {
-            sinkSubscriberRef.get().ifPresent(subscription -> subscription.onError(t));
+            sinkSubscriberRef.get().ifPresent(subscriber -> subscriber.onError(t));
         }
         
         @Override
@@ -219,14 +241,14 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
                     if (sourceSubscription == null) {
                         pendingCancel = true;
                     } else {
-                        sourceSubscription.cancel();;
+                        sourceSubscription.cancel();
                     }
                 }
             }
         }
     }
     
-    
+   
     
     
     @Override
@@ -238,7 +260,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         private final Predicate<? super T> predicate;
         
         public FilteringProcessor(Publisher<T> source, Predicate<? super T> predicate) {
-            super(source, element -> element);
+            super(source, element -> CompletableFuture.completedFuture(element));
             this.predicate = predicate;
         }
         
@@ -264,7 +286,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         private long numProcessed;
         
         public SkippingProcessor(Publisher<T> source, long numToSkip) {
-            super(source, element -> element);
+            super(source, element -> CompletableFuture.completedFuture(element));
             this.numToSkip = numToSkip;
         }
         
@@ -290,7 +312,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
         private long numProcessed;
         
         public LimittingPublisher(Publisher<T> source, long max) {
-            super(source, element -> element);
+            super(source, element -> CompletableFuture.completedFuture(element));
             this.max = max;
         }
         

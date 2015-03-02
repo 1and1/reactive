@@ -20,6 +20,7 @@ package net.oneandone.reactive.pipe;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -325,6 +326,32 @@ public class PublisherBasedPipeTest {
         Assert.assertFalse(elements.hasNext());
     }
     
+    
+    
+    @Test
+    public void testCompleratebleFuture() throws Exception {
+        TestPublisher<String> publisher = new TestPublisher<>();
+        TestSubscriber<String> subscriber = new TestSubscriber<>();
+        
+        
+        Pipes.newPipe(publisher)
+             .mapAsync(text -> CompletableFuture.completedFuture(text))
+             .consume(subscriber);
+        
+        publisher.push("1");
+        publisher.push("2");
+        publisher.push("3");
+        publisher.completed();
+        
+
+        
+        UnmodifiableIterator<String> elements = subscriber.getElements().iterator();
+        Assert.assertEquals("1", elements.next());
+        Assert.assertEquals("2", elements.next());
+        Assert.assertEquals("3", elements.next());
+        Assert.assertFalse(elements.hasNext());
+    }
+
     
     
     

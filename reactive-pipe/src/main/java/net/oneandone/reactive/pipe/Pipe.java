@@ -17,6 +17,7 @@ package net.oneandone.reactive.pipe;
 
 
 
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -30,7 +31,17 @@ import org.reactivestreams.Subscriber;
  * @param <T> the element type
  */
 public interface Pipe<T> {
-        
+    
+    
+    /**
+     * maps the elements asynchronously
+     * @param fn  the mapping function
+     * @param <V> the new element type future
+     * @return the mapped flow
+     */
+    <V> Pipe<V> mapAsync(Function<? super T, CompletableFuture<? extends V>> fn);
+          
+    
     /**
      * maps the elements
      * @param fn  the mapping function

@@ -65,7 +65,7 @@ public class HotelsResource {
                 .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
                 .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
                 .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
-                .whenComplete(PublisherConsumer. writeTo(response));
+                .whenComplete(PublisherConsumer.writeSingleTo(response));  // writes the first element of the sequence. If no element is present, a NotFoundException written.
     }
 }
 ```

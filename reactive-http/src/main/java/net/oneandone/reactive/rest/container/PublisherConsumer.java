@@ -25,25 +25,22 @@ import java.util.function.BiConsumer;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.container.AsyncResponse;
 
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-
-import rx.Observable;
-import rx.RxReactiveStreams;
 
 
 
 
 /**
- * ObservableConsumer
+ * PublisherConsumer
  *
  */
-
-public class ObservableConsumer<T> implements BiConsumer<Observable<T>, Throwable> {
+public class PublisherConsumer<T> implements BiConsumer<Publisher<T>, Throwable> {
     
     private final AsyncResponse asyncResponse;
     
-    private ObservableConsumer(AsyncResponse asyncResponse) {
+    private PublisherConsumer(AsyncResponse asyncResponse) {
         this.asyncResponse = asyncResponse;
     }
 
@@ -53,18 +50,18 @@ public class ObservableConsumer<T> implements BiConsumer<Observable<T>, Throwabl
      * @param asyncResponse the REST response
      * @return the BiConsumer consuming the response/error pair
      */
-    public static final <T> BiConsumer<Observable<T>, Throwable> writeSingleTo(AsyncResponse asyncResponse) {
-        return new ObservableConsumer<T>(asyncResponse);
+    public static final <T> BiConsumer<Publisher<T>, Throwable> writeSingleTo(AsyncResponse asyncResponse) {
+        return new PublisherConsumer<T>(asyncResponse);
     }
     
     
     @Override
-    public void accept(Observable<T> observable, Throwable error) {
+    public void accept(Publisher<T> publisher, Throwable error) {
         SingleEntityResponseSubscriber<T> subscriber = new SingleEntityResponseSubscriber<>(asyncResponse);
         if (error != null) {
             subscriber.onError(error);
         } else {
-            RxReactiveStreams.subscribe(observable, subscriber);
+            publisher.subscribe(subscriber);
         }
     }
     

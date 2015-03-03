@@ -47,7 +47,7 @@ public class HotelsResource {
 ```
 
 
-Provides convenience artifacts such as `ObservableConsumer`
+Provides convenience artifacts such as `PublisherConsumer`
 
 ``` java
 // ...
@@ -64,7 +64,8 @@ public class HotelsResource {
         hotelDao.readHotelAsync(id)
                 .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
                 .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
-                .whenComplete(ObservableConsumer. writeTo(response));
+                .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
+                .whenComplete(PublisherConsumer. writeTo(response));
     }
 }
 ```

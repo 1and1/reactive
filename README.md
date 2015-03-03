@@ -3,7 +3,7 @@
 <dependency>
     <groupId>net.oneandone.reactive</groupId>
     <artifactId>reactive-http</artifactId>
-    <version>0.3</version>
+    <version>0.4</version>
 </dependency>
 ```
 
@@ -28,7 +28,6 @@ Provides convenience artifacts such as `ResultConsumer`
 
 ``` java
 // ...
-import static net.oneandone.reactive.rest.container.ResultConsumer.writeTo;
 
 
 @Path("/hotels")
@@ -42,7 +41,30 @@ public class HotelsResource {
     public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
         hotelDao.readHotelAsync(id)
                 .thenApply(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
-                .whenComplete(writeTo(response));
+                .whenComplete(ResultConsumer.writeTo(response));
+    }
+}
+```
+
+
+Provides convenience artifacts such as `ObservableConsumer`
+
+``` java
+// ...
+
+
+@Path("/hotels")
+public class HotelsResource {
+    // ...    
+    
+    @Path("/{id}")
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
+        hotelDao.readHotelAsync(id)
+                .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
+                .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
+                .whenComplete(ObservableConsumer. writeTo(response));
     }
 }
 ```
@@ -95,7 +117,7 @@ public class ReactiveSseServlet extends HttpServlet {
 <dependency>
     <groupId>net.oneandone.reactive</groupId>
     <artifactId>reactive-pipe</artifactId>
-    <version>0.3</version>
+    <version>0.4</version>
 </dependency>
 ```
 

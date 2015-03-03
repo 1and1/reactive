@@ -125,7 +125,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     
     @Override
-    public <V> Pipe<V> mapAsync(Function<? super T, CompletableFuture<? extends V>> fn) {
+    public <V> Pipe<V> flatMap(Function<? super T, CompletableFuture<? extends V>> fn) {
         return new PublisherSourcedPipe<>(new ForwardingProcessor<T, V>(publisher, fn));
     }
     

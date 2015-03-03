@@ -34,12 +34,12 @@ public interface Pipe<T> {
     
     
     /**
-     * maps the elements asynchronously
+     * maps the elements 
      * @param fn  the mapping function
      * @param <V> the new element type future
      * @return the mapped flow
      */
-    <V> Pipe<V> mapAsync(Function<? super T, CompletableFuture<? extends V>> fn);
+    <V> Pipe<V> flatMap(Function<? super T, CompletableFuture<? extends V>> fn);
           
     
     /**

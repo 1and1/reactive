@@ -335,7 +335,7 @@ public class PublisherBasedPipeTest {
         
         
         Pipes.newPipe(publisher)
-             .mapAsync(text -> CompletableFuture.completedFuture(text))
+             .flatMap(text -> CompletableFuture.completedFuture(text))
              .consume(subscriber);
         
         publisher.push("1");

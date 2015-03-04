@@ -52,7 +52,7 @@ public class HotelsResource {
 Provides convenience artifacts such as `PublisherConsumer`
 
 The `writeFirstTo(...)` reads the first element of the publisher and writes this element to the HTTP response sequence. 
-If the publisher does not return an element, a 204 No Content is returned.
+If the publisher does not return an element, a 204 No Content will be returned.
 
 ``` java
 // ...
@@ -77,7 +77,7 @@ public class HotelsResource {
 
 
 The `writeSingleTo(...)` reads the first element of the publisher and writes this element to the HTTP response sequence. 
-If the publisher does not return an element, a 404 Not Found is returned. If the publisher supports more than 1 element a
+If the publisher does not return an element, a 404 Not Found will be returned. If the publisher supports more than 1 element a
 409 Conflict error will be returned
 
 ``` java

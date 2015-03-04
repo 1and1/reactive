@@ -24,7 +24,8 @@ client.target("http://myservice/hotelbookingsystem/hotels/BUP932432")
 
 
 ## reactive JAX-RS Service
-Provides convenience artifacts such as `ResultConsumer`
+
+### `ResultConsumer`
 
 ``` java
 // ...
@@ -47,6 +48,7 @@ public class HotelsResource {
 ```
 
 
+### `PublisherConsumer`
 Provides convenience artifacts such as `PublisherConsumer`
 
 The `writeFirstTo(...)` reads the first element of the publisher and writes this element to the HTTP response sequence. 

@@ -17,13 +17,21 @@ package net.oneandone.reactive.rest.container;
 
 
 
-import java.util.concurrent.CompletionException;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
+import javax.ws.rs.ClientErrorException;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.container.AsyncResponse;
+
+
+
+
+
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -36,100 +44,154 @@ import org.reactivestreams.Subscription;
  * PublisherConsumer
  *
  */
-public class PublisherConsumer<T> implements BiConsumer<Publisher<T>, Throwable> {
+public class PublisherConsumer{
     
-    private final AsyncResponse asyncResponse;
-    
-    private PublisherConsumer(AsyncResponse asyncResponse) {
-        this.asyncResponse = asyncResponse;
+
+    /**
+     * reads the first element of the publisher stream and write it into the response. If no element is available, a 204 No Content response is returned 
+     * @param asyncResponse   the async response 
+     * @return the consumer 
+     */
+    public static final <T> BiConsumer<Publisher<T>, Throwable> writeFirstTo(AsyncResponse asyncResponse) {
+        return new FirstPublisherConsumer<T>(asyncResponse);
     }
 
     
     /**
-     * forwards the response to the REST response object. Includes error handling also 
-     * @param asyncResponse the REST response
-     * @return the BiConsumer consuming the response/error pair
+     * reads the first element of the publisher stream and write it into the response. If no element is available, a 404 response is returned.
+     * If more than 1 element is available a 409 Conflict response is returned  
+     * @param asyncResponse   the async response 
+     * @return the consumer 
      */
     public static final <T> BiConsumer<Publisher<T>, Throwable> writeSingleTo(AsyncResponse asyncResponse) {
-        return new PublisherConsumer<T>(asyncResponse);
+        return new SinglePublisherConsumer<T>(asyncResponse);
     }
+
     
+    private static class FirstPublisherConsumer<T> implements BiConsumer<Publisher<T>, Throwable> {
+        private final AsyncResponse asyncResponse;
+        
+        private FirstPublisherConsumer(AsyncResponse asyncResponse) {
+            this.asyncResponse = asyncResponse;
+        }
+        
+        @Override
+        public void accept(Publisher<T> publisher, Throwable error) {
+            Subscriber<T> subscriber = new FirstEntityResponseSubscriber<>(asyncResponse);
+            if (error != null) {
+                subscriber.onError(error);
+            } else {
+                publisher.subscribe(subscriber);
+            }
+        }
+    }
+
+    private static class SinglePublisherConsumer<T> implements BiConsumer<Publisher<T>, Throwable> {
+        private final AsyncResponse asyncResponse;
+        
+        private SinglePublisherConsumer(AsyncResponse asyncResponse) {
+            this.asyncResponse = asyncResponse;
+        }
+        
+        @Override
+        public void accept(Publisher<T> publisher, Throwable error) {
+            Subscriber<T> subscriber = new SingleEntityResponseSubscriber<>(asyncResponse);
+            if (error != null) {
+                subscriber.onError(error);
+            } else {
+                publisher.subscribe(subscriber);
+            }
+        }
+    }
+
+
     
-    @Override
-    public void accept(Publisher<T> publisher, Throwable error) {
-        SingleEntityResponseSubscriber<T> subscriber = new SingleEntityResponseSubscriber<>(asyncResponse);
-        if (error != null) {
-            subscriber.onError(error);
-        } else {
-            publisher.subscribe(subscriber);
+    private static class FirstEntityResponseSubscriber<T> implements Subscriber<T> {
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+        private final AtomicReference<Optional<Subscription>> subscriptionRef = new AtomicReference<>(Optional.empty());
+                
+        private final AtomicBoolean isResponseProcessed = new AtomicBoolean();
+        private final AsyncResponse response;
+        
+        
+        public FirstEntityResponseSubscriber(AsyncResponse response) {
+            this.response = response;
+        }   
+
+        @Override
+        public void onSubscribe(Subscription subscription) {
+            subscriptionRef.set(Optional.of(subscription));
+            requestNext();
+        }
+        
+        
+        protected void requestNext() {
+            subscriptionRef.get().ifPresent(subscription -> subscription.request(1));
+        }
+
+        @Override
+        public void onNext(T element) {
+            if (!isResponseProcessed.getAndSet(true)) {
+                response.resume(element);
+            }
+        }
+
+        @Override
+        public void onError(Throwable t) {
+            if (!isResponseProcessed.getAndSet(true)) {
+                t = Throwables.unwrapIfNecessary(t, 10);
+                response.resume(t);
+            }
+        }
+      
+        
+        @Override
+        public void onComplete() {
+            // if no response is send, return 204 
+            if (!isResponseProcessed.getAndSet(true)) {
+                response.resume(Response.noContent().build());
+            }
+            
+            closeSubscription();
+        }
+        
+        protected void closeSubscription() {
+            if (isOpen.getAndSet(false)) {
+                subscriptionRef.get().ifPresent(subscription -> subscription.cancel());
+            }
         }
     }
     
-
-    private static boolean isCompletionException(Throwable t) {
-        return CompletionException.class.isAssignableFrom(t.getClass());
-    }
-
     
-    private static class SingleEntityResponseSubscriber<T> implements Subscriber<T> {
-          private final AtomicBoolean isOpen = new AtomicBoolean(true);
-          private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-                  
-          private final AtomicBoolean isResponseProcessed = new AtomicBoolean();
-          private final AsyncResponse response;
-          
-          
-          public SingleEntityResponseSubscriber(AsyncResponse response) {
-              this.response = response;
-          }   
-
-          @Override
-          public void onSubscribe(Subscription subscription) {
-              subscriptionRef.set(subscription);
-              subscriptionRef.get().request(1); 
-          }
-
-          @Override
-          public void onNext(T element) {
-              isResponseProcessed.set(true);
-              response.resume(element);
-          }
-
-          @Override
-          public void onError(Throwable t) {
-              isResponseProcessed.set(true);
-              t = unwrapIfNecessary(t, 10);
-              response.resume(t);
-          }
+    
+    private static class SingleEntityResponseSubscriber<T> extends FirstEntityResponseSubscriber<T> {
+        private final AtomicReference<T> elementRef = new AtomicReference<>();
         
-          
-          private static Throwable unwrapIfNecessary(Throwable ex, int maxDepth)  {
-              if (isCompletionException(ex)) {
-                  Throwable e = ex.getCause();
-                  if (e != null) {
-                      if (maxDepth > 1) {
-                          return unwrapIfNecessary(e, maxDepth - 1);
-                      } else {
-                          return e;
-                      }
-                  }
-              }
-                  
-              return ex;
-          }
-          
-          @Override
-          public void onComplete() {
-              if (!isResponseProcessed.get()) {
-                  onError(new NotFoundException());
-              }
-              close();
-          }
+        public SingleEntityResponseSubscriber(AsyncResponse response) {
+            super(response);
+        }   
 
-          private void close() {
-              if (isOpen.getAndSet(false)) {
-                  subscriptionRef.get().cancel();
-              }
-          }
-      }
+        @Override
+        public void onNext(T element) {
+            if (elementRef.getAndSet(element) == null) {
+                requestNext();
+                
+            } else {
+                // more than 1 element causes a conflict exception
+                onError(new ClientErrorException(Status.CONFLICT));
+            }
+        }
+        
+        @Override
+        public void onComplete() {
+            T element = elementRef.get();
+            if (element == null) {
+                super.onError(new NotFoundException());
+            } else {
+                super.onNext(element);
+            }
+            
+            closeSubscription();
+        }
+    }
 }

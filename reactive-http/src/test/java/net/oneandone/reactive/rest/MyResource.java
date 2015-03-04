@@ -17,6 +17,7 @@ package net.oneandone.reactive.rest;
 
 
 
+
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.NotFoundException;
@@ -27,16 +28,18 @@ import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.MediaType;
 
-import static net.oneandone.reactive.rest.container.ResultConsumer.writeTo;
+import net.oneandone.reactive.rest.container.ResultConsumer;
 
 
 
+  
 @Path("/MyResource")
 public class MyResource {
     
     private final Dao dao = new Dao();
     
-    
+ 
+  
     @Path("/{id}")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
@@ -59,7 +62,7 @@ public class MyResource {
         }
         
         dao.readAsync(id)
-           .whenComplete(writeTo(resp));
+           .whenComplete(ResultConsumer.writeTo(resp));
     }
     
     
@@ -67,6 +70,6 @@ public class MyResource {
     @DELETE
     public void deleteAsync(@PathParam("id") long id, @Suspended AsyncResponse resp) {
         dao.deleteAsync(id)
-           .whenComplete(writeTo(resp));
+           .whenComplete(ResultConsumer.writeTo(resp));
     }
 }

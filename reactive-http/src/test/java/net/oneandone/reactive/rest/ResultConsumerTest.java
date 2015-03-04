@@ -19,7 +19,6 @@ package net.oneandone.reactive.rest;
 
 
 import java.net.URI;
-
 import java.util.concurrent.ExecutionException;
 
 import javax.ws.rs.InternalServerErrorException;
@@ -76,7 +75,7 @@ public class ResultConsumerTest {
             }
         }
         
-        String resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
+        String resp = client.target(server.getBaseUrl() + "/MyResource/45")
                             .request()
                             .rx()
                             .get(String.class)
@@ -85,7 +84,7 @@ public class ResultConsumerTest {
         
         
         try {
-            resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/666"))
+            resp = client.target(server.getBaseUrl() + "/MyResource/666")
                          .request()
                          .get(String.class);
             Assert.fail("ServerErrorException expected");
@@ -93,7 +92,7 @@ public class ResultConsumerTest {
    
 
         try {
-            resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/666"))
+            resp = client.target(server.getBaseUrl() + "/MyResource/666")
                          .request()
                          .rx()
                          .get(String.class)
@@ -105,7 +104,7 @@ public class ResultConsumerTest {
         
         
         
-        resp = client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
+        resp = client.target(server.getBaseUrl() + "/MyResource/45")
                      .request()
                      .rx()
                      .delete(String.class)
@@ -115,7 +114,7 @@ public class ResultConsumerTest {
         
         
         
-        client.target(URI.create(server.getBaseUrl() + "/MyResource/45"))
+        client.target(server.getBaseUrl() + "/MyResource/45")
               .request()
               .rx()
               .get(String.class)

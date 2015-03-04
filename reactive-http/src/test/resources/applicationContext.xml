@@ -5,5 +5,7 @@
 
 
 	<bean id="myresource" class="net.oneandone.reactive.rest.MyResource"/>
+	
+	<bean id="publisherresource" class="net.oneandone.reactive.rest.PublisherResource"/>
 
 </beans>

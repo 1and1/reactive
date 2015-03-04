@@ -49,6 +49,9 @@ public class HotelsResource {
 
 Provides convenience artifacts such as `PublisherConsumer`
 
+The `writeFirstTo(...)` reads the first element of the publisher and writes this element to the HTTP response sequence. 
+If the publisher does not return an element, a 204 No Content is returned.
+
 ``` java
 // ...
 
@@ -65,7 +68,33 @@ public class HotelsResource {
                 .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
                 .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
                 .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
-                .whenComplete(PublisherConsumer.writeSingleTo(response));  // writes the first element of the sequence. If no element is present, a NotFoundException written.
+                .whenComplete(PublisherConsumer.writeFirstTo(response)); 
+    }
+}
+```
+
+
+The `writeSingleTo(...)` reads the first element of the publisher and writes this element to the HTTP response sequence. 
+If the publisher does not return an element, a 404 Not Found is returned. If the publisher supports more than 1 element a
+409 Conflict error will be returned
+
+``` java
+// ...
+
+
+@Path("/hotels")
+public class HotelsResource {
+    // ...    
+    
+    @Path("/{id}")
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
+        hotelDao.readHotelAsync(id)
+                .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
+                .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
+                .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
+                .whenComplete(PublisherConsumer.writeSingleTo(response));  
     }
 }
 ```
@@ -111,28 +140,3 @@ public class ReactiveSseServlet extends HttpServlet {
 }
 ```
 
-
-
-# reactive-pipe
-``` java
-<dependency>
-    <groupId>net.oneandone.reactive</groupId>
-    <artifactId>reactive-pipe</artifactId>
-    <version>0.4</version>
-</dependency>
-```
-
-Provides an unidirectional, reactive `Pipe` which is sourced by a [reactive publisher](http://www.reactive-streams.org) and/or will be consumed by a [reactive subscriber](http://www.reactive-streams.org). The `Pipe` supports mapping, filtering, skipping and limiting the stream.    
-
-``` java
-import net.oneandone.reactive.pipe.Pipes;
-
-
-Publisher<KafkaMessage> kafkaPublisher = ...
-Subscriber<ServerSentEvent> sseSubscriber = ...
-
-Pipes.newPipe(kafkaPublisher)
-     .filter(kafkaMessage -> kafkaMessage.getType() == KafkaMessage.TEXT)
-     .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))
-	 .consume(sseSubscriber);
-```

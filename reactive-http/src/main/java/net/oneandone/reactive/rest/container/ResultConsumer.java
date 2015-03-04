@@ -17,9 +17,7 @@ package net.oneandone.reactive.rest.container;
 
 
 
-import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
-
 import javax.ws.rs.container.AsyncResponse;
 
 
@@ -43,32 +41,9 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
         if (error == null) {
             asyncResponse.resume(result);
         } else {
-            asyncResponse.resume(unwrapIfNecessary(error, 10));
+            asyncResponse.resume(Throwables.unwrapIfNecessary(error, 10));
         }
     }
-    
-    
-    private static Throwable unwrapIfNecessary(Throwable ex, int maxDepth)  {
-
-        if (isCompletionException(ex)) {
-            Throwable e = ex.getCause();
-            if (e != null) {
-                if (maxDepth > 1) {
-                    return unwrapIfNecessary(e, maxDepth - 1);
-                } else {
-                    return e;
-                }
-            }
-        }
-            
-        return ex;
-    }
-    
-    
-    private static boolean isCompletionException(Throwable t) {
-        return CompletionException.class.isAssignableFrom(t.getClass());
-    }
-    
     
     
     /**

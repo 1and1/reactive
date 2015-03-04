@@ -28,7 +28,7 @@
 	</servlet>
 	<servlet-mapping>
 		<servlet-name>restServlet</servlet-name>
-		<url-pattern>/MyResource/*</url-pattern>
+		<url-pattern>/*</url-pattern>
 	</servlet-mapping>
 
 

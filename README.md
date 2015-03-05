@@ -48,10 +48,10 @@ public class HotelsResource {
 ```
 
 
-### `PublisherConsumer`
-Provides convenience artifacts such as `PublisherConsumer`
+### `ResultSubscriber`
+Provides convenience artifacts such as `ResultSubscriber`
 
-The `writeFirstTo(...)` reads the first element of the publisher and writes this element to the HTTP response. 
+The ConsumeFirstSubscriber reads the first element of the publisher and writes this element to the HTTP response. 
 If the publisher does not return an element, a 204 No Content will be returned.
 
 ``` java
@@ -62,21 +62,21 @@ If the publisher does not return an element, a 204 No Content will be returned.
 public class HotelsResource {
     // ...    
     
-    @Path("/{id}")
+    @Path("/")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
-        hotelDao.readHotelAsync(id)
-                .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
-                .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
-                .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
-                .whenComplete(PublisherConsumer.writeFirstTo(response)); 
+    public void retrieveFirstHotelsAsync(@Suspended AsyncResponse response) {
+    	Publisher<Hotel> hotelPublisher = hotelsDao.readSequence()
+        		                                   .asEntity(Hotel.class)
+												   .executeRx();
+
+        publisher.subscribe(ResultSubscriber.toConsumeFirstSubscriber(response));
     }
 }
 ```
 
 
-The `writeSingleTo(...)` reads the first element of the publisher and writes this element to the HTTP response. 
+The ConsumeSingleSubscriber reads the first element of the publisher and writes this element to the HTTP response. 
 If the publisher does not return an element, a 404 Not Found will be returned. If the publisher supports more than 1 element a
 409 Conflict error will be returned
 
@@ -91,12 +91,12 @@ public class HotelsResource {
     @Path("/{id}")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public void retrieveHotelDescriptionAsync(@PathParam("id") long id, @Suspended AsyncResponse response) {
-        hotelDao.readHotelAsync(id)
-                .thenApply(publisher -> RxReactiveStreams.toObservable(publisher))
-                .thenApply(observable -> observable.map(hotel -> new HotelRepresentation(hotel.getName(), hotel.getDescription()))
-                .thenApply(observable -> RxReactiveStreams.toPublisher(observable))
-                .whenComplete(PublisherConsumer.writeSingleTo(response));  
+    public void retrieveSingleHotelAsync(@Suspended AsyncResponse response) {
+    	Publisher<Hotel> hotelPublisher = hotelsDao.readSequence()
+        		                                   .asEntity(Hotel.class)
+												   .executeRx();
+
+        publisher.subscribe(ResultSubscriber.toConsumeSingleSubscriber(response));  
     }
 }
 ```

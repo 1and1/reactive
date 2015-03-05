@@ -20,7 +20,6 @@ package net.oneandone.reactive.rest;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,7 +30,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
 
-import net.oneandone.reactive.rest.container.PublisherConsumer;
+import net.oneandone.reactive.rest.container.ResultSubscriber;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -70,9 +69,7 @@ public class PublisherResource {
             
         }.start();
 
-        
-        CompletableFuture.completedFuture(publisher)
-                         .whenComplete(PublisherConsumer.writeFirstTo(resp));
+        publisher.subscribe(ResultSubscriber.toConsumeFirstSubscriber(resp));
     }
 
     
@@ -100,9 +97,7 @@ public class PublisherResource {
             
         }.start();
 
-        
-        CompletableFuture.completedFuture(publisher)
-                          .whenComplete(PublisherConsumer.writeSingleTo(resp));
+        publisher.subscribe(ResultSubscriber.toConsumeSingleSubscriber(resp));
     }
 
     

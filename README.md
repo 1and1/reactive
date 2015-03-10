@@ -5,7 +5,7 @@
 <dependency>
     <groupId>net.oneandone.reactive</groupId>
     <artifactId>reactive-http</artifactId>
-    <version>0.6</version>
+    <version>0.8</version>
 </dependency>
 ```
 

@@ -68,24 +68,19 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
             Executor executor = Executors.newCachedThreadPool();
 
             this.subscriberNotifier = new SubscriberNotifier(executor, subscriber);
-            this.channel = new SseReadableChannel(inputStream,                                                        // servlet input stream
-                                                  event -> subscriberNotifier.emitNotification(new OnNext(event)),    // event consumer
-                                                  error -> subscriberNotifier.emitNotification(new OnError(error)),   // error consumer
-                                                  Void -> subscriberNotifier.emitNotification(new OnComplete()));     // completion consumer         
+            this.channel = new SseReadableChannel(inputStream,                                     // servlet input stream
+                                                  event -> emitNotification(new OnNext(event)),    // event consumer
+                                                  error -> emitNotification(new OnError(error)),   // error consumer
+                                                  Void -> emitNotification(new OnComplete()));     // completion consumer         
             
             subscriberNotifier.emitNotification(new OnSubscribe());
         }
 
         
-        private class OnSubscribe extends SubscriberNotifier.Notification {
-            
-            @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onSubscribe(SEEEventReaderSubscription.this);
-            }
+        private void emitNotification(SubscriberNotifier.Notification notification) {
+            subscriberNotifier.emitNotification(notification);
         }
-        
-        
+
         
         @Override
         public void cancel() {
@@ -104,7 +99,17 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
         }
         
         
-
+        
+        
+        private class OnSubscribe extends SubscriberNotifier.Notification {
+            
+            @Override
+            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
+                subscriber.onSubscribe(SEEEventReaderSubscription.this);
+            }
+        }
+        
+        
         private class OnNext extends SubscriberNotifier.Notification {
             private final ServerSentEvent event;
             

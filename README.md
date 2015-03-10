@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/1and1/Troilus.svg)](https://travis-ci.org/1and1/Troilus)
+[![Build Status](https://travis-ci.org/1and1/reactive.svg)](https://travis-ci.org/1and1/reactive)
 
 # reactive-http
 ``` java

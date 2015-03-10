@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/1and1/Troilus.svg)](https://travis-ci.org/1and1/Troilus)
+
 # reactive-http
 ``` java
 <dependency>

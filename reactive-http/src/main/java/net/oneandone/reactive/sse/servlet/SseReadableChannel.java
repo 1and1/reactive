@@ -79,29 +79,28 @@ class SseReadableChannel {
 
     
     
-    /**
-     * reads the 
-     * @param consumer
-     */
-    public void consumeNextEvent() {
+    public void request(long num) {
         
         synchronized (pendingConsumesLock) {   
-            try {
-                // reading has to be processed inside the sync block to avoid shuffling events 
-                Optional<ServerSentEvent> optionalEvent = serverSentEventsStream.next();
-                
-                // got an event?
-                if (optionalEvent.isPresent()) {
-                    eventConsumer.accept(optionalEvent.get());
-                 
-                // no, queue the pending read request    
-                // will be handled by performing the read listener's onDataAvailable callback     
-                } else {
-                    numPendingConsumes.incrementAndGet();
+            
+            for (int i = 0; i < num; i++) {
+                try {
+                    // reading has to be processed inside the sync block to avoid shuffling events 
+                    Optional<ServerSentEvent> optionalEvent = serverSentEventsStream.next();
+                    
+                    // got an event?
+                    if (optionalEvent.isPresent()) {
+                        eventConsumer.accept(optionalEvent.get());
+                     
+                    // no, queue the pending read request    
+                    // will be handled by performing the read listener's onDataAvailable callback     
+                    } else {
+                        numPendingConsumes.incrementAndGet();
+                    }
+                    
+                } catch (IOException | RuntimeException t) {
+                    onError(t);
                 }
-                
-            } catch (IOException | RuntimeException t) {
-                onError(t);
             }
         }
     }

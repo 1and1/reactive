@@ -16,9 +16,9 @@
 package net.oneandone.reactive.sse.servlet;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import javax.servlet.ServletInputStream;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -65,9 +65,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
 
 
         public SEEEventReaderSubscription(ServletInputStream inputStream, Subscriber<? super ServerSentEvent> subscriber) {
-            Executor executor = Executors.newCachedThreadPool();
-
-            this.subscriberNotifier = new SubscriberNotifier(executor, subscriber);
+            this.subscriberNotifier = new SubscriberNotifier(subscriber);
             this.channel = new SseReadableChannel(inputStream,                                     // servlet input stream
                                                   event -> emitNotification(new OnNext(event)),    // event consumer
                                                   error -> emitNotification(new OnError(error)),   // error consumer
@@ -150,13 +148,11 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
 
         private static final class SubscriberNotifier implements Runnable {
             private final ConcurrentLinkedQueue<Notification> notifications = Queues.newConcurrentLinkedQueue();
-            private final Executor executor;
             private final AtomicBoolean isOpen = new AtomicBoolean(true);
             
             private final Subscriber<? super ServerSentEvent> subscriber;
             
-            public SubscriberNotifier(Executor executor, Subscriber<? super ServerSentEvent> subscriber) {
-                this.executor = executor;
+            public SubscriberNotifier(Subscriber<? super ServerSentEvent> subscriber) {
                 this.subscriber = subscriber;
             }
             
@@ -175,7 +171,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
 
             private final void tryScheduleToExecute() {
                 try {
-                    executor.execute(this);
+                    ForkJoinPool.commonPool().execute(this);
                 } catch (Throwable t) {
                     close(); // no further notifying (executor does not work anyway)
                     subscriber.onError(t);

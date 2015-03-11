@@ -22,7 +22,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -46,20 +46,18 @@ class SseWriteableChannel  {
 
     
     public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
-        this(out, errorConsumer, Duration.ZERO, null);
+        this(out, errorConsumer, Duration.ZERO);
     }
 
     
-    public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer, Duration keepAlivePeriod, ScheduledExecutorService executor) {
+    public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer, Duration keepAlivePeriod) {
         this.errorConsumer = errorConsumer;
         this.out = out;
         out.setWriteListener(new ServletWriteListener());
         
-        if (executor != null) {
             // start the keep alive emitter 
-            new KeepAliveEmitter(this, keepAlivePeriod, executor).start();
-        }
-        
+        new KeepAliveEmitter(this, keepAlivePeriod).start();
+
         // write http header, implicitly 
         requestWriteNotificationAsync().thenAccept(Void -> flush());
     }
@@ -85,6 +83,7 @@ class SseWriteableChannel  {
         } catch (IOException | RuntimeException t) {
             errorConsumer.accept(t);
             writtenSizeFuture.completeExceptionally(t);
+            close();
         }
     }   
     
@@ -163,15 +162,22 @@ class SseWriteableChannel  {
      * @author grro
      */
     private static final class KeepAliveEmitter {
+        private static final ScheduledThreadPoolExecutor EXECUTOR = newScheduledThreadPoolExecutor();
         private final SseWriteableChannel channel;
         private final Duration keepAlivePeriod;
-        private final ScheduledExecutorService executor;
 
+        private static ScheduledThreadPoolExecutor newScheduledThreadPoolExecutor() {
+            ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(0);
+            executor.setKeepAliveTime(9, TimeUnit.SECONDS);
+            executor.allowCoreThreadTimeOut (true);
+            
+            return executor;
+        }
         
-        public KeepAliveEmitter(SseWriteableChannel channel, Duration keepAlivePeriod, ScheduledExecutorService executor) {
+        
+        public KeepAliveEmitter(SseWriteableChannel channel, Duration keepAlivePeriod) {
             this.channel = channel;
             this.keepAlivePeriod = keepAlivePeriod;
-            this.executor = executor;
         }
         
         public void start() {
@@ -179,10 +185,8 @@ class SseWriteableChannel  {
         }
         
         private void scheduleNextKeepAliveEvent() {
-            Runnable task = () -> channel.writeEventAsync(ServerSentEvent.newEvent().comment("keep alive"))
-                                         .thenAccept(numWritten -> scheduleNextKeepAliveEvent());
-            
-            executor.schedule(task, keepAlivePeriod.getSeconds(), TimeUnit.SECONDS);
+            channel.writeEventAsync(ServerSentEvent.newEvent().comment("keep alive"))
+                   .thenAccept(numWritten -> EXECUTOR.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
         }        
     } 
 }

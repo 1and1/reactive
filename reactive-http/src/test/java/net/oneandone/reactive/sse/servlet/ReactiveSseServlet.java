@@ -21,8 +21,6 @@ package net.oneandone.reactive.sse.servlet;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -43,14 +41,8 @@ public class ReactiveSseServlet extends HttpServlet {
     private static final long serialVersionUID = -7372081048856966492L;
 
     private final Broker broker = new Broker();
-    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
-    
-    
-    @Override
-    public void destroy() {
-        executor.shutdown();
-    }
-
+        
+  
     
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -67,8 +59,8 @@ public class ReactiveSseServlet extends HttpServlet {
         req.startAsync();
         
         resp.setContentType("text/event-stream");
-        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp.getOutputStream(), executor, Duration.ofSeconds(1));
-        broker.registerSubscriber(req.getPathInfo(), subscriber, 5 * 1000);
+        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp.getOutputStream(), Duration.ofSeconds(1));
+        broker.registerSubscriber(req.getPathInfo(), subscriber, 60 * 1000);
     }
     
     

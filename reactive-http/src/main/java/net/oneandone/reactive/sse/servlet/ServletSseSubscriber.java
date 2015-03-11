@@ -20,7 +20,6 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
@@ -50,20 +49,18 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
     
     /**
      * @param out       the servlet output stream
-     * @param executor  the scheduled executor to emit keep alive messages 
      */
-    public ServletSseSubscriber(ServletOutputStream out, ScheduledExecutorService executor) {
-        this(out, executor, Duration.ofSeconds(25));
+    public ServletSseSubscriber(ServletOutputStream out) {
+        this(out, Duration.ofSeconds(25));
     }   
 
     
     /**
      * @param out               the servlet output stream
-     * @param executor          the scheduled executor to emit keep alive messages 
      * @param keepAlivePeriod   the keep alive period
      */
-    public ServletSseSubscriber(ServletOutputStream out,ScheduledExecutorService executor, Duration keepAlivePeriod) {
-        this.channel = new SseWriteableChannel(out, error -> onError(error), keepAlivePeriod, executor);
+    public ServletSseSubscriber(ServletOutputStream out, Duration keepAlivePeriod) {
+        this.channel = new SseWriteableChannel(out, error -> onError(error), keepAlivePeriod);
     }   
 
    

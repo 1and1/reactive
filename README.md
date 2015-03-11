@@ -135,7 +135,7 @@ public class ReactiveSseServlet extends HttpServlet {
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         request.startAsync();
         response.setContentType("text/event-stream");
-        
+         
         Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(response.getOutputStream());
         Pipes.newPipe(kafkaPublisher)
              .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()))

@@ -124,11 +124,11 @@ public class ReactiveSseServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         request.startAsync();
-        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(request.getInputStream());
+        Publisher<ServerSentEvent> ssePublisher = new ServletSsePublisher(request.getInputStream());
         
         // start streaming
-        Observable<HotelRating> stream = RxReactiveStreams.toObservable(publisher)
-                                                          .map(sseEvent -> KafkaMessage.newMessage().data(sseEvent.getData()));
+        Observable<ServerSentEvent> stream = RxReactiveStreams.toObservable(ssePublisher)
+                                                              .map(sseEvent -> KafkaMessage.newMessage().data(sseEvent.getData()));
         RxReactiveStreams.subscribe(stream, kafkaSubscriber);
     }
     
@@ -140,9 +140,9 @@ public class ReactiveSseServlet extends HttpServlet {
 	    Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(response.getOutputStream());
 
 		// start streaming         
-        Publisher<KafkaMessage> publisher = null;
-        Observable<HotelRating> stream = RxReactiveStreams.toObservable(publisher)
-                                                          .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()));
+        Publisher<KafkaMessage> kafkaPublisher = null;
+        Observable<KafkaMessage> stream = RxReactiveStreams.toObservable(kafkaPublisher)
+                                                           .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()));
         RxReactiveStreams.subscribe(stream, sseSubscriber);
     }
 }

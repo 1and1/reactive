@@ -38,15 +38,16 @@ import com.google.common.collect.Lists;
 
 
 class SseWriteableChannel  {
-    private static final List<CompletableFuture<Boolean>> whenWritePossibles = Lists.newArrayList();
-    
+    private final static int DEFAULT_KEEP_ALIVE_PERIOD_SEC = 30; 
+
+    private final List<CompletableFuture<Boolean>> whenWritePossibles = Lists.newArrayList();
     private final ServletOutputStream out;
     private final Consumer<Throwable> errorConsumer;
 
 
     
     public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
-        this(out, errorConsumer, Duration.ZERO);
+        this(out, errorConsumer, Duration.ofSeconds(DEFAULT_KEEP_ALIVE_PERIOD_SEC));
     }
 
     
@@ -168,8 +169,8 @@ class SseWriteableChannel  {
 
         private static ScheduledThreadPoolExecutor newScheduledThreadPoolExecutor() {
             ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(0);
-            executor.setKeepAliveTime(9, TimeUnit.SECONDS);
-            executor.allowCoreThreadTimeOut (true);
+            executor.setKeepAliveTime(DEFAULT_KEEP_ALIVE_PERIOD_SEC * 2, TimeUnit.SECONDS);
+            executor.allowCoreThreadTimeOut(true);
             
             return executor;
         }

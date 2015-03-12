@@ -140,7 +140,6 @@ public class ReactiveSseServlet extends HttpServlet {
 	    Subscriber<ServerSentEvent> sseSubscriber = new ServletSseSubscriber(response.getOutputStream());
 
 		// start streaming         
-        Publisher<KafkaMessage> kafkaPublisher = ...;
         Observable<KafkaMessage> stream = RxReactiveStreams.toObservable(kafkaPublisher)
                                                            .map(kafkaMessage -> ServerSentEvent.newEvent().data(kafkaMessage.getData()));
         RxReactiveStreams.subscribe(stream, sseSubscriber);

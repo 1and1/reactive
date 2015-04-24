@@ -27,6 +27,7 @@ import java.util.logging.Logger;
 import javax.servlet.ServletOutputStream;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.utils.IllegalStateSubscription;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -96,21 +97,6 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
         if (isOpen.getAndSet(false)) {
             subscriptionRef.get().cancel();
             channel.close();          
-        }
-    }
-    
-    
-    
-    private static final class IllegalStateSubscription implements Subscription {
-        
-        @Override
-        public void request(long n) {
-            throw new IllegalStateException();
-        }
-        
-        @Override
-        public void cancel() {
-            throw new IllegalStateException();
         }
     }
 }

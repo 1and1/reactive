@@ -13,22 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse.client;
+package net.oneandone.reactive.utils;
 
 
 
-import java.io.Closeable;
-import java.util.concurrent.CompletableFuture;
+
+import org.reactivestreams.Subscription;
 
 
 
-interface OutboundStream extends Closeable  {
+
+public class IllegalStateSubscription implements Subscription {
         
-     CompletableFuture<Void> write(String msg);
-        
-     void terminate();
-     
-     void close();
- }
+    @Override
+    public void request(long n) {
+        throw new IllegalStateException();
+    }
     
- 
+    @Override
+    public void cancel() {
+        throw new IllegalStateException();
+    }
+}

@@ -80,10 +80,8 @@ class NettyBasedStreamProvider implements StreamProvider {
     }
 
     
-    
 
-
-    class NettyHttp11InboundStream implements InboundStream  {
+    private class NettyHttp11InboundStream implements InboundStream  {
         private final Channel channel;
         private final Consumer<ByteBuffer[]> dataConsumer;
         private final Consumer<Throwable> errorConsumer;
@@ -218,7 +216,7 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     
-    class NettyHttp11OutboundStream implements OutboundStream  {
+    private class NettyHttp11OutboundStream implements OutboundStream  {
         private final Channel channel;
         
         public NettyHttp11OutboundStream(URI uri) {

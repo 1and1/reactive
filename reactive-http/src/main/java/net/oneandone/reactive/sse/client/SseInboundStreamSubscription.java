@@ -25,6 +25,7 @@ import com.google.common.collect.Lists;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
+import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -33,7 +34,7 @@ import org.reactivestreams.Subscription;
 
 class SseInboundStreamSubscription implements Subscription {
     private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
-    private final SubscriberNotifier subscriberNotifier;
+    private final SubscriberNotifier<ServerSentEvent> subscriberNotifier;
     private final InboundStream httpDownstream;
     
     private final Object consumesLock = new Object();
@@ -49,8 +50,11 @@ class SseInboundStreamSubscription implements Subscription {
         this.httpDownstream = new ReconnectingInboundStream(uri,
                                                             streamProvider,
                                                             buffers -> processNetworkdata(buffers));
-        subscriberNotifier = new SubscriberNotifier(subscriber);
-        emitNotification(new OnSubscribe());
+        subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
+    }
+    
+    public void init() {
+        subscriberNotifier.start();
     }
     
     @Override
@@ -64,7 +68,7 @@ class SseInboundStreamSubscription implements Subscription {
     public void request(long n) {
         if(n <= 0) {
             // https://github.com/reactive-streams/reactive-streams#3.9
-            subscriberNotifier.emitNotification(new OnError(new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
+            subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
         } else {
             numRequested.addAndGet((int) n);
             process();
@@ -88,7 +92,7 @@ class SseInboundStreamSubscription implements Subscription {
                 } else {
                     ServerSentEvent event = bufferedEvents.poll();
                     numRequested.decrementAndGet();
-                    emitNotification(new OnNext(event));
+                    subscriberNotifier.notifyOnNext(event);
                 }
             }
         }
@@ -126,61 +130,12 @@ class SseInboundStreamSubscription implements Subscription {
     }
     
     
-    private void emitNotification(SubscriberNotifier.Notification notification) {
-        subscriberNotifier.emitNotification(notification);
-    }
-    
     
     @Override
     public String toString() {
         return (httpDownstream.isSuspended() ? "[suspended] " : "") +  "buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get();
     }
 
-
-    
-    private class OnSubscribe extends SubscriberNotifier.Notification {
-        
-        @Override
-        public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-            subscriber.onSubscribe(SseInboundStreamSubscription.this);
-        }
-    }
-    
-    private class OnNext extends SubscriberNotifier.Notification {
-        private final ServerSentEvent event;
-        
-        public OnNext(ServerSentEvent event) {
-            this.event = event;
-        }
-        
-        @Override
-        public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-            subscriber.onNext(event);
-        }
-    }
-    
-    
-    private class OnError extends SubscriberNotifier.TerminatingNotification {
-        private final Throwable error;
-        
-        public OnError(Throwable error) {
-            this.error = error;
-        }
-        
-        @Override
-        public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-            subscriber.onError(error);
-        }
-    }
-    
-
-    private class OnComplete extends SubscriberNotifier.TerminatingNotification {
-        
-        @Override
-        public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-            subscriber.onComplete();
-        }
-    }
     
     
     private static final class ReconnectingInboundStream implements InboundStream  {

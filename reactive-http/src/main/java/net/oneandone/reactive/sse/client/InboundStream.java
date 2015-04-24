@@ -20,16 +20,16 @@ package net.oneandone.reactive.sse.client;
 import java.io.Closeable;
 
 interface InboundStream extends Closeable {
-    
-     void close();
         
-     void terminate();
-     
      boolean isSuspended();
      
      void suspend();
      
      void resume();
+     
+     void terminate();
+     
+     void close();
  }
     
  

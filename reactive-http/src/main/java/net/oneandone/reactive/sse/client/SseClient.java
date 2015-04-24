@@ -28,36 +28,44 @@ import org.reactivestreams.Subscriber;
 public class SseClient implements Closeable {
     private final StreamProvider streamProvider = new NettyBasedStreamProvider();
     private final URI uri;
-    private final boolean isAutoId;
     
-    private SseClient(URI uri, boolean isAutoId) {
+    private SseClient(URI uri) {
         this.uri = uri;
-        this.isAutoId = isAutoId;
     }
     
     
     public static SseClient target(URI uri) {
-        return new SseClient(uri, true);
+        return new SseClient(uri);
     }
-    
-    public SseClient autoId(boolean isAutoId) {
-        return new SseClient(this.uri, isAutoId);
-    }
-    
-    public SseOutboundStream outbound() {
-        
-        return new SseOutboundStream() {
-            @Override
-            public Subscriber<ServerSentEvent> subscriber() {
-                return new SseOutboundSubscriber(uri, streamProvider, isAutoId);
-            }
-        };
-    }
-    
     
     public SseInboundStream inbound() {
         return new SseInboundStreamImpl();
     }
+    
+    public SseOutboundStream outbound() {
+        return new SseOutboundStreamImpl(true);
+    }
+    
+    
+    private final class SseOutboundStreamImpl implements SseOutboundStream {
+
+        private final boolean isAutogeneratingId;
+        
+        private SseOutboundStreamImpl(boolean isAutoId) {
+            this.isAutogeneratingId = isAutoId;
+        }
+        
+        @Override
+        public SseOutboundStream generateMsgId(boolean isAutoId) {
+            return new SseOutboundStreamImpl(isAutoId);
+        }
+        
+        @Override
+        public Subscriber<ServerSentEvent> subscriber() {
+            return new SseOutboundSubscriber(uri, streamProvider, isAutogeneratingId);
+        }
+    }
+    
     
     
     private final class SseInboundStreamImpl implements SseInboundStream {
@@ -75,7 +83,8 @@ public class SseClient implements Closeable {
                     subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
                 } else {
                     subscribed = true;
-                    new SseInboundStreamSubscription(uri, streamProvider, subscriber); // will call subscriber#onSubscribe
+                    SseInboundStreamSubscription subscription = new SseInboundStreamSubscription(uri, streamProvider, subscriber);
+                    subscription.init();
                 }
             }   
         }

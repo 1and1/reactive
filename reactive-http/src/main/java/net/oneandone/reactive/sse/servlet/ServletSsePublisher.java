@@ -15,19 +15,16 @@
  */
 package net.oneandone.reactive.sse.servlet;
 
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.servlet.ServletInputStream;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
-import com.google.common.collect.Queues;
 
 
 /**
@@ -57,7 +54,8 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
                 subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
             } else {
                 subscribed = true;
-                subscriber.onSubscribe(new SEEEventReaderSubscription(inputStream, subscriber));
+                SEEEventReaderSubscription subscription = new SEEEventReaderSubscription(inputStream, subscriber);
+                subscription.init();
             }
         }
     }
@@ -65,26 +63,23 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
     
     
     private static class SEEEventReaderSubscription implements Subscription {
-        private final SubscriberNotifier subscriberNotifier;
+        private final SubscriberNotifier<ServerSentEvent> subscriberNotifier;
         private final SseReadableChannel channel;
 
 
         public SEEEventReaderSubscription(ServletInputStream inputStream, Subscriber<? super ServerSentEvent> subscriber) {
-            this.subscriberNotifier = new SubscriberNotifier(subscriber);
-            this.channel = new SseReadableChannel(inputStream,                                     // servlet input stream
-                                                  event -> emitNotification(new OnNext(event)),    // event consumer
-                                                  error -> emitNotification(new OnError(error)),   // error consumer
-                                                  Void -> emitNotification(new OnComplete()));     // completion consumer         
+            this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
             
-            emitNotification(new OnSubscribe());
+            this.channel = new SseReadableChannel(inputStream,                                      // servlet input stream
+                                                  event -> subscriberNotifier.notifyOnNext(event),    // event consumer
+                                                  error -> subscriberNotifier.notifyOnError(error),   // error consumer
+                                                  Void -> subscriberNotifier.notifyOnComplete());     // completion consumer         
+        }
+        
+        void init() {
+            subscriberNotifier.start();
         }
 
-        
-        private void emitNotification(SubscriberNotifier.Notification notification) {
-            subscriberNotifier.emitNotification(notification);
-        }
-
-        
         @Override
         public void cancel() {
             channel.close();
@@ -95,140 +90,10 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
         public void request(long n) {
             if(n <= 0) {
                 // https://github.com/reactive-streams/reactive-streams#3.9
-                subscriberNotifier.emitNotification(new OnError(new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
+                subscriberNotifier.notifyOnError(new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9"));
             } else {
                 channel.request(n);
             }
-        }
-        
-        
-        
-        
-        private class OnSubscribe extends SubscriberNotifier.Notification {
-            
-            @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onSubscribe(SEEEventReaderSubscription.this);
-            }
-        }
-        
-        
-        private class OnNext extends SubscriberNotifier.Notification {
-            private final ServerSentEvent event;
-            
-            public OnNext(ServerSentEvent event) {
-                this.event = event;
-            }
-            
-            @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onNext(event);
-            }
-        }
-        
-        
-        
-        private class OnError extends SubscriberNotifier.TerminatingNotification {
-            private final Throwable error;
-            
-            public OnError(Throwable error) {
-                this.error = error;
-            }
-            
-            @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onError(error);
-            }
-        }
-        
-
-        private class OnComplete extends SubscriberNotifier.TerminatingNotification {
-            
-            @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onComplete();
-            }
-        }
-
-
-        private static final class SubscriberNotifier implements Runnable {
-            private final ConcurrentLinkedQueue<Notification> notifications = Queues.newConcurrentLinkedQueue();
-            private final AtomicBoolean isOpen = new AtomicBoolean(true);
-            
-            private final Subscriber<? super ServerSentEvent> subscriber;
-            
-            public SubscriberNotifier(Subscriber<? super ServerSentEvent> subscriber) {
-                this.subscriber = subscriber;
-            }
-            
-            private void close() {
-                isOpen.set(false);
-                notifications.clear();  
-            }
-            
-            public void emitNotification(Notification notification) {
-                if (isOpen.get()) {
-                    if (notifications.offer(notification)) {
-                        tryScheduleToExecute();
-                    }
-                }
-            }
-
-            private final void tryScheduleToExecute() {
-                try {
-                    ForkJoinPool.commonPool().execute(this);
-                } catch (Throwable t) {
-                    close(); // no further notifying (executor does not work anyway)
-                    subscriber.onError(t);
-                }
-            }
-            
-
-            // main "event loop" 
-            @Override 
-            public final void run() {
-                
-                if (isOpen.get()) {
-                    
-                    synchronized (subscriber) {
-                        try {
-                            Notification notification = notifications.poll(); 
-                            if (notification != null) {
-                                if (notification.isTerminating()) {
-                                    close();
-                                }
-                                notification.signalTo(subscriber);
-                            }
-                        } finally {
-                            if(!notifications.isEmpty()) {
-                                tryScheduleToExecute(); 
-                            }
-                        }
-                    }
-                }
-            }
-          
-            
-            
-            private static abstract class Notification { 
-                
-                abstract void signalTo(Subscriber<? super ServerSentEvent> subscriber);
-                
-                boolean isTerminating() {
-                    return false;
-                }
-            };
-            
-            
-            
-            // Once a terminal state has been signaled (onError, onComplete) it is REQUIRED that no further signals occur
-            private static abstract class TerminatingNotification extends SubscriberNotifier.Notification { 
-                
-                boolean isTerminating() {
-                    return true;
-                }
-            };
-
         }
     }
 }        

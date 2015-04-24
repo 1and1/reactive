@@ -21,6 +21,7 @@ import java.net.URI;
 import java.util.Iterator;
 import java.util.UUID;
 
+import net.oneandone.reactive.AbstractProcessor;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.SseClient;
@@ -32,7 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 
-public class SseHttpClientTest {
+public class BufferingHttpClientTest {
     
     
     private WebContainer server;
@@ -62,11 +63,19 @@ public class SseHttpClientTest {
         TestSubscriber consumer = new TestSubscriber(1, 3);
         sseClient.inbound()
                  .subscribe(consumer);
+        
+        
+        
 
         Producer<ServerSentEvent> producer = new Producer<>();
-        producer.subscribe(sseClient.outbound()
-                                    .generateMsgId(true)
-                                    .subscriber());
+        
+        
+        AbstractProcessor<ServerSentEvent> streamBuffer = new AbstractProcessor<>(10);
+        producer.subscribe(streamBuffer);
+        
+        streamBuffer.subscribe(sseClient.outbound()
+                                        .generateMsgId(true)
+                                        .subscriber());
         
         Emitter<ServerSentEvent> emitter = producer.getEmitterAsync().get();
         emitter.publish(ServerSentEvent.newEvent().data("test1"));

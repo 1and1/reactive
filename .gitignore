@@ -14,3 +14,7 @@
 /reactive-pipe/.classpath
 /effective.txt
 /reactive-pipe/test-output
+/reactive-core/target
+/reactive-core/.classpath
+/reactive-core/.project
+/reactive-core/.settings

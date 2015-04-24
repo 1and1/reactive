@@ -83,9 +83,10 @@ public class ServerSentEventParser {
                 } else {
 
                     // line starts with a U+003A COLON character (:)
-                    // Ignore the line
-
-                    if (!trimmedLine.startsWith(":")) {
+                    if (trimmedLine.startsWith(":")) {
+                        // Ignore the line
+                        
+                    } else {
                         int idx = line.indexOf(":");
                         
                         // is not empty but does not contain a U+003A COLON character (:)

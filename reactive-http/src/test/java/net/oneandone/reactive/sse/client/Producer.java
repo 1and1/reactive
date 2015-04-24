@@ -13,15 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse.servlet;
+package net.oneandone.reactive.sse.client;
 
+
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.servlet.ServletInputStream;
-
-import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -30,105 +32,117 @@ import org.reactivestreams.Subscription;
 import com.google.common.collect.Queues;
 
 
-/**
- * Maps the servlet input stream (which have to receive Server-sent events) into a publisher 
- */
-class ServletSsePublisher implements Publisher<ServerSentEvent> {
-    
-    private boolean subscribed = false; // true after first subscribe
-    private final ServletInputStream inputStream;
 
-    /**
-     * @param inputStream  the underlying servlet input stream
-     */
-    public ServletSsePublisher(ServletInputStream inputStream) {
-        this.inputStream = inputStream;
+
+
+
+public class Producer<T> implements Publisher<T>, Closeable {
+    
+    private final CompletableFuture<Emitter<T>> promise = new CompletableFuture<>();
+    private MySubscription<T> subscription;
+
+    private boolean subscribed = false; // true after first subscribe
+    
+
+    public CompletableFuture<Emitter<T>> getEmitterAsync() {
+        return promise;
     }
     
+    
+    public static interface Emitter<T> extends Closeable {
+        public void publish(T t);
+    }
+    
+        
+    
     @Override
-    public void subscribe(Subscriber<? super ServerSentEvent> subscriber) {
+    public void close() throws IOException {
+        try {
+            promise.get().close();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    
+    
+    @Override
+    public void subscribe(Subscriber<? super T> subscriber) {       
         synchronized (this) {
-            // https://github.com/reactive-streams/reactive-streams-jvm#1.9
-            if (subscriber == null) {  
-                throw new NullPointerException("subscriber is null");
-            }
-            
             if (subscribed == true) {
                 subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
             } else {
                 subscribed = true;
-                subscriber.onSubscribe(new SEEEventReaderSubscription(inputStream, subscriber));
+                subscriber.onSubscribe(new MySubscription<>((Subscriber<T>) subscriber, promise));
             }
         }
     }
-
     
     
-    private static class SEEEventReaderSubscription implements Subscription {
-        private final SubscriberNotifier subscriberNotifier;
-        private final SseReadableChannel channel;
-
-
-        public SEEEventReaderSubscription(ServletInputStream inputStream, Subscriber<? super ServerSentEvent> subscriber) {
-            this.subscriberNotifier = new SubscriberNotifier(subscriber);
-            this.channel = new SseReadableChannel(inputStream,                                     // servlet input stream
-                                                  event -> emitNotification(new OnNext(event)),    // event consumer
-                                                  error -> emitNotification(new OnError(error)),   // error consumer
-                                                  Void -> emitNotification(new OnComplete()));     // completion consumer         
-            
+    
+    
+    
+    
+    private static class MySubscription<T> implements Subscription, Emitter<T> {
+        private final SubscriberNotifier<T> subscriberNotifier;
+        
+        public MySubscription(Subscriber<T> subscriber, CompletableFuture<Emitter<T>> promise) {
+            subscriberNotifier = new SubscriberNotifier<>(subscriber);
             emitNotification(new OnSubscribe());
+            promise.complete(this);
         }
 
-        
-        private void emitNotification(SubscriberNotifier.Notification notification) {
+        private void emitNotification(SubscriberNotifier.Notification<T> notification) {
             subscriberNotifier.emitNotification(notification);
         }
 
         
         @Override
-        public void cancel() {
-            channel.close();
+        public void close() throws IOException {
+            emitNotification(new OnComplete());
         }
         
+        @Override
+        public void publish(T obj) {
+            subscriberNotifier.emitNotification(new OnNext(obj));
+        }
+        
+        @Override
+        public void cancel() {
+
+        }
         
         @Override
         public void request(long n) {
-            if(n <= 0) {
-                // https://github.com/reactive-streams/reactive-streams#3.9
-                subscriberNotifier.emitNotification(new OnError(new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
-            } else {
-                channel.request(n);
-            }
+
         }
         
         
         
-        
-        private class OnSubscribe extends SubscriberNotifier.Notification {
+        private class OnSubscribe extends SubscriberNotifier.Notification<T> {
             
             @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onSubscribe(SEEEventReaderSubscription.this);
+            public void signalTo(Subscriber<T> subscriber) {
+                subscriber.onSubscribe(MySubscription.this);
             }
         }
         
         
-        private class OnNext extends SubscriberNotifier.Notification {
-            private final ServerSentEvent event;
+        private class OnNext extends SubscriberNotifier.Notification<T> {
+            private final T obj;
             
-            public OnNext(ServerSentEvent event) {
-                this.event = event;
+            public OnNext(T obj) {
+                this.obj = obj;
             }
             
             @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
-                subscriber.onNext(event);
+            public void signalTo(Subscriber<T> subscriber) {
+                subscriber.onNext(obj);
             }
         }
         
         
         
-        private class OnError extends SubscriberNotifier.TerminatingNotification {
+        private class OnError extends SubscriberNotifier.TerminatingNotification<T> {
             private final Throwable error;
             
             public OnError(Throwable error) {
@@ -136,28 +150,29 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
             }
             
             @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
+            public void signalTo(Subscriber<T> subscriber) {
                 subscriber.onError(error);
             }
         }
         
 
-        private class OnComplete extends SubscriberNotifier.TerminatingNotification {
+        private class OnComplete extends SubscriberNotifier.TerminatingNotification<T> {
             
             @Override
-            public void signalTo(Subscriber<? super ServerSentEvent> subscriber) {
+            public void signalTo(Subscriber<T> subscriber) {
                 subscriber.onComplete();
             }
         }
 
+        
 
-        private static final class SubscriberNotifier implements Runnable {
-            private final ConcurrentLinkedQueue<Notification> notifications = Queues.newConcurrentLinkedQueue();
+        private static final class SubscriberNotifier<T> implements Runnable {
+            private final ConcurrentLinkedQueue<Notification<T>> notifications = Queues.newConcurrentLinkedQueue();
             private final AtomicBoolean isOpen = new AtomicBoolean(true);
             
-            private final Subscriber<? super ServerSentEvent> subscriber;
+            private final Subscriber<T> subscriber;
             
-            public SubscriberNotifier(Subscriber<? super ServerSentEvent> subscriber) {
+            public SubscriberNotifier(Subscriber<T> subscriber) {
                 this.subscriber = subscriber;
             }
             
@@ -166,7 +181,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
                 notifications.clear();  
             }
             
-            public void emitNotification(Notification notification) {
+            public void emitNotification(Notification<T> notification) {
                 if (isOpen.get()) {
                     if (notifications.offer(notification)) {
                         tryScheduleToExecute();
@@ -192,7 +207,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
                     
                     synchronized (subscriber) {
                         try {
-                            Notification notification = notifications.poll(); 
+                            Notification<T> notification = notifications.poll(); 
                             if (notification != null) {
                                 if (notification.isTerminating()) {
                                     close();
@@ -210,9 +225,9 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
           
             
             
-            private static abstract class Notification { 
+            private static abstract class Notification<T> { 
                 
-                abstract void signalTo(Subscriber<? super ServerSentEvent> subscriber);
+                abstract void signalTo(Subscriber<T> subscriber);
                 
                 boolean isTerminating() {
                     return false;
@@ -222,7 +237,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
             
             
             // Once a terminal state has been signaled (onError, onComplete) it is REQUIRED that no further signals occur
-            private static abstract class TerminatingNotification extends SubscriberNotifier.Notification { 
+            private static abstract class TerminatingNotification<T> extends SubscriberNotifier.Notification<T> { 
                 
                 boolean isTerminating() {
                     return true;
@@ -232,5 +247,3 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
         }
     }
 }        
-    
-

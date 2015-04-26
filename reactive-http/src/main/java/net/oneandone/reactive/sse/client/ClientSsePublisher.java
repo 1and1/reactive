@@ -66,13 +66,13 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
     private static class SseInboundStreamSubscription implements Subscription {
         private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier;
-        private final InboundStream httpDownstream;
-        private final StreamProvider streamProvider = new NettyBasedStreamProvider();
+        private final StreamProvider.InboundStream httpDownstream;
 
         private final Object consumesLock = new Object();
         private final AtomicInteger numRequested = new AtomicInteger(0);
         private final ServerSentEventParser parser = new ServerSentEventParser();
     
+        private StreamProvider streamProvider = NettyBasedStreamProvider.common();
         
     
         public SseInboundStreamSubscription(URI uri, Subscriber<? super ServerSentEvent> subscriber) {
@@ -82,11 +82,6 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
                                                                 buffers -> processNetworkdata(buffers));
             subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
-        
-        
-        
-        
-        
         
         public void init() {
             subscriberNotifier.start();
@@ -174,11 +169,11 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
     
         
         
-        private static final class ReconnectingInboundStream implements InboundStream  {
+        private static final class ReconnectingInboundStream implements StreamProvider.InboundStream  {
             private final URI uri;
             private final StreamProvider streamProvider;
             private final Consumer<ByteBuffer[]> dataConsumer;
-            private InboundStream httpDownstream;
+            private StreamProvider.InboundStream httpDownstream;
     
             
             public ReconnectingInboundStream(URI uri, StreamProvider streamProvider, Consumer<ByteBuffer[]> dataConsumer) {

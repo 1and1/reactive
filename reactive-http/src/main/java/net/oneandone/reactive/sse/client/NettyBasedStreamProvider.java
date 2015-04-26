@@ -56,12 +56,36 @@ import javax.net.ssl.SSLException;
 
 class NettyBasedStreamProvider implements StreamProvider {
     
+    private static final NettyBasedStreamProvider COMMON = new NettyBasedStreamProvider();
+    
+    public static StreamProvider common() {
+        
+        return new StreamProvider() {
+
+            @Override
+            public OutboundStream newOutboundStream(URI uri) {
+                return COMMON.newOutboundStream(uri);
+            }
+            
+            @Override
+            public InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
+                return COMMON.newInboundStream(uri, dataConsumer, errorConsumer);
+            }
+            
+            @Override
+            public void close() {
+            }
+        };
+    }
+    
+    
     private final EventLoopGroup eventLoopGroup;
     
-    public NettyBasedStreamProvider() {
+    private NettyBasedStreamProvider() {
         eventLoopGroup = new NioEventLoopGroup();
     }
     
+        
     @Override
     public void close() {
         eventLoopGroup.shutdownGracefully();

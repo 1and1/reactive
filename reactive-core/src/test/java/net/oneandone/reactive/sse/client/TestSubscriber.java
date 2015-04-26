@@ -85,7 +85,7 @@ class TestSubscriber<T> implements Subscriber<T> {
     
     @Override
     public void onComplete() {
-
+ 
     }
     
     public Subscription getSubscription() {

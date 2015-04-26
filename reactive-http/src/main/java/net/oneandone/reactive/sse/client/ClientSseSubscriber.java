@@ -37,8 +37,8 @@ import com.google.common.io.BaseEncoding;
 
 public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-    private final OutboundStream httpUpstream;
-    private final StreamProvider streamProvider = new NettyBasedStreamProvider();
+    private final StreamProvider.OutboundStream httpUpstream;
+    private final StreamProvider streamProvider = NettyBasedStreamProvider.common();
 
     private final boolean isAutoId;
     private final String globalId = newGlobalId();
@@ -115,10 +115,10 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     
     
        
-    private static final class ReconnectingOutboundstream implements OutboundStream  {
+    private static final class ReconnectingOutboundstream implements StreamProvider.OutboundStream  {
         private final URI uri;
         private final StreamProvider streamProvider;
-        private OutboundStream httpUpstream;
+        private StreamProvider.OutboundStream httpUpstream;
         
         public ReconnectingOutboundstream(URI uri, StreamProvider streamProvider) {
             this.uri = uri;
@@ -146,7 +146,7 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
             getHttpstream().close();
         }
         
-        private synchronized OutboundStream getHttpstream() {
+        private synchronized StreamProvider.OutboundStream getHttpstream() {
             if (httpUpstream == null) {
                 httpUpstream = streamProvider.newOutboundStream(uri);
             }

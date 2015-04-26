@@ -20,6 +20,7 @@ package net.oneandone.reactive.sse.client;
 import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 
@@ -32,6 +33,32 @@ interface StreamProvider extends Closeable {
 
     @Override
     public void close();
+    
+    
+
+
+    static interface OutboundStream extends Closeable  {
+        
+        CompletableFuture<Void> write(String msg);
+        
+        void terminate();  
+     
+        void close();
+    }
+    
+    
+    static interface InboundStream extends Closeable {
+        
+        boolean isSuspended();
+        
+        void suspend();
+        
+        void resume();
+        
+        void terminate();
+        
+        void close();
+    }
 }        
     
 

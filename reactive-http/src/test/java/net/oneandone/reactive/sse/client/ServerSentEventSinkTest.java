@@ -18,13 +18,12 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
-
 import java.util.Iterator;
 import java.util.UUID;
 
+import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.Producer.Emitter;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -32,7 +31,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 
-public class SseHttpClientTest {
+public class ServerSentEventSinkTest {
     
     
     private WebContainer server;
@@ -56,16 +55,14 @@ public class SseHttpClientTest {
     public void testSimple() throws Exception {
         URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber consumer = new TestSubscriber(1, 3);
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(1, 3);
         new ClientSsePublisher(uri).subscribe(consumer); 
 
-        Producer<ServerSentEvent> producer = new Producer<>();
-        producer.subscribe(new ClientSseSubscriber(uri, true));
-        
-        Emitter<ServerSentEvent> emitter = producer.getEmitterAsync().get();
-        emitter.publish(ServerSentEvent.newEvent().data("test1"));
-        emitter.publish(ServerSentEvent.newEvent().data("test21212"));
-        emitter.publish(ServerSentEvent.newEvent().data("test312123123123123"));
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSubscriber(uri, true));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test21212"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test312123123123123"));
         
         
         
@@ -74,6 +71,8 @@ public class SseHttpClientTest {
         Assert.assertEquals("test21212", sseIt.next().getData());
         Assert.assertEquals("test312123123123123", sseIt.next().getData());
         
-        producer.close();
+        reactiveSink.shutdown();
+        
+        System.out.println("closed");
     }
 }

@@ -18,22 +18,21 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
-import java.util.Iterator;
 import java.util.UUID;
 
-import net.oneandone.reactive.AbstractProcessor;
+import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.Producer.Emitter;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
-@Ignore
-public class BufferingHttpClientTest {
+
+
+
+public class ServerSentEventSourceTest {
     
     
     private WebContainer server;
@@ -57,32 +56,52 @@ public class BufferingHttpClientTest {
     public void testSimple() throws Exception {
         URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
 
-        TestSubscriber consumer = new TestSubscriber(1, 3);
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(10, 100);
         new ClientSsePublisher(uri).subscribe(consumer); 
+
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSubscriber(uri));
+        
+        consumer.suspend();
+        
+        for (int i = 0; i < 30; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i));
+        }
         
         
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        
+        Assert.assertEquals(10, consumer.getNumReceived());
+        Assert.assertTrue(consumer.toString().contains("[suspended]"));
+
+        consumer.resume();
+
         
 
-        Producer<ServerSentEvent> producer = new Producer<>();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+
+        
+        Assert.assertEquals(30, consumer.getNumReceived());
+        Assert.assertFalse(consumer.toString().contains("[suspended]"));
+
+        
+
+        for (int i = 0; i < 70; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i));
+        }
         
         
-        AbstractProcessor<ServerSentEvent> streamBuffer = new AbstractProcessor<>(10);
-        producer.subscribe(streamBuffer);
-        
-        producer.subscribe(new ClientSseSubscriber(uri, true));
-        
-        Emitter<ServerSentEvent> emitter = producer.getEmitterAsync().get();
-        emitter.publish(ServerSentEvent.newEvent().data("test1"));
-        emitter.publish(ServerSentEvent.newEvent().data("test21212"));
-        emitter.publish(ServerSentEvent.newEvent().data("test312123123123123"));
         
         
+        Assert.assertEquals(100,  consumer.getEventsAsync().get().size());
         
-        Iterator<ServerSentEvent> sseIt = consumer.getEventsAsync().get().iterator();
-        Assert.assertEquals("test1", sseIt.next().getData());
-        Assert.assertEquals("test21212", sseIt.next().getData());
-        Assert.assertEquals("test312123123123123", sseIt.next().getData());
-        
-        producer.close();
+        reactiveSink.shutdown();
     }
 }

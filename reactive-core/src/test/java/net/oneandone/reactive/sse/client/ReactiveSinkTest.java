@@ -85,6 +85,98 @@ public class ReactiveSinkTest {
     }
     
     
+    @Test
+    public void testClose() throws Exception {
+        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        
+        
+        ReactiveSink<String> sink = ReactiveSink.buffer(20)
+                                                .subscribe(consumer);
+        
+        sink.accept("1");
+        sink.accept("2");
+        sink.accept("3");
+        sink.accept("4");
+        sleep(300);
+        
+        sink.shutdownNow();
+        
+        try {
+            sink.accept("5");
+            Assert.fail("IllegalStateException expected");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("stream is already closed", expected.getMessage());
+        }
+    }
+    
+    
+    @Test
+    public void testCloseWithUnprocessedElements() throws Exception {
+        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        
+        consumer.suspend();
+        
+        ReactiveSink<String> sink = ReactiveSink.buffer(20)
+                                                .subscribe(consumer);
+        
+        sink.accept("1");
+        sink.accept("2");
+        sink.accept("3");
+        sink.accept("4");
+        sleep(300);
+        
+        sink.shutdownNow();
+        
+        try {
+            sink.accept("5");
+            Assert.fail("IllegalStateException expected");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("stream is already closed elements which have not been sent: 2, 3, 4", expected.getMessage());
+        }
+    }
+    
+    
+    
+    
+    @Test
+    public void testCloseGraceful() throws Exception {
+        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        
+        consumer.suspend();
+        
+        ReactiveSink<String> sink = ReactiveSink.buffer(20)
+                                                .subscribe(consumer);
+        
+        sink.accept("1");
+        sink.accept("2");
+        sink.accept("3");
+        sink.accept("4");
+        sleep(300);
+        
+        sink.shutdown();
+        
+        try {
+            sink.accept("5");
+            Assert.fail("IllegalStateException expected");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("stream is already closed", expected.getMessage());
+        }
+        
+        
+        Assert.assertEquals(3, sink.getBuffered().size());
+        Assert.assertEquals(1, consumer.getNumReceived());
+        
+        consumer.resume();
+        sleep(300);
+        Assert.assertEquals(0, sink.getBuffered().size());
+        Assert.assertEquals(4, consumer.getNumReceived());
+
+    }
+    
+    
+    
+    
+    
     private void sleep(long millis) {
         try {
             Thread.sleep(millis);

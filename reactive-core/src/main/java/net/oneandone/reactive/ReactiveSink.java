@@ -25,6 +25,7 @@ import net.oneandone.reactive.utils.SubscriberNotifier;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Queues;
 
@@ -49,16 +50,13 @@ public class ReactiveSink<T> implements Consumer<T> {
     }
     
     
-    /*
     
     public ImmutableList<T> shutdownNow() {
-        sinkSubscription.onComplete();
-        
+        return sinkSubscription.shutdownNow();
     }
-    */
     
     public void shutdown() {
-        
+        sinkSubscription.shutdown();
     }
    
 
@@ -75,6 +73,7 @@ public class ReactiveSink<T> implements Consumer<T> {
         private final BlockingQueue<T> queue;
         private long pendingRequests = 0;
         
+        private ImmutableList<T> lostElements;
 
         public SinkSubscription(Subscriber<? super T> subscriber, int buffersize) {
             subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
@@ -87,25 +86,45 @@ public class ReactiveSink<T> implements Consumer<T> {
 
         
         public void onNext(T t) {
-            if (!isOpen.get()) {
-                throw new IllegalStateException("stream is already closed");
-            }
-            
             synchronized (consumeLock) {
+
+                if (!isOpen.get()) {
+                    String msg = "stream is already closed";
+                    if ((lostElements != null) && (!lostElements.isEmpty())) {
+                        msg += " elements which have not been sent: " + Joiner.on(", ").join(lostElements);
+                    }
+                    throw new IllegalStateException(msg);
+                }
+            
                 queue.add(t);
                 process();
             }
         }
 
-        public void onComplete() {
-            subscriberNotifier.notifyOnComplete();
-        }
-
         @Override
         public void cancel() {
-           // close();
+            shutdownNow();
         }
 
+        
+        public ImmutableList<T> shutdownNow() {
+            synchronized (consumeLock) {
+                lostElements = getBuffered();
+                queue.clear();
+                shutdown();
+                
+                return lostElements;
+            }
+        }
+        
+        public void shutdown() {
+            synchronized (consumeLock) {
+                isOpen.set(false);
+                process();
+            }
+        }
+       
+        
         @Override
         public void request(long n) {
             synchronized (consumeLock) {
@@ -115,6 +134,7 @@ public class ReactiveSink<T> implements Consumer<T> {
         }
         
         
+        @SuppressWarnings("unchecked")
         public ImmutableList<T> getBuffered() {
             synchronized (consumeLock) {
                 return ImmutableList.copyOf((T[]) queue.toArray());
@@ -123,6 +143,10 @@ public class ReactiveSink<T> implements Consumer<T> {
         
         
         private void process() {
+            if ((queue.isEmpty()) && !isOpen.get()) {
+                subscriberNotifier.notifyOnComplete();
+            }
+            
             while (pendingRequests > 0) {
                 T t = queue.poll();
                 if (t == null) {

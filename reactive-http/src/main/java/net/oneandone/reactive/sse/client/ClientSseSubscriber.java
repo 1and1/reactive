@@ -15,6 +15,7 @@
  */
 package net.oneandone.reactive.sse.client;
 
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -24,23 +25,33 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.io.BaseEncoding;
-
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import com.google.common.io.BaseEncoding;
 
 
-class SseOutboundSubscriber implements Subscriber<ServerSentEvent> {
+
+
+public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
     private final OutboundStream httpUpstream;
+    private final StreamProvider streamProvider = new NettyBasedStreamProvider();
+
     private final boolean isAutoId;
     private final String globalId = newGlobalId();
     private final AtomicLong nextLocalId = new AtomicLong(1);
     
-    public SseOutboundSubscriber(URI uri, StreamProvider streamProvider, boolean isAutoId) {
+    
+    public ClientSseSubscriber(URI uri) {
+        this(uri, true);
+    }
+    
+    
+    
+    public ClientSseSubscriber(URI uri, boolean isAutoId) {
         this.httpUpstream = new ReconnectingOutboundstream(uri, streamProvider);
         this.isAutoId = isAutoId;
     }
@@ -93,11 +104,13 @@ class SseOutboundSubscriber implements Subscriber<ServerSentEvent> {
     @Override
     public void onError(Throwable t) {
         httpUpstream.terminate();
+        streamProvider.close();
     }
     
     @Override
     public void onComplete() {
         httpUpstream.close();
+        streamProvider.close();
     }
     
     

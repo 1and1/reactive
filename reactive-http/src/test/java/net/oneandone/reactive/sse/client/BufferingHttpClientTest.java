@@ -24,15 +24,15 @@ import java.util.UUID;
 import net.oneandone.reactive.AbstractProcessor;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.SseClient;
 import net.oneandone.reactive.sse.client.Producer.Emitter;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
-
+@Ignore
 public class BufferingHttpClientTest {
     
     
@@ -57,12 +57,8 @@ public class BufferingHttpClientTest {
     public void testSimple() throws Exception {
         URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
 
-        SseClient sseClient = SseClient.target(uri);
-
-        
         TestSubscriber consumer = new TestSubscriber(1, 3);
-        sseClient.inbound()
-                 .subscribe(consumer);
+        new ClientSsePublisher(uri).subscribe(consumer); 
         
         
         
@@ -73,9 +69,7 @@ public class BufferingHttpClientTest {
         AbstractProcessor<ServerSentEvent> streamBuffer = new AbstractProcessor<>(10);
         producer.subscribe(streamBuffer);
         
-        streamBuffer.subscribe(sseClient.outbound()
-                                        .generateMsgId(true)
-                                        .subscriber());
+        producer.subscribe(new ClientSseSubscriber(uri, true));
         
         Emitter<ServerSentEvent> emitter = producer.getEmitterAsync().get();
         emitter.publish(ServerSentEvent.newEvent().data("test1"));
@@ -90,6 +84,5 @@ public class BufferingHttpClientTest {
         Assert.assertEquals("test312123123123123", sseIt.next().getData());
         
         producer.close();
-        sseClient.close();
     }
 }

@@ -18,11 +18,11 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+
 import java.util.UUID;
 
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.SseClient;
 import net.oneandone.reactive.sse.client.Producer.Emitter;
 
 import org.junit.After;
@@ -57,14 +57,13 @@ public class HttpClientMaxReceiveBufferSizeExceddedTest {
     public void testSimple() throws Exception {
         URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
 
-        SseClient sseClient = SseClient.target(uri);
-
         
         TestSubscriber consumer = new TestSubscriber(10, 100);
-        sseClient.inbound().subscribe(consumer);
+        new ClientSsePublisher(uri).subscribe(consumer); 
+
 
         Producer<ServerSentEvent> producer = new Producer<>();
-        producer.subscribe(sseClient.outbound().subscriber());
+        producer.subscribe(new ClientSseSubscriber(uri, true));
         
         Emitter<ServerSentEvent> emitter = producer.getEmitterAsync().get();
         
@@ -107,6 +106,5 @@ public class HttpClientMaxReceiveBufferSizeExceddedTest {
         Assert.assertEquals(100,  consumer.getEventsAsync().get().size());
         
         producer.close();
-        sseClient.close();
     }
 }

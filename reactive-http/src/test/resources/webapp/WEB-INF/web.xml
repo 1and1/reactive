@@ -43,4 +43,17 @@
 		<url-pattern>/sse/*</url-pattern>
 	</servlet-mapping>
 
+
+	<servlet>
+		<servlet-name>TestServlet</servlet-name>
+		<servlet-class>net.oneandone.reactive.sse.servlet.TestServlet</servlet-class>
+		<async-supported>true</async-supported>
+	</servlet>
+
+	<servlet-mapping>
+		<servlet-name>TestServlet</servlet-name>
+		<url-pattern>/simpletest/*</url-pattern>
+	</servlet-mapping>
+
+
 </web-app> 

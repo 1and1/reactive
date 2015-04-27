@@ -20,6 +20,10 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -30,6 +34,8 @@ import com.google.common.collect.Lists;
  * ServerSentEvent parser
  */
 public class ServerSentEventParser {
+    private static final Logger LOG = LoggerFactory.getLogger(ServerSentEventParser.class);
+    
     private final List<String> lines = Lists.newArrayList(); 
     private final LineParser lineParser = new LineParser();
     
@@ -57,6 +63,7 @@ public class ServerSentEventParser {
         if (!lines.isEmpty()) {
             for (String line : lines) {
                 String trimmedLine = line.trim();
+                LOG.debug("parsing line '" + trimmedLine + "'");
                 
                 // If the line is empty (a blank line)
                 if (trimmedLine.length() == 0) {

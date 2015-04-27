@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
 	<parent>
@@ -23,11 +24,11 @@
 
 
 	<properties>
-	    <jacoco.check.instructionRatio>0.40</jacoco.check.instructionRatio>
-	    <jacoco.check.lineRatio>0.40</jacoco.check.lineRatio>
-	    <jacoco.check.methodRatio>0.40</jacoco.check.methodRatio>
+		<jacoco.check.instructionRatio>0.40</jacoco.check.instructionRatio>
+		<jacoco.check.lineRatio>0.40</jacoco.check.lineRatio>
+		<jacoco.check.methodRatio>0.40</jacoco.check.methodRatio>
 		<jacoco.check.classRatio>0.40</jacoco.check.classRatio>
-	    <jacoco.check.branchRatio>0.30</jacoco.check.branchRatio>
+		<jacoco.check.branchRatio>0.30</jacoco.check.branchRatio>
 		<jacoco.check.complexityRatio>0.30</jacoco.check.complexityRatio>
 	</properties>
 
@@ -41,6 +42,19 @@
 			<groupId>org.reactivestreams</groupId>
 			<artifactId>reactive-streams</artifactId>
 			<version>1.0.0.RC5</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<version>1.7.12</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-simple</artifactId>
+			<version>1.7.12</version>
+			<scope>test</scope>
 		</dependency>
 
 		<!-- test -->
@@ -68,8 +82,8 @@
 		</pluginManagement>
 	</build>
 
-  <scm>
-    <tag>reactive-parent-0.7</tag>
-  </scm>
+	<scm>
+		<tag>reactive-parent-0.7</tag>
+	</scm>
 </project>
 

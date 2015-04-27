@@ -72,7 +72,7 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         private final AtomicInteger numRequested = new AtomicInteger(0);
         private final ServerSentEventParser parser = new ServerSentEventParser();
     
-        private StreamProvider streamProvider = NettyBasedStreamProvider.common();
+        private StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
         
     
         public SseInboundStreamSubscription(URI uri, Subscriber<? super ServerSentEvent> subscriber) {

@@ -54,7 +54,7 @@ public class ServerSentEventSourceTest {
     
     @Test
     public void testSimple() throws Exception {
-        URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
+        URI uri = URI.create(server.getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
 
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(10, 100);

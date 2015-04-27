@@ -48,7 +48,7 @@ public class ReactiveSseServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.startAsync();
          
-        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req.getInputStream());
+        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req);
         broker.registerPublisher(req.getPathInfo(), publisher);
     }
     

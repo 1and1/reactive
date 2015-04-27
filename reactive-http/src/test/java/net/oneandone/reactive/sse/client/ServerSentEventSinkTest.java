@@ -39,6 +39,7 @@ public class ServerSentEventSinkTest {
    
     @Before
     public void before() throws Exception {
+     //   System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         server = new WebContainer("/ssetest");
         server.start();
     }
@@ -53,13 +54,13 @@ public class ServerSentEventSinkTest {
     
     @Test
     public void testSimple() throws Exception {
-        URI uri = URI.create(server.getBaseUrl() + "/sse/channel/" + UUID.randomUUID().toString());
+        URI uri = URI.create(server.getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(1, 3);
         new ClientSsePublisher(uri).subscribe(consumer); 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri, true));
+                                                                 .subscribe(new ClientSseSubscriber(uri).autoId(true));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test21212"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test312123123123123"));

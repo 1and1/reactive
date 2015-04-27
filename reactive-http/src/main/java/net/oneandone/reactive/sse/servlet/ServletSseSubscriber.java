@@ -19,18 +19,22 @@ package net.oneandone.reactive.sse.servlet;
 
 
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Logger;
 
+import javax.management.RuntimeErrorException;
 import javax.servlet.ServletOutputStream;
+import javax.servlet.http.HttpServletResponse;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.utils.IllegalStateSubscription;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 
@@ -40,29 +44,41 @@ import org.reactivestreams.Subscription;
  * 
  */
 public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
-    private static final Logger LOG = Logger.getLogger(ServletSseSubscriber.class.getName());
+    private static final Logger LOG = LoggerFactory.getLogger(ServletSseSubscriber.class);
+
     
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(new IllegalStateSubscription());
     
-    private final SseWriteableChannel channel;
+    private final SseOutboundChannel channel;
 
     
-    /**
-     * @param out       the servlet output stream
-     */
+    @Deprecated
     public ServletSseSubscriber(ServletOutputStream out) {
         this(out, Duration.ofSeconds(25));
     }   
 
-    
-    /**
-     * @param out               the servlet output stream
-     * @param keepAlivePeriod   the keep alive period
-     */
+    @Deprecated
     public ServletSseSubscriber(ServletOutputStream out, Duration keepAlivePeriod) {
-        this.channel = new SseWriteableChannel(out, error -> onError(error), keepAlivePeriod);
+        this.channel = new SseOutboundChannel(out, error -> onError(error), keepAlivePeriod);
     }   
+    
+
+    
+    public ServletSseSubscriber(HttpServletResponse resp) {
+        this(resp, Duration.ofSeconds(25));
+    }   
+
+    
+    public ServletSseSubscriber(HttpServletResponse resp, Duration keepAlivePeriod) {
+        try {
+            this.channel = new SseOutboundChannel(resp.getOutputStream(), error -> onError(error), keepAlivePeriod);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }   
+
+
 
    
    
@@ -83,7 +99,7 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onError(Throwable t) {
-        LOG.fine("error on source stream. stop streaming " + t.getMessage());
+        LOG.debug("error on source stream. stop streaming " + t.getMessage());
         close();
     }
   

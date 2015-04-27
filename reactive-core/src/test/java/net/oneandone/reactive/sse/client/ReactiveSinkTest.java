@@ -37,12 +37,12 @@ public class ReactiveSinkTest {
         
         sink.accept("1");
         sleep(300);
-        Assert.assertEquals(0, sink.getBuffered().size());
+        Assert.assertEquals(0, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
         
         sink.accept("2");
         sleep(300);
-        Assert.assertEquals(1, sink.getBuffered().size());
+        Assert.assertEquals(1, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
         
         try {
@@ -64,23 +64,23 @@ public class ReactiveSinkTest {
         
         sink.accept("1");
         sleep(300);
-        Assert.assertEquals(0, sink.getBuffered().size());
+        Assert.assertEquals(0, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
                 
         sink.accept("2");
         sleep(300);
-        Assert.assertEquals(1, sink.getBuffered().size());
+        Assert.assertEquals(1, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
         
         sink.accept("3");
         sleep(300);
-        Assert.assertEquals(2, sink.getBuffered().size());
+        Assert.assertEquals(2, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
 
         
         consumer.resume();
         sleep(300);
-        Assert.assertEquals(0, sink.getBuffered().size());
+        Assert.assertEquals(0, sink.getUnprocessedElements().size());
         Assert.assertEquals(3, consumer.getNumReceived());
     }
     
@@ -163,12 +163,12 @@ public class ReactiveSinkTest {
         }
         
         
-        Assert.assertEquals(3, sink.getBuffered().size());
+        Assert.assertEquals(3, sink.getUnprocessedElements().size());
         Assert.assertEquals(1, consumer.getNumReceived());
         
         consumer.resume();
         sleep(300);
-        Assert.assertEquals(0, sink.getBuffered().size());
+        Assert.assertEquals(0, sink.getUnprocessedElements().size());
         Assert.assertEquals(4, consumer.getNumReceived());
 
     }

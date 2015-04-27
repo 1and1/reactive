@@ -46,38 +46,22 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.net.ssl.SSLException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Sets;
+
 
 
 class NettyBasedStreamProvider implements StreamProvider {
-    
-    private static final NettyBasedStreamProvider COMMON = new NettyBasedStreamProvider();
-    
-    public static StreamProvider common() {
-        
-        return new StreamProvider() {
-
-            @Override
-            public OutboundStream newOutboundStream(URI uri) {
-                return COMMON.newOutboundStream(uri);
-            }
-            
-            @Override
-            public InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
-                return COMMON.newInboundStream(uri, dataConsumer, errorConsumer);
-            }
-            
-            @Override
-            public void close() {
-            }
-        };
-    }
-    
+    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedStreamProvider.class);
     
     private final EventLoopGroup eventLoopGroup;
     
@@ -99,8 +83,8 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     @Override
-    public OutboundStream newOutboundStream(URI uri) {
-        return new NettyHttp11OutboundStream(uri);
+    public OutboundStream newOutboundStream(URI uri, Consumer<Void> closeConsumer) {
+        return new NettyHttp11OutboundStream(uri, closeConsumer);
     }
 
     
@@ -206,10 +190,13 @@ class NettyBasedStreamProvider implements StreamProvider {
                  p.addLast(new HttpContentDecompressor());
                  p.addLast(new HttpInboundHandler());
             }
+            
+            
         }
     
         
         private class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
+            
             
             @Override
             protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
@@ -242,10 +229,13 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     private class NettyHttp11OutboundStream implements OutboundStream  {
         private final Channel channel;
+        private final Consumer<Void> closeConsumer;
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
-        public NettyHttp11OutboundStream(URI uri) {
+        public NettyHttp11OutboundStream(URI uri, Consumer<Void> closeConsumer) {
             try {
-                
+                this.closeConsumer = closeConsumer;
+                    
                 String scheme = (uri.getScheme() == null) ? "http" : uri.getScheme();
                 String host =uri.getHost();
                 int port = uri.getPort();
@@ -310,11 +300,18 @@ class NettyBasedStreamProvider implements StreamProvider {
         @Override
         public void close() {
             channel.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
-            channel.close();
+            closeChannel();
         }
     
         public void terminate() {
-            channel.close();
+            closeChannel();
+        }
+        
+        private void closeChannel() {
+            if (isOpen.getAndSet(false)) {
+                channel.close();
+                closeConsumer.accept(null);
+            }
         }
         
         private class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
@@ -347,12 +344,14 @@ class NettyBasedStreamProvider implements StreamProvider {
             protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
                 if (msg instanceof HttpResponse) {
                     HttpResponse response = (HttpResponse) msg;
+                    LOG.debug("response revceived: " + response.getStatus());
                     
                 } else  if (msg instanceof HttpContent) {
                     HttpContent content = (HttpContent) msg;
                     
                     if (content instanceof LastHttpContent) {
                         ctx.close();
+                        terminate();
                     }
                 }
             }
@@ -362,6 +361,65 @@ class NettyBasedStreamProvider implements StreamProvider {
                 // TODO Auto-generated method stub
                 super.exceptionCaught(ctx, cause);
             }
+        }
+    }
+    
+    
+    
+    
+   
+    private static final Object PROVIDER_LOCK = new Object();
+    private static NettyBasedStreamProvider common;
+    private static final Set<StreamProviderHandle> handles = Sets.newCopyOnWriteArraySet();
+
+    
+    public static StreamProvider newStreamProvider() {
+        return new StreamProviderHandle();
+    }
+    
+    private static StreamProvider registerHandle(StreamProviderHandle handle) {
+        synchronized (PROVIDER_LOCK) {
+            if (common == null) {
+                common = new NettyBasedStreamProvider();
+            }
+            
+            handles.add(handle);
+            return common;
+        }
+    }
+    
+    private static void deregisterHandle(StreamProvider provider,  StreamProviderHandle handle) {
+        synchronized (PROVIDER_LOCK) {
+            handles.remove(handle);
+            if (handles.isEmpty()) {
+                common.close();
+                common = null;
+            }
+        }
+    }
+
+    
+    private static final class StreamProviderHandle implements StreamProvider {
+        private final StreamProvider delegate;
+        
+        
+        public StreamProviderHandle() {
+            delegate = registerHandle(this);
+        }
+        
+        @Override
+        public OutboundStream newOutboundStream(URI uri, Consumer<Void> closeConsumer) {
+            return delegate.newOutboundStream(uri, closeConsumer);
+        }
+        
+        @Override
+        public InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
+            return delegate.newInboundStream(uri, dataConsumer, errorConsumer);
+        }
+        
+        @Override
+        public void close() {
+            deregisterHandle(delegate, this);
         }
     }
 }        

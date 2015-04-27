@@ -37,7 +37,7 @@ import com.google.common.collect.Lists;
 
 
 
-class SseWriteableChannel  {
+class SseOutboundChannel  {
     private final static int DEFAULT_KEEP_ALIVE_PERIOD_SEC = 30; 
 
     private final List<CompletableFuture<Boolean>> whenWritePossibles = Lists.newArrayList();
@@ -46,12 +46,12 @@ class SseWriteableChannel  {
 
 
     
-    public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
+    public SseOutboundChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
         this(out, errorConsumer, Duration.ofSeconds(DEFAULT_KEEP_ALIVE_PERIOD_SEC));
     }
 
     
-    public SseWriteableChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer, Duration keepAlivePeriod) {
+    public SseOutboundChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer, Duration keepAlivePeriod) {
         this.errorConsumer = errorConsumer;
         this.out = out;
         out.setWriteListener(new ServletWriteListener());
@@ -164,7 +164,7 @@ class SseWriteableChannel  {
      */
     private static final class KeepAliveEmitter {
         private static final ScheduledThreadPoolExecutor EXECUTOR = newScheduledThreadPoolExecutor();
-        private final SseWriteableChannel channel;
+        private final SseOutboundChannel channel;
         private final Duration keepAlivePeriod;
 
         private static ScheduledThreadPoolExecutor newScheduledThreadPoolExecutor() {
@@ -176,7 +176,7 @@ class SseWriteableChannel  {
         }
         
         
-        public KeepAliveEmitter(SseWriteableChannel channel, Duration keepAlivePeriod) {
+        public KeepAliveEmitter(SseOutboundChannel channel, Duration keepAlivePeriod) {
             this.channel = channel;
             this.keepAlivePeriod = keepAlivePeriod;
         }

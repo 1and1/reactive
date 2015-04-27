@@ -28,6 +28,9 @@ import java.util.function.Consumer;
 import javax.servlet.ReadListener;
 import javax.servlet.ServletInputStream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 
@@ -37,7 +40,10 @@ import com.google.common.io.Closeables;
 
 
  
-class SseReadableChannel {
+class SseInboundChannel {
+    private static final Logger LOG = LoggerFactory.getLogger(SseInboundChannel.class);
+    
+    
     private final Object pendingConsumesLock = new Object();
     private final AtomicInteger numPendingConsumes = new AtomicInteger(0);
 
@@ -49,7 +55,7 @@ class SseReadableChannel {
     
 
     
-    public SseReadableChannel(ServletInputStream in, Consumer<ServerSentEvent> eventConsumer, Consumer<Throwable> errorConsumer, Consumer<Void> completionConsumer) {
+    public SseInboundChannel(ServletInputStream in, Consumer<ServerSentEvent> eventConsumer, Consumer<Throwable> errorConsumer, Consumer<Void> completionConsumer) {
         this.eventConsumer = eventConsumer;
         this.errorConsumer = errorConsumer;
         this.completionConsumer = completionConsumer;
@@ -68,7 +74,7 @@ class SseReadableChannel {
         
         @Override
         public void onError(Throwable t) {
-            SseReadableChannel.this.onError(t);
+            notifyError(t);
         }
         
         @Override
@@ -99,7 +105,7 @@ class SseReadableChannel {
                     }
                     
                 } catch (IOException | RuntimeException t) {
-                    onError(t);
+                    notifyError(t);
                 }
             }
         }
@@ -120,13 +126,13 @@ class SseReadableChannel {
                     }
                 }
             } catch (IOException | RuntimeException t) {
-                onError(t);
+                notifyError(t);
             }
         }
     }
     
     
-    private void onError(Throwable t)  {
+    private void notifyError(Throwable t)  {
         errorConsumer.accept(t);
         close();
     }
@@ -161,6 +167,7 @@ class SseReadableChannel {
        
         
         public void close() {
+            LOG.debug("closing servlet input stream");
             Closeables.closeQuietly(is);
         }
     

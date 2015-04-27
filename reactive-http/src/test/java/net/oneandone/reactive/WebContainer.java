@@ -38,20 +38,35 @@ public class WebContainer extends Tomcat {
     private final String ctx;
     
     public WebContainer(String ctx) throws ServletException {
+        this(ctx, 0);
+    }
+
+    
+    public WebContainer(String ctx, int port) throws ServletException {
         this.ctx = ctx;
-        setPort(0);
+        setPort(port);
         addWebapp(ctx, new File("src/test/resources/webapp").getAbsolutePath());
     }
    
+
+    
     public int getLocalPort() {
         return computeLocalPort(getConnector());
     }
     
 
     public String getBaseUrl() {
-        return "http://localhost:" + computeLocalPort(getConnector()) + ctx;
+        return "http://localhost:" + computeLocalPort(getConnector()) + getBasePath();
     }
    
+    
+
+    public String getBasePath() {
+        return ctx;
+    }
+   
+    
+    
     /*
      * @see http://code.google.com/p/google-web-toolkit/source/browse/releases/2.0/dev/core/src/com/google/gwt/dev/shell/tomcat/EmbeddedTomcatServer.java?r=6710
      */

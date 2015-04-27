@@ -58,6 +58,11 @@ class TestSubscriber<T> implements Subscriber<T> {
     }
     
     
+    public void close() {
+        subscriptionRef.get().cancel();
+    }
+    
+    
     @Override
     public void onSubscribe(Subscription subscription) {
         this.subscriptionRef.set(subscription);
@@ -67,6 +72,7 @@ class TestSubscriber<T> implements Subscriber<T> {
     @Override
     public void onNext(T event) {
         try {
+            System.out.print("TestSubscriber reveived: " + event);
             events.add(event);
             if (events.size() == numWaitFor) {
                 promise.complete(ImmutableList.copyOf(events));

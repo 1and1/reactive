@@ -35,6 +35,7 @@ import com.google.common.collect.Queues;
 
 
 public class ReactiveSink<T> implements Consumer<T> {
+    private final AtomicBoolean isOpen = new AtomicBoolean(true);
     private final SinkSubscription sinkSubscription;
     
     private ReactiveSink(Subscriber<? super T> subscriber, int buffersize) {
@@ -46,27 +47,39 @@ public class ReactiveSink<T> implements Consumer<T> {
    
     @Override
     public void accept(T t) {
-        sinkSubscription.onNext(t);
+        sinkSubscription.publish(t);
     }
     
     
-    
+    /**
+     * shutdown the sink
+     * 
+     * @return the unprocessed element list
+     */
     public ImmutableList<T> shutdownNow() {
+        isOpen.set(false);
         return sinkSubscription.shutdownNow();
     }
     
+    /**
+     * shutdown the queue. Let the unprocessed elements be processed
+     */
     public void shutdown() {
+        isOpen.set(false);
         sinkSubscription.shutdown();
     }
    
 
-    public ImmutableList<T> getBuffered() {
+    /**
+     * @return the unprocessed elements
+     */
+    public ImmutableList<T> getUnprocessedElements() {
         return sinkSubscription.getBuffered();
     }
     
     
+    
     private final class SinkSubscription implements Subscription {
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final SubscriberNotifier<T> subscriberNotifier;
         
         private final Object consumeLock = new Object();
@@ -85,7 +98,7 @@ public class ReactiveSink<T> implements Consumer<T> {
         }
 
         
-        public void onNext(T t) {
+        public void publish(T t) {
             synchronized (consumeLock) {
 
                 if (!isOpen.get()) {
@@ -161,6 +174,10 @@ public class ReactiveSink<T> implements Consumer<T> {
     
 
   
+    /** 
+     * @param buffersize  the outbuond element buffer size
+     * @return the new builder instance 
+     */
     public static <T> ReactiveSinkBuilder buffer(int buffersize) {
         return new ReactiveSinkBuilder(buffersize);
     }
@@ -169,7 +186,7 @@ public class ReactiveSink<T> implements Consumer<T> {
     public static final class ReactiveSinkBuilder {
         private final int buffersize;
     
-        ReactiveSinkBuilder(int buffersize) {
+        private ReactiveSinkBuilder(int buffersize) {
             this.buffersize = buffersize;
         }
         

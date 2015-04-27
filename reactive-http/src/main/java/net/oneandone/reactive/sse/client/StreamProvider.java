@@ -29,7 +29,7 @@ interface StreamProvider extends Closeable {
     
     InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer);
     
-    OutboundStream newOutboundStream(URI uri);
+    OutboundStream newOutboundStream(URI uri, Consumer<Void> closeConsumer);
 
     @Override
     public void close();

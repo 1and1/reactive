@@ -15,8 +15,13 @@
  */
 package net.oneandone.reactive.sse.servlet;
 
+import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import javax.servlet.ServletInputStream;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -24,23 +29,46 @@ import net.oneandone.reactive.utils.SubscriberNotifier;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 
 /**
  * Maps the servlet input stream (which have to receive Server-sent events) into a publisher 
  */
-class ServletSsePublisher implements Publisher<ServerSentEvent> {
+public class ServletSsePublisher implements Publisher<ServerSentEvent> {
+    private static final Logger LOG = LoggerFactory.getLogger(ServletSsePublisher.class);
+    
     
     private boolean subscribed = false; // true after first subscribe
     private final ServletInputStream inputStream;
+    private final Consumer<Void> closeListener;
+    private final Consumer<Throwable> errorListener;
 
-    /**
-     * @param inputStream  the underlying servlet input stream
-     */
-    public ServletSsePublisher(ServletInputStream inputStream) {
-        this.inputStream = inputStream;
+    
+    public ServletSsePublisher(HttpServletRequest req) {
+        this(req, (Void) -> { }, (error) -> LOG.debug("error occured " + error));
     }
+    
+    public ServletSsePublisher(HttpServletRequest req, HttpServletResponse resp) {
+        this(req, (Void) -> sendNoContentResponse(resp),  (error) -> sendServerError(resp, error));
+    }
+    
+      private ServletSsePublisher(HttpServletRequest req, Consumer<Void> closeListener, Consumer<Throwable> errorListener) {
+        LOG.debug(req.getMethod() + " " + req.getRequestURL().toString());
+        
+        try {
+            this.inputStream = req.getInputStream();
+            this.closeListener = closeListener;
+            this.errorListener = errorListener;
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+    
+
+    
     
     @Override
     public void subscribe(Subscriber<? super ServerSentEvent> subscriber) {
@@ -54,7 +82,7 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
                 subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
             } else {
                 subscribed = true;
-                SEEEventReaderSubscription subscription = new SEEEventReaderSubscription(inputStream, subscriber);
+                SEEEventReaderSubscription subscription = new SEEEventReaderSubscription(inputStream, subscriber, closeListener, errorListener);
                 subscription.init();
             }
         }
@@ -62,18 +90,45 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
 
     
     
+    private static void sendNoContentResponse(HttpServletResponse resp) {
+        try {
+            resp.setStatus(204);
+            resp.getWriter().close();
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+    
+    
+    private static void sendServerError(HttpServletResponse resp, Throwable error) {
+        try {
+            resp.setStatus(500);
+            resp.setHeader("Connection", "close");
+            resp.getWriter().close();
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+    
+    
     private static class SEEEventReaderSubscription implements Subscription {
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier;
-        private final SseReadableChannel channel;
+        private final SseInboundChannel channel;
+        private final Consumer<Void> closeListener;
+        private final Consumer<Throwable> errorListener;
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
 
-
-        public SEEEventReaderSubscription(ServletInputStream inputStream, Subscriber<? super ServerSentEvent> subscriber) {
+        public SEEEventReaderSubscription(ServletInputStream inputStream, Subscriber<? super ServerSentEvent> subscriber, 
+                                          Consumer<Void> closeListener,
+                                          Consumer<Throwable> errorListener) {
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
+            this.closeListener = closeListener;
+            this.errorListener = errorListener;
             
-            this.channel = new SseReadableChannel(inputStream,                                      // servlet input stream
-                                                  event -> subscriberNotifier.notifyOnNext(event),    // event consumer
-                                                  error -> subscriberNotifier.notifyOnError(error),   // error consumer
-                                                  Void -> subscriberNotifier.notifyOnComplete());     // completion consumer         
+            this.channel = new SseInboundChannel(inputStream,                                      // servlet input stream
+                                                 event -> subscriberNotifier.notifyOnNext(event),  // event consumer
+                                                 error -> notifyError(error),                      // error consumer
+                                                 Void -> close());                                 // completion consumer         
         }
         
         void init() {
@@ -82,8 +137,26 @@ class ServletSsePublisher implements Publisher<ServerSentEvent> {
 
         @Override
         public void cancel() {
-            channel.close();
+            close();
         }
+        
+        
+        private void close() {
+            if (isOpen.getAndSet(false)) {
+                closeListener.accept(null);
+                subscriberNotifier.notifyOnComplete();
+                
+                channel.close();
+            }
+        }
+        
+        private void notifyError(Throwable error) {
+            errorListener.accept(error); 
+            subscriberNotifier.notifyOnError(error); 
+            
+            close();
+        }
+        
         
         
         @Override

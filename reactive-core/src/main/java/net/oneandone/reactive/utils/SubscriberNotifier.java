@@ -16,6 +16,7 @@
 package net.oneandone.reactive.utils;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
+
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -23,7 +24,6 @@ import com.google.common.collect.Queues;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-
 
 
 public class SubscriberNotifier<T> {

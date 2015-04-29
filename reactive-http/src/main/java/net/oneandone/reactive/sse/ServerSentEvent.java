@@ -15,6 +15,8 @@
  */
 package net.oneandone.reactive.sse;
 
+import java.util.Optional;
+
 
 
 /**
@@ -28,30 +30,30 @@ public interface ServerSentEvent {
     /**
      * @return the comment or NULL
      */
-    String getComment();
+    Optional<String> getComment();
     
     /**
      * @return the data ('data:' value)  or NULL
      */
-    String getData();
+    Optional<String> getData();
     
     
     /**
      * @return the event type ('event:' value) or NULL
      */
-    String getEvent();
+    Optional<String> getEvent();
   
     
     /**
      * @return the id ('id:' value) or NULL
      */
-    String getId();
+    Optional<String> getId();
 
     
     /**
      * @return the retry ('retry:' value) or NULL
      */
-    Integer getRetry();
+    Optional<Integer> getRetry();
     
 
 
@@ -68,26 +70,11 @@ public interface ServerSentEvent {
     default String toWire() {
         StringBuilder sb = new StringBuilder();
         
-        if (getComment() != null) {
-            sb.append(": " + getComment() + "\r\n");
-        }
-
-        if (getId() != null) {
-            sb.append("id: " + getId() + "\r\n");
-        }
-        
-        if (getEvent() != null) {
-            sb.append("event: " + getEvent() + "\r\n");
-        }
-
-        if (getData() != null) {
-            sb.append("data: " + getData() + "\r\n");
-        }
-        
-        if (getRetry() != null) {
-            sb.append("retry: " + getRetry() + "\r\n");
-        }
-        
+        getComment().ifPresent(comment -> sb.append(": " + comment + "\r\n"));
+        getId().ifPresent(id -> sb.append("id: " + id + "\r\n"));
+        getEvent().ifPresent(event -> sb.append("event: " + event + "\r\n"));
+        getData().ifPresent(data -> sb.append("data: " + data + "\r\n"));
+        getRetry().ifPresent(retry -> sb.append("retry: " + retry + "\r\n"));
         sb.append("\r\n");
         
         return sb.toString();
@@ -186,28 +173,28 @@ public interface ServerSentEvent {
         }
 
         @Override
-        public String getComment() {
-            return comment;
+        public Optional<String> getComment() {
+            return Optional.ofNullable(comment);
         }
         
         @Override
-        public String getData() {
-            return data;
+        public Optional<String> getData() {
+            return Optional.ofNullable(data);
         }
 
         @Override
-        public String getEvent() {
-            return event;
+        public Optional<String> getEvent() {
+            return Optional.ofNullable(event);
         }
 
         @Override
-        public String getId() {
-            return id;
+        public Optional<String> getId() {
+            return Optional.ofNullable(id);
         }
 
         @Override
-        public Integer getRetry() {
-            return retry;
+        public Optional<Integer> getRetry() {
+            return Optional.ofNullable(retry);
         }
         
         /**

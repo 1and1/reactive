@@ -21,87 +21,170 @@ import java.net.URI;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
-import net.oneandone.reactive.WebContainer;
+import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
-import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
+import com.google.common.collect.ImmutableList;
 
 
 
-public class ServerSentEventSourceTest {
-    
-    
-    private WebContainer server;
-    
-   
-    @Before
-    public void before() throws Exception {
-        server = new WebContainer("/ssetest");
-        server.start();
-    }
-   
-    
-    @After
-    public void after() throws Exception {
-        server.stop();
-    }
 
+public class ServerSentEventSourceTest extends TestServletbasedTest {
+    
     
     
     @Test
-    public void testSimple() throws Exception {
-        URI uri = URI.create(server.getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+    public void testInboundSuspending() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
 
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(10, 100);
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSubscriber(uri));
         
-        consumer.suspend();
+        sleep(500);  // wait for internal async connects
         
-        for (int i = 0; i < 30; i++) {
+        
+        for (int i = 0; i < 10; i++) {
             reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i));
         }
         
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException ignore) { }
-        
-        
-        Assert.assertEquals(10, consumer.getNumReceived());
-        Assert.assertTrue(consumer.toString().contains("[suspended]"));
+        consumer.getEventsAsync(10).get();
 
+        
+        consumer.suspend();
+
+        
+        for (int i = 0; i < 20; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("test2" + i));
+        }
+        
+        
+        consumer.getEventsAsync(11).get();
+        
+        Assert.assertTrue(consumer.toString().contains("[suspended]"));
+        Assert.assertEquals(11, consumer.getNumReceived());
+
+
+        
         consumer.resume();
 
-        
 
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException ignore) { }
-
-        
-        Assert.assertEquals(30, consumer.getNumReceived());
+        consumer.getEventsAsync(30).get();
         Assert.assertFalse(consumer.toString().contains("[suspended]"));
 
         
 
         for (int i = 0; i < 70; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i));
+            reactiveSink.accept(ServerSentEvent.newEvent().data("test3" + i));
         }
         
         
-        
-        
-        Assert.assertEquals(100,  consumer.getEventsAsync().get().size());
+        consumer.getEventsAsync(100).get();
         
         reactiveSink.shutdown();
+    }
+    
+    
+
+    
+    @Test
+    public void testInboundStartWithLastEventId() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer); 
+
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSubscriber(uri).autoId(true));
+
+        
+        sleep(500);  // wait for interna lasync connects
+        
+        reactiveSink.accept(ServerSentEvent.newEvent().id("1").data("test1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().id("2").data("test2"));
+        reactiveSink.accept(ServerSentEvent.newEvent().id("3").data("test3"));
+        
+        consumer.getEventsAsync(3).get();
+        
+        
+        TestSubscriber<ServerSentEvent> consumer2 = new TestSubscriber<>();
+        new ClientSsePublisher(uri).withLastEventId("1")
+                                   .subscribe(consumer2); 
+        
+        ImmutableList<ServerSentEvent> events = consumer2.getEventsAsync(2).get();
+        Assert.assertEquals("2", events.get(0).getId().get());
+        Assert.assertEquals("3", events.get(1).getId().get());
+        
+        
+        
+        reactiveSink.shutdown();
+    }
+    
+    
+    
+    
+
+    @Test
+    public void testInboundConnectionTerminated() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer); 
+
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSubscriber(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        // sendig data 
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test2"));
+        consumer.getEventsAsync(2).get();
+
+        
+        // invalidate the connection
+        reactiveSink.accept(ServerSentEvent.newEvent().data("posion pill"));
+        reactiveSink.shutdown();
+        
+        sleep(500);
+        
+        reactiveSink = ReactiveSink.buffer(1000)
+                                   .subscribe(new ClientSseSubscriber(uri));
+        sleep(500);  // wait for internal async connects
+
+        
+        
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test3"));
+        
+        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(3).get();
+        Assert.assertEquals("test1", events.get(0).getData().get());
+        Assert.assertEquals("test2", events.get(1).getData().get());
+        Assert.assertEquals("test3", events.get(2).getData().get());
+        
+        
+        reactiveSink.shutdown();
+    }
+    
+    
+
+    @Test
+    public void testInboundConnectionServerDown() throws Exception {
+
+    }
+    
+
+    @Test
+    public void testRedirectConnecet() throws Exception {
+        
     }
 }

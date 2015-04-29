@@ -68,9 +68,9 @@ public class ReactiveSseServletTest {
         ServerSentEventSource sseIn = new ServerSentEventSource(url);
         
         ServerSentEvent event = sseIn.next();
-        Assert.assertEquals("1", event.getId());
-        Assert.assertEquals("evt2", event.getEvent());
-        Assert.assertEquals("data", event.getData());
+        Assert.assertEquals("1", event.getId().get());
+        Assert.assertEquals("evt2", event.getEvent().get());
+        Assert.assertEquals("data", event.getData().get());
 
         
         sseOut.close();
@@ -101,18 +101,18 @@ public class ReactiveSseServletTest {
 
         ServerSentEventSource sseIn = new ServerSentEventSource(url);
         
-        Assert.assertTrue(sseIn.next().getData().startsWith("test0"));
-        Assert.assertTrue(sseIn.next().getData().startsWith("test1"));
-        Assert.assertTrue(sseIn.next().getData().startsWith("test2"));
-        Assert.assertTrue(sseIn.next().getData().startsWith("test3"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test0"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test1"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test2"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test3"));
 
         System.out.println("pausing");
         pause(500);
         
         
         System.out.println("receiving more");
-        Assert.assertTrue(sseIn.next().getData().startsWith("test4"));
-        Assert.assertTrue(sseIn.next().getData().startsWith("test5"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test4"));
+        Assert.assertTrue(sseIn.next().getData().get().startsWith("test5"));
 
         
         

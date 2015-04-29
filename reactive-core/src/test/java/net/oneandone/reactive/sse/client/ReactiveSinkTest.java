@@ -28,7 +28,7 @@ public class ReactiveSinkTest {
     
     @Test
     public void testInsuffientBufferSize() throws Exception {
-        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<String> consumer = new TestSubscriber<>(1);
         consumer.suspend();
         
         
@@ -55,7 +55,7 @@ public class ReactiveSinkTest {
     
     @Test
     public void testsuffientBufferSize() throws Exception {
-        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<String> consumer = new TestSubscriber<>(1);
         consumer.suspend();
         
         
@@ -87,7 +87,7 @@ public class ReactiveSinkTest {
     
     @Test
     public void testClose() throws Exception {
-        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<String> consumer = new TestSubscriber<>(1);
         
         
         ReactiveSink<String> sink = ReactiveSink.buffer(20)
@@ -112,7 +112,7 @@ public class ReactiveSinkTest {
     
     @Test
     public void testCloseWithUnprocessedElements() throws Exception {
-        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<String> consumer = new TestSubscriber<>(1);
         
         consumer.suspend();
         
@@ -140,7 +140,7 @@ public class ReactiveSinkTest {
     
     @Test
     public void testCloseGraceful() throws Exception {
-        TestSubscriber<String> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<String> consumer = new TestSubscriber<>(1);
         
         consumer.suspend();
         

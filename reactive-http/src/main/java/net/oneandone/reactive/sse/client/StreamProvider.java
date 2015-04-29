@@ -20,6 +20,8 @@ package net.oneandone.reactive.sse.client;
 import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -27,7 +29,13 @@ import java.util.function.Consumer;
 
 interface StreamProvider extends Closeable {
     
-    InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer);
+    CompletableFuture<InboundStream> openInboundStreamAsync(URI uri, 
+                                                            Optional<String> lastEventId, 
+                                                            Consumer<ByteBuffer[]> dataConsumer, 
+                                                            Consumer<Void> closeConsumer,
+                                                            Consumer<Throwable> errorConsumer,
+                                                            Optional<Duration> connectTimeout, 
+                                                            Optional<Duration> socketTimeout);
     
     OutboundStream newOutboundStream(URI uri, Consumer<Void> closeConsumer);
 
@@ -58,6 +66,30 @@ interface StreamProvider extends Closeable {
         void terminate();
         
         void close();
+    }
+    
+    static class EmptyInboundStream implements InboundStream {
+        
+        @Override
+        public void close() {
+        }
+        
+        @Override
+        public boolean isSuspended() {
+            return false;
+        }
+        
+        @Override
+        public void resume() {
+        }
+        
+        @Override
+        public void suspend() {
+        }
+        
+        @Override
+        public void terminate() {
+        }
     }
 }        
     

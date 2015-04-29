@@ -17,11 +17,12 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
-
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -29,6 +30,8 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.io.BaseEncoding;
 
@@ -36,6 +39,7 @@ import com.google.common.io.BaseEncoding;
 
 
 public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
+    private static final Logger LOG = LoggerFactory.getLogger(ClientSseSubscriber.class);
     
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
@@ -48,7 +52,7 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
         this(uri, true, 0);
     }
 
-    private ClientSseSubscriber(URI uri, boolean isAutoId,int numRetries) {
+    private ClientSseSubscriber(URI uri, boolean isAutoId, int numRetries) {
         this.uri = uri;
         this.isAutoId = isAutoId;
         this.numRetries = numRetries;
@@ -59,9 +63,17 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     }
 
     
+    @Deprecated
     public ClientSseSubscriber withRetries(int numRetries) {
         return new ClientSseSubscriber(this.uri, this.isAutoId, numRetries);
     }
+    
+    
+    public ClientSseSubscriber withRetry(Duration... delays) {
+        // TIDO fix me
+        return new ClientSseSubscriber(this.uri, this.isAutoId, this.numRetries);
+    }
+
 
     @Override
     public void onSubscribe(Subscription subscription) {
@@ -87,10 +99,13 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     
     
     private static final class SseOutboundStream {
+        private final String id = "cl-out-" + UUID.randomUUID().toString();
         private final boolean isAutoId;
         private final int numRetries;
         private final URI uri;
         private final Subscription subscription;
+        
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         private final String globalId = newGlobalId();
         private final AtomicLong nextLocalId = new AtomicLong(1);
@@ -106,29 +121,32 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
             this.numRetries = numRetries;
             this.isAutoId = isAutoId;
             
+            LOG.debug("[" + id + "] opened");
             subscription.request(1);
         }
                 
         public void write(ServerSentEvent event) {
-            if ((event.getId() == null) && isAutoId) {
+            if (!event.getId().isPresent() && isAutoId) {
                 event = ServerSentEvent.newEvent()
                                        .id(globalId + "-" + nextLocalId.getAndIncrement())
-                                       .event(event.getEvent())
-                                       .data(event.getData())
-                                       .retry(event.getRetry())
-                                       .comment(event.getComment());
+                                       .event(event.getEvent().orElse(null))
+                                       .data(event.getData().orElse(null))
+                                       .retry(event.getRetry().orElse(null))
+                                       .comment(event.getComment().orElse(null));
             }
             
-            write(event.toWire(), numRetries);
+            write(event, numRetries);
         }
         
 
-        private void write(String event, int remainingRetries) {
-            getHttpstream().write(event)
+        private void write(ServerSentEvent event, int remainingRetries) {
+            LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
+            getHttpstream().write(event.toWire())
                            .whenComplete((Void, error) -> { 
                                                                if (error == null) {
                                                                    subscription.request(1);
                                                                } else {
+                                                                   LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
                                                                    terminateCurrentHttpStream();
                                                                    if (remainingRetries > 0) {
                                                                        write(event, remainingRetries - 1);
@@ -151,6 +169,7 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
             synchronized(this) {
                 if (httpUpstream == null) {
                     httpUpstream = streamProvider.newOutboundStream(uri, (Void) -> {   // non-retrying SseOutboundStream? 
+                                                                                       LOG.debug("[" + id + "] underlying connection handle closed");
                                                                                        if (numRetries == 0) {
                                                                                            close();
                                                                                        }; 
@@ -163,15 +182,18 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
         
         
         public void close() {
-            synchronized (this) {
-                if (httpUpstream != null) {
-                    httpUpstream.close();
-                    httpUpstream = null;
+            if (isOpen.getAndSet(false)) {
+                LOG.debug("[" + id + "] closing");
+                synchronized (this) {
+                    if (httpUpstream != null) {
+                        httpUpstream.close();
+                        httpUpstream = null;
+                    }
                 }
+                streamProvider.close();
+                
+                subscription.cancel();
             }
-            streamProvider.close();
-            
-            subscription.cancel();
         }
         
         private synchronized void terminateCurrentHttpStream() {

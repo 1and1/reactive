@@ -22,55 +22,39 @@ import java.util.Iterator;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
-import net.oneandone.reactive.WebContainer;
+import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
-import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 
-public class ServerSentEventSinkTest {
-    
-    
-    private WebContainer server;
-    
-   
-    @Before
-    public void before() throws Exception {
-     //   System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
-        server = new WebContainer("/ssetest");
-        server.start();
-    }
-   
-    
-    @After
-    public void after() throws Exception {
-        server.stop();
-    }
-
+public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
     
     @Test
     public void testSimple() throws Exception {
-        URI uri = URI.create(server.getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>(1, 3);
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSubscriber(uri).autoId(true));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
         reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test21212"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test312123123123123"));
         
         
         
-        Iterator<ServerSentEvent> sseIt = consumer.getEventsAsync().get().iterator();
-        Assert.assertEquals("test1", sseIt.next().getData());
-        Assert.assertEquals("test21212", sseIt.next().getData());
-        Assert.assertEquals("test312123123123123", sseIt.next().getData());
+        Iterator<ServerSentEvent> sseIt = consumer.getEventsAsync(3).get().iterator();
+        Assert.assertEquals("test1", sseIt.next().getData().get());
+        Assert.assertEquals("test21212", sseIt.next().getData().get());
+        Assert.assertEquals("test312123123123123", sseIt.next().getData().get());
         
         reactiveSink.shutdown();
         

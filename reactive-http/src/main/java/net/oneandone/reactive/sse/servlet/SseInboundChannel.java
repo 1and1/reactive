@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -34,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.io.Closeables;
 
@@ -42,7 +44,6 @@ import com.google.common.io.Closeables;
  
 class SseInboundChannel {
     private static final Logger LOG = LoggerFactory.getLogger(SseInboundChannel.class);
-    
     
     private final Object pendingConsumesLock = new Object();
     private final AtomicInteger numPendingConsumes = new AtomicInteger(0);
@@ -149,6 +150,7 @@ class SseInboundChannel {
      * @author grro
      */
     private static class SSEInputStream implements Closeable {
+        private final String id = "srv-in-" + UUID.randomUUID().toString();
         
         // buffer
         private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
@@ -163,11 +165,12 @@ class SseInboundChannel {
         
         public SSEInputStream(ServletInputStream is) {
             this.is = is;
+            LOG.debug("[" + id + "] opened");
         }
        
         
         public void close() {
-            LOG.debug("closing servlet input stream");
+            LOG.debug("[" + id + "] closing");
             Closeables.closeQuietly(is);
         }
     
@@ -179,7 +182,11 @@ class SseInboundChannel {
                 
                 // read network
                 while (bufferedEvents.isEmpty() && isNetworkdataAvailable() && (len = is.read(buf)) > 0) {            
-                    parser.parse(ByteBuffer.wrap(buf, 0, len)).forEach(event -> bufferedEvents.add(event)); 
+                    ImmutableList<ServerSentEvent> events = parser.parse(ByteBuffer.wrap(buf, 0, len));
+                    for (ServerSentEvent event : events) {
+                        LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
+                        bufferedEvents.add(event);
+                    }
                 }    
             }
               

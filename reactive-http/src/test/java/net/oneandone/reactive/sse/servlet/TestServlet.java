@@ -19,10 +19,13 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.io.IOException;
-
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -69,9 +72,10 @@ public class TestServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.startAsync();
         
+        String lastEventId = req.getHeader("Last-Event-ID");
         resp.setContentType("text/event-stream");
         Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(1));
-        broker.registerSubscriber(req.getPathInfo(), subscriber);
+        broker.registerSubscriber(req.getPathInfo(), subscriber, lastEventId);
     }
     
     
@@ -81,15 +85,38 @@ public class TestServlet extends HttpServlet {
         
         private final Map<String, ImmutableSet<BrokerSubscription>> subscriptions = Maps.newHashMap();
 
+        private final Map<String, ServerSentEvent> eventHistoryCache = Collections.synchronizedMap(new LinkedHashMap<String, ServerSentEvent>() {
+            private static final long serialVersionUID = -1640442197943481724L;
+
+            protected boolean removeEldestEntry(Map.Entry<String,ServerSentEvent> eldest) {
+                return (size() > 100);
+            }
+        });
+        
+
         public void registerPublisher(String id, Publisher<ServerSentEvent> publisher) {
             publisher.subscribe(new InboundHandler(id));
         }
  
-        public void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber) {
+        public void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber, String lastEventId) {
             BrokerSubscription brokerSubscription = new BrokerSubscription(subscriber);
             brokerSubscription.init();
             
             synchronized (subscriptions) {
+                if (lastEventId != null) {
+                    boolean isReplaying = false;
+                    for (Entry<String, ServerSentEvent> entry : eventHistoryCache.entrySet()) {
+                        if (isReplaying) {
+                            brokerSubscription.publish(entry.getValue());
+                        }
+                        
+                        if (entry.getKey().equals(lastEventId)) {
+                            isReplaying = true;
+                        }
+                    }
+                }
+                
+                
                 ImmutableSet<BrokerSubscription> subs = getSubscriptions(id);
                 subscriptions.put(id, ImmutableSet.<BrokerSubscription>builder().addAll(subs).add(brokerSubscription).build());
             }
@@ -189,14 +216,22 @@ public class TestServlet extends HttpServlet {
             
             @Override
             public void onNext(ServerSentEvent event) {
-                if (event.getData().equalsIgnoreCase("posion pill")) {
+                
+                if (event.getData().get().equalsIgnoreCase("posion pill")) {
                     subscriptionRef.get().cancel();
-                    getSubscriptions(id).forEach(subscription -> subscription.publish(event));
                     getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                    
                 } else {
+                    publish(event);
+                    String eventId = event.getId().orElse(UUID.randomUUID().toString());
+                    eventHistoryCache.put(eventId, event);
                     subscriptionRef.get().request(1);
-                    getSubscriptions(id).forEach(subscription -> subscription.publish(event));
                 }
+            }
+            
+            
+            private void publish(ServerSentEvent event) {
+                getSubscriptions(id).forEach(subscription ->  subscription.publish(event));
             }
         }   
     }

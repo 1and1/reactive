@@ -16,6 +16,7 @@
 package net.oneandone.reactive.sse.servlet;
 
 import java.io.IOException;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 

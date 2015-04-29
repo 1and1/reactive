@@ -17,12 +17,14 @@ package net.oneandone.reactive.sse.client;
 
 
 import io.netty.bootstrap.Bootstrap;
+
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -46,23 +48,17 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.net.ssl.SSLException;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Sets;
-
 
 
 class NettyBasedStreamProvider implements StreamProvider {
-    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedStreamProvider.class);
-    
     private final EventLoopGroup eventLoopGroup;
     
     private NettyBasedStreamProvider() {
@@ -77,8 +73,14 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     @Override
-    public InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
-        return new NettyHttp11InboundStream(uri, dataConsumer, errorConsumer);
+    public CompletableFuture<InboundStream> openInboundStreamAsync(URI uri, 
+                                                                   Optional<String> lastEventId, 
+                                                                   Consumer<ByteBuffer[]> dataConsumer, 
+                                                                   Consumer<Void> closeConsumer, 
+                                                                   Consumer<Throwable> errorConsumer,
+                                                                   Optional<Duration> connectTimeout, 
+                                                                   Optional<Duration> socketTimeout) {
+        return NettyHttp11InboundStream.openAsync(eventLoopGroup, uri, lastEventId, dataConsumer, closeConsumer, errorConsumer, connectTimeout, socketTimeout);
     }
     
     
@@ -89,29 +91,24 @@ class NettyBasedStreamProvider implements StreamProvider {
 
     
 
-    private class NettyHttp11InboundStream implements InboundStream  {
+    private static class NettyHttp11InboundStream implements InboundStream  {
         private final Channel channel;
-        private final Consumer<ByteBuffer[]> dataConsumer;
-        private final Consumer<Throwable> errorConsumer;
-        private final AtomicBoolean isSuspended = new AtomicBoolean(false); 
+        private final AtomicBoolean isSuspended = new AtomicBoolean(false);
+
         
-        public NettyHttp11InboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
+        static CompletableFuture<InboundStream> openAsync(EventLoopGroup eventLoopGroup,
+                                                          URI uri, 
+                                                          Optional<String> lastEventId, 
+                                                          Consumer<ByteBuffer[]> dataConsumer,
+                                                          Consumer<Void> closeConsumer, 
+                                                          Consumer<Throwable> errorConsumer, 
+                                                          Optional<Duration> connectTimeout, 
+                                                          Optional<Duration> socketTimeout) {
+            
+            CompletableFuture<InboundStream> promise = new CompletableFuture<>();
+            
             try {
-                this.dataConsumer = dataConsumer;
-                this.errorConsumer = errorConsumer;
-                
                 String scheme = (uri.getScheme() == null) ? "http" : uri.getScheme();
-                String host =uri.getHost();
-                int port = uri.getPort();
-                if (port == -1) {
-                    if ("http".equalsIgnoreCase(scheme)) {
-                        port = 80;
-                    } else if ("https".equalsIgnoreCase(scheme)) {
-                        port = 443;
-                    }
-                }
-                
-                
                 boolean ssl = "https".equalsIgnoreCase(scheme);
                 SslContext sslCtx;
                 if (ssl) {
@@ -123,23 +120,88 @@ class NettyBasedStreamProvider implements StreamProvider {
                 Bootstrap bootstrap = new Bootstrap();
                 bootstrap.group(eventLoopGroup)
                          .channel(NioSocketChannel.class)
-                         .handler(new HttpChannelInitializer(sslCtx));
-                channel = bootstrap.connect(host, port).sync().channel();
+                         .handler(new InboundHttpChannelInitializer(sslCtx, dataConsumer, closeConsumer, errorConsumer));
+                
+                if (connectTimeout.isPresent()) {
+                    bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.get().toMillis());
+                }
+                if (socketTimeout.isPresent()) {
+                    bootstrap = bootstrap.option(ChannelOption.SO_TIMEOUT, (int) socketTimeout.get().toMillis());
+                }
     
+    
+
+                String host = uri.getHost(); 
+                int p = uri.getPort();
+                if (p == -1) {
+                    if ("http".equalsIgnoreCase(scheme)) {
+                        p = 80;
+                    } else if ("https".equalsIgnoreCase(scheme)) {
+                        p = 443;
+                    }
+                }
+                int port = p; 
                 
-                // write request header
-                DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri.getRawPath());
-                request.headers().set(HttpHeaders.Names.HOST, host + ":" + port);
-                request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
-                request.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED);
                 
-                channel.writeAndFlush(request);
+                ChannelFutureListener listener = new ChannelFutureListener() {
+                    @Override
+                    public void operationComplete(ChannelFuture future) throws Exception {
+                        if (future.isSuccess()) {
+                            writeRequestHeaderAsync(future.channel(), uri, host, port, lastEventId)
+                                             .whenComplete((Void, error) -> { if (error == null) {
+                                                                                     promise.complete(new NettyHttp11InboundStream(future.channel())); 
+                                                                              } else {
+                                                                                  promise.completeExceptionally(error);
+                                                                              }
+                                                                            });
+                        } else {
+                            promise.completeExceptionally(future.cause());
+                        }
+                    }
+                };
+                bootstrap.connect(host, port).addListener(listener); 
                 
-                
-            } catch (InterruptedException | SSLException e) {
-                throw new RuntimeException(e);
+            } catch (SSLException e) {
+                promise.completeExceptionally(e);
             }
+            
+            return promise;
         }
+        
+        
+        private static CompletableFuture<Void> writeRequestHeaderAsync(Channel channel, URI uri, String host, int port, Optional<String> lastEventId) {
+            CompletableFuture<Void> promise = new CompletableFuture<>();
+            
+            DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri.getRawPath());
+            request.headers().set(HttpHeaders.Names.HOST, host + ":" + port);
+            request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
+            request.headers().set(HttpHeaders.Names.ACCEPT, "text/event-stream");
+            request.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED);
+            lastEventId.ifPresent(eventId -> request.headers().set("Last-Event-ID", eventId));
+            
+            
+            ChannelFutureListener listener = new ChannelFutureListener() {
+                
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (future.isSuccess()) {
+                        promise.complete(null);
+                    } else {
+                        promise.completeExceptionally(future.cause());
+                    }
+                }
+            };
+            channel.writeAndFlush(request).addListener(listener);
+            
+            return promise;
+        }
+        
+        
+        
+        private NettyHttp11InboundStream(Channel channel) {
+            this.channel = channel;
+        }
+
         
         @Override
         public boolean isSuspended() {
@@ -169,12 +231,18 @@ class NettyBasedStreamProvider implements StreamProvider {
         }
         
         
-        private class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
-        
+        private static class InboundHttpChannelInitializer extends ChannelInitializer<SocketChannel> {
             private final SslContext sslCtx;
+            private final Consumer<ByteBuffer[]> dataConsumer;
+            private final Consumer<Void> closeConsumer; 
+            private final Consumer<Throwable> errorConsumer;
+
             
-            public HttpChannelInitializer(SslContext sslCtx) {
+            public InboundHttpChannelInitializer(SslContext sslCtx, Consumer<ByteBuffer[]> dataConsumer, Consumer<Void> closeConsumer, Consumer<Throwable> errorConsumer) {
                 this.sslCtx = sslCtx;
+                this.dataConsumer = dataConsumer;
+                this.closeConsumer = closeConsumer;
+                this.errorConsumer = errorConsumer;
             }
             
             @Override
@@ -188,14 +256,23 @@ class NettyBasedStreamProvider implements StreamProvider {
                  p.addLast(new HttpClientCodec());
       
                  p.addLast(new HttpContentDecompressor());
-                 p.addLast(new HttpInboundHandler());
+                 p.addLast(new HttpInboundHandler(dataConsumer, closeConsumer, errorConsumer));
             }
             
             
         }
     
         
-        private class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
+        private static class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
+            private final Consumer<ByteBuffer[]> dataConsumer;
+            private final Consumer<Void> closeConsumer;
+            private final Consumer<Throwable> errorConsumer;
+            
+            public HttpInboundHandler(Consumer<ByteBuffer[]> dataConsumer, Consumer<Void> closeConsumer, Consumer<Throwable> errorConsumer) {
+                this.dataConsumer = dataConsumer;
+                this.closeConsumer = closeConsumer;
+                this.errorConsumer = errorConsumer;
+            }
             
             
             @Override
@@ -214,6 +291,7 @@ class NettyBasedStreamProvider implements StreamProvider {
                     dataConsumer.accept(buffers);
                     if (content instanceof LastHttpContent) {
                         ctx.close();
+                        closeConsumer.accept(null);
                     }
                 }
             }
@@ -221,7 +299,10 @@ class NettyBasedStreamProvider implements StreamProvider {
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
                 errorConsumer.accept(cause);
+                ctx.close();
+                closeConsumer.accept(null);
             }
+            
         }
     }
     
@@ -233,6 +314,7 @@ class NettyBasedStreamProvider implements StreamProvider {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         public NettyHttp11OutboundStream(URI uri, Consumer<Void> closeConsumer) {
+            
             try {
                 this.closeConsumer = closeConsumer;
                     
@@ -259,7 +341,7 @@ class NettyBasedStreamProvider implements StreamProvider {
                 Bootstrap bootstrap = new Bootstrap();
                 bootstrap.group(eventLoopGroup)
                          .channel(NioSocketChannel.class)
-                         .handler(new HttpChannelInitializer(sslCtx));
+                         .handler(new OutboundHttpChannelInitializer(sslCtx));
                 channel = bootstrap.connect(host, port).sync().channel();
     
                 
@@ -314,11 +396,11 @@ class NettyBasedStreamProvider implements StreamProvider {
             }
         }
         
-        private class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
+        private class OutboundHttpChannelInitializer extends ChannelInitializer<SocketChannel> {
         
             private final SslContext sslCtx;
             
-            public HttpChannelInitializer(SslContext sslCtx) {
+            public OutboundHttpChannelInitializer(SslContext sslCtx) {
                 this.sslCtx = sslCtx;
             }
             
@@ -344,7 +426,6 @@ class NettyBasedStreamProvider implements StreamProvider {
             protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
                 if (msg instanceof HttpResponse) {
                     HttpResponse response = (HttpResponse) msg;
-                    LOG.debug("response revceived: " + response.getStatus());
                     
                 } else  if (msg instanceof HttpContent) {
                     HttpContent content = (HttpContent) msg;
@@ -368,43 +449,18 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
    
-    private static final Object PROVIDER_LOCK = new Object();
-    private static NettyBasedStreamProvider common;
-    private static final Set<StreamProviderHandle> handles = Sets.newCopyOnWriteArraySet();
-
+    private static final StreamProvider COMMON = new NettyBasedStreamProvider();
     
     public static StreamProvider newStreamProvider() {
         return new StreamProviderHandle();
     }
-    
-    private static StreamProvider registerHandle(StreamProviderHandle handle) {
-        synchronized (PROVIDER_LOCK) {
-            if (common == null) {
-                common = new NettyBasedStreamProvider();
-            }
-            
-            handles.add(handle);
-            return common;
-        }
-    }
-    
-    private static void deregisterHandle(StreamProvider provider,  StreamProviderHandle handle) {
-        synchronized (PROVIDER_LOCK) {
-            handles.remove(handle);
-            if (handles.isEmpty()) {
-                common.close();
-                common = null;
-            }
-        }
-    }
-
     
     private static final class StreamProviderHandle implements StreamProvider {
         private final StreamProvider delegate;
         
         
         public StreamProviderHandle() {
-            delegate = registerHandle(this);
+            delegate = COMMON;
         }
         
         @Override
@@ -412,14 +468,27 @@ class NettyBasedStreamProvider implements StreamProvider {
             return delegate.newOutboundStream(uri, closeConsumer);
         }
         
+
         @Override
-        public InboundStream newInboundStream(URI uri, Consumer<ByteBuffer[]> dataConsumer, Consumer<Throwable> errorConsumer) {
-            return delegate.newInboundStream(uri, dataConsumer, errorConsumer);
+        public CompletableFuture<InboundStream> openInboundStreamAsync(URI uri,
+                                                                       Optional<String> lastEventId,
+                                                                       Consumer<ByteBuffer[]> dataConsumer,
+                                                                       Consumer<Void> closeConsumer,
+                                                                       Consumer<Throwable> errorConsumer,  
+                                                                       Optional<Duration> connectTimeout,
+                                                                       Optional<Duration> socketTimeout) {
+            return delegate.openInboundStreamAsync(uri, 
+                                                   lastEventId,
+                                                   dataConsumer, 
+                                                   closeConsumer,
+                                                   errorConsumer, 
+                                                   connectTimeout, 
+                                                   socketTimeout);
         }
         
         @Override
         public void close() {
-            deregisterHandle(delegate, this);
+
         }
     }
 }        

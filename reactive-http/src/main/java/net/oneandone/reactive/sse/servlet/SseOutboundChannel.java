@@ -21,6 +21,7 @@ package net.oneandone.reactive.sse.servlet;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +29,9 @@ import java.util.function.Consumer;
 
 import javax.servlet.ServletOutputStream;
 import javax.servlet.WriteListener;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
 
@@ -38,8 +42,12 @@ import com.google.common.collect.Lists;
 
 
 class SseOutboundChannel  {
+    private static final Logger LOG = LoggerFactory.getLogger(SseOutboundChannel.class);
+    
     private final static int DEFAULT_KEEP_ALIVE_PERIOD_SEC = 30; 
 
+    private final String id = "srv-out-" + UUID.randomUUID().toString();
+    
     private final List<CompletableFuture<Boolean>> whenWritePossibles = Lists.newArrayList();
     private final ServletOutputStream out;
     private final Consumer<Throwable> errorConsumer;
@@ -61,6 +69,8 @@ class SseOutboundChannel  {
 
         // write http header, implicitly 
         requestWriteNotificationAsync().thenAccept(Void -> flush());
+        
+        LOG.debug("[" + id + "] opened");
     }
 
     
@@ -72,7 +82,9 @@ class SseOutboundChannel  {
     }   
     
     
-    private void writeToWrite(ServerSentEvent event, CompletableFuture<Integer> writtenSizeFuture) {       
+    private void writeToWrite(ServerSentEvent event, CompletableFuture<Integer> writtenSizeFuture) {
+        LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
+        
         try {
             synchronized (out) {
                 byte[] data = event.toWire().getBytes("UTF-8");
@@ -132,6 +144,7 @@ class SseOutboundChannel  {
     
     
     public void close() {
+        LOG.debug("[" + id + "] closing");
         try {
             out.close();
         } catch (IOException ignore) { }

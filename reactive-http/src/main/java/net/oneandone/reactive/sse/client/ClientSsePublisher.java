@@ -153,7 +153,6 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
             LOG.debug("[" + id + "] closing");
             inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
             streamProvider.close();
-            // TODO httpDownstream should support close listener
         } 
         
         private CompletableFuture<StreamProvider.InboundStream> reassignNewConnectionAsync() {

@@ -17,10 +17,10 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
+
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -45,39 +45,26 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     
     private final URI uri;
     private final boolean isAutoId;
-    private final int numRetries;
 
     
     public ClientSseSubscriber(URI uri) {
-        this(uri, true, 0);
+        this(uri, true);
     }
 
-    private ClientSseSubscriber(URI uri, boolean isAutoId, int numRetries) {
+    private ClientSseSubscriber(URI uri, boolean isAutoId) {
         this.uri = uri;
         this.isAutoId = isAutoId;
-        this.numRetries = numRetries;
     }
     
     public ClientSseSubscriber autoId(boolean isAutoId) {
-        return new ClientSseSubscriber(this.uri, isAutoId, this.numRetries);
+        return new ClientSseSubscriber(this.uri, isAutoId);
     }
 
     
-    @Deprecated
-    public ClientSseSubscriber withRetries(int numRetries) {
-        return new ClientSseSubscriber(this.uri, this.isAutoId, numRetries);
-    }
-    
-    
-    public ClientSseSubscriber withRetry(Duration... delays) {
-        // TIDO fix me
-        return new ClientSseSubscriber(this.uri, this.isAutoId, this.numRetries);
-    }
-
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId, numRetries));
+        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId));
         
     }
     
@@ -101,7 +88,6 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     private static final class SseOutboundStream {
         private final String id = "cl-out-" + UUID.randomUUID().toString();
         private final boolean isAutoId;
-        private final int numRetries;
         private final URI uri;
         private final Subscription subscription;
         
@@ -115,10 +101,9 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
 
         
         
-        public SseOutboundStream(Subscription subscription, URI uri, boolean isAutoId, int numRetries) {
+        public SseOutboundStream(Subscription subscription, URI uri, boolean isAutoId) {
             this.subscription = subscription;
             this.uri = uri;
-            this.numRetries = numRetries;
             this.isAutoId = isAutoId;
             
             LOG.debug("[" + id + "] opened");
@@ -135,11 +120,11 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
                                        .comment(event.getComment().orElse(null));
             }
             
-            write(event, numRetries);
+            writeInternal(event);
         }
         
 
-        private void write(ServerSentEvent event, int remainingRetries) {
+        private void writeInternal(ServerSentEvent event) {
             LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
             getHttpstream().write(event.toWire())
                            .whenComplete((Void, error) -> { 
@@ -148,11 +133,7 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
                                                                } else {
                                                                    LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
                                                                    terminateCurrentHttpStream();
-                                                                   if (remainingRetries > 0) {
-                                                                       write(event, remainingRetries - 1);
-                                                                   } else {
-                                                                       subscription.cancel();
-                                                                   }
+                                                                   subscription.cancel();
                                                                }
                            }); 
         }     
@@ -168,11 +149,9 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
         private StreamProvider.OutboundStream getHttpstream() {
             synchronized(this) {
                 if (httpUpstream == null) {
-                    httpUpstream = streamProvider.newOutboundStream(uri, (Void) -> {   // non-retrying SseOutboundStream? 
+                    httpUpstream = streamProvider.newOutboundStream(uri, (Void) -> {   
                                                                                        LOG.debug("[" + id + "] underlying connection handle closed");
-                                                                                       if (numRetries == 0) {
-                                                                                           close();
-                                                                                       }; 
+                                                                                       close();
                                                                                    });
                 }
                 

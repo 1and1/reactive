@@ -17,16 +17,18 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
-
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.sse.client.StreamProvider.EmptyOutboundStream;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -45,26 +47,40 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     
     private final URI uri;
     private final boolean isAutoId;
+    private final Optional<Duration> connectionTimeout;
+    private final Optional<Duration> socketTimeout;
 
     
     public ClientSseSubscriber(URI uri) {
-        this(uri, true);
+        this(uri, true, Optional.empty(), Optional.empty());
     }
 
-    private ClientSseSubscriber(URI uri, boolean isAutoId) {
+    private ClientSseSubscriber(URI uri, boolean isAutoId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.isAutoId = isAutoId;
+        this.connectionTimeout = connectionTimeout;
+        this.socketTimeout = socketTimeout;
     }
     
     public ClientSseSubscriber autoId(boolean isAutoId) {
-        return new ClientSseSubscriber(this.uri, isAutoId);
+        return new ClientSseSubscriber(this.uri, isAutoId, this.connectionTimeout, this.socketTimeout);
     }
+
+
+    public ClientSseSubscriber connectionTimeout(Duration connectionTimeout) {
+        return new ClientSseSubscriber(this.uri, this.isAutoId, Optional.of(connectionTimeout), this.socketTimeout);
+    }
+
+    public ClientSseSubscriber socketTimeout(Duration socketTimeout) {
+        return new ClientSseSubscriber(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
+    }
+
 
     
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId));
+        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId, connectionTimeout, socketTimeout));
         
     }
     
@@ -97,19 +113,34 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
         private final AtomicLong nextLocalId = new AtomicLong(1);
         
         private final StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
-        private StreamProvider.OutboundStream httpUpstream;
+        private final AtomicReference<StreamProvider.OutboundStream> outboundStreamRef = new AtomicReference<>(new StreamProvider.EmptyOutboundStream());
 
         
         
-        public SseOutboundStream(Subscription subscription, URI uri, boolean isAutoId) {
+        public SseOutboundStream(Subscription subscription, 
+                                 URI uri, 
+                                 boolean isAutoId,
+                                 Optional<Duration> connectionTimeout,
+                                 Optional<Duration> socketTimeout) {
             this.subscription = subscription;
             this.uri = uri;
             this.isAutoId = isAutoId;
             
-            LOG.debug("[" + id + "] opened");
-            subscription.request(1);
+            LOG.debug("[" + id + "] opening");
+            
+            
+            streamProvider.newOutboundStream(id, uri, (Void) -> close(), connectionTimeout, socketTimeout)
+                          .whenComplete((stream, error) ->  {
+                                                              if (error == null) {
+                                                                  outboundStreamRef.set(stream); 
+                                                                  subscription.request(1);
+                                                              } else {
+                                                                  terminate(error);
+                                                              }
+                                                            });
         }
                 
+        
         public void write(ServerSentEvent event) {
             if (!event.getId().isPresent() && isAutoId) {
                 event = ServerSentEvent.newEvent()
@@ -126,13 +157,13 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
 
         private void writeInternal(ServerSentEvent event) {
             LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
-            getHttpstream().write(event.toWire())
-                           .whenComplete((Void, error) -> { 
+            outboundStreamRef.get().write(event.toWire())
+                                   .whenComplete((Void, error) -> { 
                                                                if (error == null) {
                                                                    subscription.request(1);
                                                                } else {
                                                                    LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                                   terminateCurrentHttpStream();
+                                                                   //terminateCurrentHttpStream();
                                                                    subscription.cancel();
                                                                }
                            }); 
@@ -142,32 +173,16 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
 
         
         public void terminate(Throwable t) {
-            httpUpstream.terminate();
+            outboundStreamRef.get().terminate();
         }
         
-        
-        private StreamProvider.OutboundStream getHttpstream() {
-            synchronized(this) {
-                if (httpUpstream == null) {
-                    httpUpstream = streamProvider.newOutboundStream(uri, (Void) -> {   
-                                                                                       LOG.debug("[" + id + "] underlying connection handle closed");
-                                                                                       close();
-                                                                                   });
-                }
-                
-                return httpUpstream;
-            }
-        }
         
         
         public void close() {
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
                 synchronized (this) {
-                    if (httpUpstream != null) {
-                        httpUpstream.close();
-                        httpUpstream = null;
-                    }
+                    outboundStreamRef.getAndSet(new EmptyOutboundStream()).close();
                 }
                 streamProvider.close();
                 
@@ -175,14 +190,6 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
             }
         }
         
-        private synchronized void terminateCurrentHttpStream() {
-            synchronized (this) {
-                if (httpUpstream != null) {
-                    httpUpstream.terminate();
-                    httpUpstream = null;
-                }
-            }
-        }
         
         
         private static String newGlobalId() {

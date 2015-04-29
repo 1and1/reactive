@@ -29,7 +29,8 @@ import java.util.function.Consumer;
 
 interface StreamProvider extends Closeable {
     
-    CompletableFuture<InboundStream> openInboundStreamAsync(URI uri, 
+    CompletableFuture<InboundStream> openInboundStreamAsync(String id,
+                                                            URI uri, 
                                                             Optional<String> lastEventId, 
                                                             Consumer<ByteBuffer[]> dataConsumer, 
                                                             Consumer<Void> closeConsumer,
@@ -37,7 +38,11 @@ interface StreamProvider extends Closeable {
                                                             Optional<Duration> connectTimeout, 
                                                             Optional<Duration> socketTimeout);
     
-    OutboundStream newOutboundStream(URI uri, Consumer<Void> closeConsumer);
+    CompletableFuture<OutboundStream> newOutboundStream(String id, 
+                                                        URI uri,
+                                                        Consumer<Void> closeConsumer,
+                                                        Optional<Duration> connectTimeout, 
+                                                        Optional<Duration> socketTimeout);
 
     @Override
     public void close();
@@ -54,6 +59,21 @@ interface StreamProvider extends Closeable {
         void close();
     }
     
+    static class EmptyOutboundStream implements OutboundStream {
+        
+        @Override
+        public CompletableFuture<Void> write(String msg) {
+            return CompletableFuture.completedFuture(null);
+        }
+        
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public void terminate() {
+        }
+    }
     
     static interface InboundStream extends Closeable {
         

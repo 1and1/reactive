@@ -56,7 +56,10 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         this(uri, Optional.empty(), Optional.empty(), Optional.empty());
     }
     
-    private ClientSsePublisher(URI uri, Optional<String> lastEventId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
+    private ClientSsePublisher(URI uri,
+                               Optional<String> lastEventId,
+                               Optional<Duration> connectionTimeout,
+                               Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.lastEventId = lastEventId;
         this.connectionTimeout = connectionTimeout;
@@ -75,7 +78,10 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
 
 
     public ClientSsePublisher withLastEventId(String lastEventId) {
-        return new ClientSsePublisher(this.uri, Optional.ofNullable(lastEventId), this.connectionTimeout, this.socketTimeout);
+        return new ClientSsePublisher(this.uri,
+                                      Optional.ofNullable(lastEventId), 
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
     }
 
 
@@ -157,7 +163,8 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         
         private CompletableFuture<StreamProvider.InboundStream> reassignNewConnectionAsync() {
             LOG.debug("[" + id + "] reopen underyling stream with last event id " + lastEventId.orElse(""));
-            return streamProvider.openInboundStreamAsync(uri, 
+            return streamProvider.openInboundStreamAsync(id, 
+                                                         uri, 
                                                          lastEventId, 
                                                          buffers -> processNetworkdata(buffers), 
                                                          (Void) -> resetUnderlyingConnection(),

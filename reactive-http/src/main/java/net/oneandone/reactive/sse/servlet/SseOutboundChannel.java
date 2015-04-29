@@ -19,11 +19,12 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.io.IOException;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -33,6 +34,7 @@ import javax.servlet.WriteListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import com.google.common.collect.Lists;
@@ -176,17 +178,9 @@ class SseOutboundChannel  {
      * @author grro
      */
     private static final class KeepAliveEmitter {
-        private static final ScheduledThreadPoolExecutor EXECUTOR = newScheduledThreadPoolExecutor();
+        private final ScheduledExecutorService executor = ScheduledExceutor.common();
         private final SseOutboundChannel channel;
         private final Duration keepAlivePeriod;
-
-        private static ScheduledThreadPoolExecutor newScheduledThreadPoolExecutor() {
-            ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(0);
-            executor.setKeepAliveTime(DEFAULT_KEEP_ALIVE_PERIOD_SEC * 2, TimeUnit.SECONDS);
-            executor.allowCoreThreadTimeOut(true);
-            
-            return executor;
-        }
         
         
         public KeepAliveEmitter(SseOutboundChannel channel, Duration keepAlivePeriod) {
@@ -200,7 +194,7 @@ class SseOutboundChannel  {
         
         private void scheduleNextKeepAliveEvent() {
             channel.writeEventAsync(ServerSentEvent.newEvent().comment("keep alive"))
-                   .thenAccept(numWritten -> EXECUTOR.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
+                   .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
         }        
     } 
 }

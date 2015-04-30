@@ -19,13 +19,18 @@ package net.oneandone.reactive.sse.client;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
+import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -37,7 +42,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 
 
@@ -107,6 +114,10 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
 
     
     private static class SseInboundStreamSubscription implements Subscription {
+        private final RetrySequence retrySequence = new RetrySequence(0, 100, 300, 500, 1000, 2000, 3000);
+        
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+        
         private final String id = "cl-in-" + UUID.randomUUID().toString();
         private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
@@ -125,9 +136,9 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         
         
         
-        public static CompletableFuture<Void> newSseInboundStreamSubscription(URI uri, Optional<String> lastEventId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout, Subscriber<? super ServerSentEvent> subscriber) {
+        public static void newSseInboundStreamSubscription(URI uri, Optional<String> lastEventId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout, Subscriber<? super ServerSentEvent> subscriber) {
             SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri, lastEventId, connectionTimeout, socketTimeout, subscriber);
-            return inboundStreamSubscription.init();
+            inboundStreamSubscription.init();
         }
         
     
@@ -139,51 +150,74 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
             subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
         
-        public CompletableFuture<Void> init() {
-            CompletableFuture<Void> promise = new CompletableFuture<>();
-            
-            reassignNewConnectionAsync()
+        public void init() {
+            newChannelAsync(Duration.ofMillis(0))
                         .thenAccept(stream -> { 
-                                                setInboundStream(stream); 
-                                                subscriberNotifier.start();
-                                                promise.complete(null);
+                                                inboundStreamReference.getAndSet(stream); 
+                                                subscriberNotifier.start();  // will start/notify subscriber only, if inbound connection is established  
                                               });
-            
-            return promise;
         }
  
      
         
         @Override
         public void cancel() {
-            LOG.debug("[" + id + "] closing");
             inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
-            streamProvider.close();
+            
+            if (isOpen.getAndSet(false)) {
+                LOG.debug("[" + id + "] closing");
+                streamProvider.close();
+            }
         } 
+       
         
-        private CompletableFuture<StreamProvider.InboundStream> reassignNewConnectionAsync() {
-            LOG.debug("[" + id + "] reopen underyling stream with last event id " + lastEventId.orElse(""));
-            return streamProvider.openInboundStreamAsync(id, 
-                                                         uri, 
-                                                         lastEventId, 
-                                                         buffers -> processNetworkdata(buffers), 
-                                                         (Void) -> resetUnderlyingConnection(),
-                                                         error -> resetUnderlyingConnection(),
-                                                         connectionTimeout,
-                                                         socketTimeout);
+        private CompletableFuture<StreamProvider.InboundStream> newChannelAsync(Duration retryDelay) {
+            if (isOpen.get()) {
+                LOG.debug("[" + id + "] open underyling channel with last event id " + lastEventId.orElse(""));
+                return streamProvider.openInboundStreamAsync(id, 
+                                                             uri, 
+                                                             lastEventId, 
+                                                             buffers -> processNetworkdata(buffers), 
+                                                             new CloseHandler<Void>(retryDelay),
+                                                             new CloseHandler<Throwable>(retryDelay),
+                                                             connectionTimeout,
+                                                             socketTimeout);
+            } else {
+                return CompletableFuture.completedFuture(new StreamProvider.EmptyInboundStream());
+            }
+        }
+        
+        
+        private final class CloseHandler<T> implements Consumer<T> {
+            private final AtomicBoolean isOpen = new AtomicBoolean(true);
+            private final Duration retryDelay;
+            
+            public CloseHandler(Duration retryDelay) {
+                this.retryDelay = retryDelay;
+            }
+            
+            @Override
+            public void accept(T t) {
+                if (isOpen.getAndSet(false)) {
+                    resetUnderlyingConnection(retryDelay);
+                }
+            }
         }
        
         
-        private void resetUnderlyingConnection() {
-            reassignNewConnectionAsync()
-                    .thenAccept(stream -> setInboundStream(stream));
+        private void resetUnderlyingConnection(Duration delay) {
+            LOG.debug("[" + id + "] close underyling channel");
+            inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
+
+            if (isOpen.get()) {
+                LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
+                
+                ScheduledExceutor.common().schedule(() -> newChannelAsync(retrySequence.nextDelay(delay)).thenAccept(stream -> inboundStreamReference.getAndSet(stream).close()), 
+                                                    delay.toMillis(), 
+                                                    TimeUnit.MILLISECONDS);
+            }
         }
         
-        
-        
-        private void setInboundStream(StreamProvider.InboundStream newInboundStream) {
-            inboundStreamReference.getAndSet(newInboundStream).close();
-        }
         
         
         private void processNetworkdata(ByteBuffer[] buffers) {
@@ -227,20 +261,23 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         
         @Override
         public void request(long n) {
-            if(n <= 0) {
-                // https://github.com/reactive-streams/reactive-streams#3.9
-                subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
+            if (isOpen.get()) {
+                if(n <= 0) {
+                    // https://github.com/reactive-streams/reactive-streams#3.9
+                    subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
+                } else {
+                    numRequested.addAndGet((int) n);
+                    process();
+                }
             } else {
-                numRequested.addAndGet((int) n);
-                process();
+                subscriberNotifier.notifyOnError((new IllegalArgumentException("Stream is closed")));
             }
         }
         
         private void process() {
             
             synchronized (consumesLock) {
-                
-                
+
                 while (numRequested.get() > 0) {
             
                     // [Flow-control] will be resumed, if num prefetched less than one or 25% of the requested ones  
@@ -265,6 +302,32 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         @Override
         public String toString() {
             return (inboundStreamReference.get().isSuspended() ? "[suspended] " : "") +  "buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get();
+        }
+    }
+    
+    
+    
+    private static final class RetrySequence {
+        
+        private ImmutableMap<Duration, Duration> delayMap;
+        
+        public RetrySequence(int... delaysMillis) {
+            Map<Duration, Duration> map = Maps.newHashMap();
+            
+            for (int i = 0; i < delaysMillis.length; i++) {
+                if (delaysMillis.length > (i+1)) {
+                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i+1]));
+                } else {
+                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i]));
+                }
+            }
+            
+            delayMap = ImmutableMap.copyOf(map);
+        }
+        
+        public Duration nextDelay(Duration previous) {
+            Duration newDelay = delayMap.get(previous);
+            return (newDelay == null) ? previous : newDelay;
         }
     }
 }  

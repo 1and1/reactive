@@ -175,7 +175,7 @@ class NettyBasedStreamProvider implements StreamProvider {
                             LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened");
                             writeRequestHeaderAsync(future.channel(), uri, host, port, lastEventId)
                                              .whenComplete((Void, error) -> { if (error == null) {
-                                                                                     LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " GET request header sent");
+                                                                                     LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " GET request header sent (channel is ready to receive events)");
                                                                                      promise.complete(new NettyHttp11InboundStream(future.channel())); 
                                                                               } else {
                                                                                   promise.completeExceptionally(error);
@@ -332,9 +332,13 @@ class NettyBasedStreamProvider implements StreamProvider {
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
                 errorConsumer.accept(cause);
                 ctx.close();
-                closeConsumer.accept(null);
             }
             
+            
+            @Override
+            public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+                closeConsumer.accept(null);
+            }
         }
     }
     

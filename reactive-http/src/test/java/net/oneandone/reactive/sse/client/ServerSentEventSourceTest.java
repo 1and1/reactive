@@ -158,7 +158,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
         
         // invalidate the connection
-        reactiveSink.accept(ServerSentEvent.newEvent().data("posion pill"));
+        reactiveSink.accept(ServerSentEvent.newEvent().event("posion pill"));
         reactiveSink.shutdown();
         
         sleep(500);
@@ -184,7 +184,47 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
     @Test
     public void testInboundConnectionServerDown() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer); 
+        consumer.waitForSubscribedAsync();
 
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSubscriber(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        // sendig data 
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test2"));
+        consumer.getEventsAsync(2).get();
+
+        
+        // invalidate the connection
+        reactiveSink.accept(ServerSentEvent.newEvent().event("knockout drops").data("1000"));
+        reactiveSink.shutdown();
+
+        
+        sleep(4000);
+        
+        reactiveSink = ReactiveSink.buffer(1000)
+                                   .subscribe(new ClientSseSubscriber(uri));
+        sleep(500);  // wait for internal async connects
+
+        
+        
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test3"));
+        
+        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(3).get();
+        Assert.assertEquals("test1", events.get(0).getData().get());
+        Assert.assertEquals("test2", events.get(1).getData().get());
+        Assert.assertEquals("test3", events.get(2).getData().get());
+        
+        
+        reactiveSink.shutdown();
     }
     
 

@@ -46,7 +46,7 @@
 
 	<servlet>
 		<servlet-name>TestServlet</servlet-name>
-		<servlet-class>net.oneandone.reactive.sse.servlet.TestServlet</servlet-class>
+		<servlet-class>net.oneandone.reactive.sse.TestServlet</servlet-class>
 		<async-supported>true</async-supported>
 	</servlet>
 

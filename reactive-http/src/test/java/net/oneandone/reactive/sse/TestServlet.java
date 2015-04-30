@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse.servlet;
+package net.oneandone.reactive.sse;
 
 
 
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -84,6 +85,7 @@ public class TestServlet extends HttpServlet {
     private static final class Broker {
         
         private final Map<String, ImmutableSet<BrokerSubscription>> subscriptions = Maps.newHashMap();
+        private final Map<String, Instant> deepSleepTime = Maps.newHashMap();
 
         private final Map<String, ServerSentEvent> eventHistoryCache = Collections.synchronizedMap(new LinkedHashMap<String, ServerSentEvent>() {
             private static final long serialVersionUID = -1640442197943481724L;
@@ -94,11 +96,18 @@ public class TestServlet extends HttpServlet {
         });
         
 
-        public void registerPublisher(String id, Publisher<ServerSentEvent> publisher) {
+        public synchronized void registerPublisher(String id, Publisher<ServerSentEvent> publisher) {
+            if (isKnockedOut(id)) {
+                throw new RuntimeException("knockout drops");
+            }
             publisher.subscribe(new InboundHandler(id));
         }
  
-        public void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber, String lastEventId) {
+        public synchronized void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber, String lastEventId) {
+            if (isKnockedOut(id)) {
+                throw new RuntimeException("knockout drops");
+            }
+            
             BrokerSubscription brokerSubscription = new BrokerSubscription(subscriber);
             brokerSubscription.init();
             
@@ -134,6 +143,19 @@ public class TestServlet extends HttpServlet {
             }
         }
         
+        
+        private final boolean isKnockedOut(String id) {
+            Instant toTime = deepSleepTime.get(id);
+            if (toTime != null) {
+                boolean isKnockedOut = Instant.now().isBefore(toTime);
+                if (!isKnockedOut) {
+                    deepSleepTime.remove(id);
+                }
+                return isKnockedOut;
+            }
+            return false;
+        }
+
         
         private static final class BrokerSubscription implements Subscription {
             
@@ -217,9 +239,16 @@ public class TestServlet extends HttpServlet {
             @Override
             public void onNext(ServerSentEvent event) {
                 
-                if (event.getData().get().equalsIgnoreCase("posion pill")) {
+                if (event.getEvent().orElse("").equalsIgnoreCase("posion pill")) {
                     subscriptionRef.get().cancel();
                     getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                
+                } else if (event.getEvent().orElse("").equalsIgnoreCase("knockout drops")) {
+                    String millis = event.getData().orElse("100");
+                    deepSleepTime.put(id, Instant.now().plusMillis(Long.parseLong(millis)));
+                    subscriptionRef.get().cancel();
+                    getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                    
                     
                 } else {
                     publish(event);

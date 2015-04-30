@@ -69,7 +69,7 @@ public class CancelTest {
 
         
         // send posion pill event
-        event = ServerSentEvent.newEvent().data("posion pill").toWire();
+        event = ServerSentEvent.newEvent().event("posion pill").toWire();
         os.write(event.getBytes("UTF-8"));
         os.flush();
         sleep(300);

@@ -59,7 +59,7 @@ public class ReactiveSseServlet extends HttpServlet {
         req.startAsync();
         
         resp.setContentType("text/event-stream");
-        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp.getOutputStream(), Duration.ofSeconds(1));
+        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(5));
         broker.registerSubscriber(req.getPathInfo(), subscriber, 60 * 1000);
     }
     

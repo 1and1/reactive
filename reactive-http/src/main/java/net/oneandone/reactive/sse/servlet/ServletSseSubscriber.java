@@ -53,17 +53,6 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
     private final SseOutboundChannel channel;
 
     
-    @Deprecated
-    public ServletSseSubscriber(ServletOutputStream out) {
-        this(out, Duration.ofSeconds(25));
-    }   
-
-    @Deprecated
-    public ServletSseSubscriber(ServletOutputStream out, Duration keepAlivePeriod) {
-        this.channel = new SseOutboundChannel(out, error -> onError(error), keepAlivePeriod);
-    }   
-    
-
     
     public ServletSseSubscriber(HttpServletResponse resp) {
         this(resp, Duration.ofSeconds(25));

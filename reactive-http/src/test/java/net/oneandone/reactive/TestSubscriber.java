@@ -24,6 +24,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -36,8 +37,11 @@ import com.google.common.collect.Sets;
 
 public class TestSubscriber<T> implements Subscriber<T> {
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(); 
-    private final List<T> events = Collections.synchronizedList(Lists.newArrayList());
+    private final List<T> elements = Collections.synchronizedList(Lists.newArrayList());
+
     private final Set<WaitForElementsPromise> waitForElementsPromises = Sets.newCopyOnWriteArraySet();
+    private final Set<CompletableFuture<Void>> waitForSubscribedPromises = Sets.newCopyOnWriteArraySet();
+    
     
     private boolean isSuspended = false;
 
@@ -61,18 +65,22 @@ public class TestSubscriber<T> implements Subscriber<T> {
     
     @Override
     public void onSubscribe(Subscription subscription) {
-        this.subscriptionRef.set(subscription);
-        subscription.request(1);
+        synchronized (waitForSubscribedPromises) {
+            this.subscriptionRef.set(subscription);
+            subscription.request(1);
+        
+            notifyWaitForSubscribedPromises();
+        }
     }
     
     
     @Override
-    public void onNext(T event) {
+    public void onNext(T element) {
         synchronized (waitForElementsPromises) {
             try {
-                System.out.print("TestSubscriber reveived: " + event);
-                events.add(event);
-                waitForElementsPromises.forEach(promise -> promise.onNext(event));
+                System.out.print("TestSubscriber reveived: " + element);
+                elements.add(element);
+                notifyWaitForElementsPromises(element);
             } finally {
                 if (!isSuspended) {
                     subscriptionRef.get().request(1);
@@ -82,9 +90,13 @@ public class TestSubscriber<T> implements Subscriber<T> {
     }
     
     @Override
-    public void onError(Throwable t) {
+    public void onError(Throwable error) {
         synchronized (waitForElementsPromises) {
-            waitForElementsPromises.forEach(promise -> promise.completeExceptionally(t));
+            notifyWaitForElementsPromises(error);
+        }
+        
+        synchronized (waitForSubscribedPromises) {
+            notifyWaitForSubscribedPromises();
         }
     }
     
@@ -99,7 +111,7 @@ public class TestSubscriber<T> implements Subscriber<T> {
     
   
     public int getNumReceived() {
-        return events.size();
+        return elements.size();
     }
     
     @Override
@@ -112,13 +124,42 @@ public class TestSubscriber<T> implements Subscriber<T> {
     }
   
     
+    public CompletableFuture<Void> waitForSubscribedAsync() {
+        CompletableFuture<Void> promise = new CompletableFuture<>();
+        
+        synchronized (waitForSubscribedPromises) {
+            if (subscriptionRef.get() == null) {
+                waitForSubscribedPromises.add(promise);
+            } else {
+                notifyWaitForSubscribedPromises();
+            }
+        }
+        
+        return promise;
+    }
+    
+    private void notifyWaitForSubscribedPromises() {
+        waitForSubscribedPromises.forEach(promise -> promise.complete(null));
+        waitForSubscribedPromises.clear();
+    }
+
+    private void notifyWaitForElementsPromises(T element) {
+        waitForElementsPromises.forEach(promise -> promise.onNext(element));
+    }
+
+    private void notifyWaitForElementsPromises(Throwable error) {
+        waitForElementsPromises.forEach(promise -> promise.onError(error));
+    }
+    
     public CompletableFuture<ImmutableList<T>> getEventsAsync(int numWaitfor) {
         synchronized (waitForElementsPromises) {
             WaitForElementsPromise promise = new WaitForElementsPromise(numWaitfor);
             
+            elements.forEach(element -> promise.onNext(element));
             
-            events.forEach(event -> promise.onNext(event));
-            waitForElementsPromises.add(promise);
+            if (!promise.isDone()) {
+                waitForElementsPromises.add(promise);
+            }
             
             return promise;
         }        
@@ -135,10 +176,13 @@ public class TestSubscriber<T> implements Subscriber<T> {
         
         void onNext(T element) {
             if (waitFor.decrementAndGet() <= 0)  {
-                complete(ImmutableList.copyOf(events)); 
+                complete(ImmutableList.copyOf(elements)); 
             }
         }
         
+        void onError(Throwable error) {
+            completeExceptionally(error);
+        }
     }
    
 }

@@ -42,7 +42,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSsePublisher(uri).subscribe(consumer); 
+        new ClientSsePublisher(uri).subscribe(consumer);
+        consumer.waitForSubscribedAsync();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
@@ -100,13 +101,14 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
+        consumer.waitForSubscribedAsync();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSubscriber(uri).autoId(true));
 
         
-        sleep(500);  // wait for interna lasync connects
+        sleep(500);  // wait for internal async connects
         
         reactiveSink.accept(ServerSentEvent.newEvent().id("1").data("test1"));
         reactiveSink.accept(ServerSentEvent.newEvent().id("2").data("test2"));
@@ -118,6 +120,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         TestSubscriber<ServerSentEvent> consumer2 = new TestSubscriber<>();
         new ClientSsePublisher(uri).withLastEventId("1")
                                    .subscribe(consumer2); 
+        consumer2.waitForSubscribedAsync();
+
         
         ImmutableList<ServerSentEvent> events = consumer2.getEventsAsync(2).get();
         Assert.assertEquals("2", events.get(0).getId().get());
@@ -138,6 +142,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
+        consumer.waitForSubscribedAsync();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)

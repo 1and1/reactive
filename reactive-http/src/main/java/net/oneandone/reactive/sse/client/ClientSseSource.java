@@ -16,11 +16,10 @@
 package net.oneandone.reactive.sse.client;
 
 
-import java.io.Closeable;
-import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
@@ -31,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import net.oneandone.reactive.ReactiveSource;
@@ -151,33 +150,96 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync() {
         CompletableFuture<ReactiveSource<ServerSentEvent>> promise = new CompletableFuture<>();
         
-        SourceSubscriber subscriber = new SourceSubscriber((source, error) -> {
-                                                                                if (error == null) {
-                                                                                  //  promise.complete(new ReactiveSourceImpl(source)); 
-                                                                                } else {
-                                                                                  //  promise.completeExceptionally(error);  
-                                                                                }
-                                                                               });
+        new SourceSubscriber((source, error) -> {
+                                                  if (error == null) {
+                                                      ReactiveSourceImpl reactiveSource = new ReactiveSourceImpl(source);
+                                                      promise.complete(reactiveSource);
+                                                      return reactiveSource;
+                                                  } else {
+                                                      promise.completeExceptionally(error);
+                                                      return null;
+                                                  }
+                                                 });
         return promise; 
     }
     
 
-    private static class ReactiveSourceImpl implements ReactiveSource<ServerSentEvent> {
+    private static class ReactiveSourceImpl implements ReactiveSource<ServerSentEvent>, EventConsumer {
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final SourceSubscriber source;
+        
+        private final Object processingLock = new Object();
+        private final List<CompletableFuture<ServerSentEvent>> pendingReads = Lists.newArrayList();
+        private final List<ServerSentEvent> inBuffer = Lists.newArrayList();
+
+        private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        
         
         public ReactiveSourceImpl(SourceSubscriber source) {
             this.source = source;
         }
-        
+ 
         @Override
-        public CompletableFuture<ServerSentEvent> readAsync() {
-            // TODO Auto-generated method stub
-            return null;
+        public void close() {
+            if (isOpen.getAndSet(false)) {
+                source.cancel();
+            }
         }
         
         @Override
-        public void close() {
-            source.close();
+        public CompletableFuture<ServerSentEvent> readAsync() {
+            CompletableFuture<ServerSentEvent> promise = new CompletableFuture<ServerSentEvent>(); 
+
+            if (isOpen.get()) {
+                
+                synchronized (processingLock) {
+                    
+                    if (errorRef.get() == null) {
+                        source.request(1);
+                        pendingReads.add(promise);
+                        process();
+                        
+                    } else {
+                        promise.completeExceptionally(errorRef.get());
+                    }
+                }
+            } else {
+                promise.completeExceptionally(new IllegalStateException("source is closed"));
+            }
+            
+            return promise;
+        }
+ 
+        
+        @Override
+        public void onNext(ServerSentEvent event) {
+            synchronized (processingLock) {
+                inBuffer.add(event);
+                process();
+            }
+        }
+        
+        private void process() {
+            while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
+                CompletableFuture<ServerSentEvent> promise = pendingReads.remove(0);
+                promise.complete(inBuffer.remove(0));
+            }
+        }
+        
+        @Override
+        public void onComplete() {
+            isOpen.set(false);
+        }
+        
+        @Override
+        public void onError(Throwable error) {
+            synchronized (processingLock) {
+                errorRef.set(error);
+                for (CompletableFuture<ServerSentEvent> promise : pendingReads) {
+                    promise.completeExceptionally(error);
+                }
+                pendingReads.clear();
+            }
         }
     }
     
@@ -193,20 +255,22 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     }
     
     
-    private static class SourceSubscriber implements Subscriber<ServerSentEvent>, Closeable {
-        private final BiConsumer<Void, Throwable> onSubscribeListener;
+    private static class SourceSubscriber implements Subscriber<ServerSentEvent> {
+        private final BiFunction<SourceSubscriber, Throwable, EventConsumer> onSubscribeListener;
         
         private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-        private final AtomicReference<EventConsumer> eventConsumerRef = new AtomicReference<>(new EmptyEventConsumer());
+        private final AtomicReference<EventConsumer> eventConsumerRef = new AtomicReference<>(new InitialEventConsumer());
         
-        SourceSubscriber(BiConsumer<Void, Throwable> onSubscribeListener) {
+        SourceSubscriber(BiFunction<SourceSubscriber, Throwable, EventConsumer> onSubscribeListener) {
             this.onSubscribeListener = onSubscribeListener;
         }
 
+        
         @Override
         public void onSubscribe(Subscription subscription) {
             subscriptionRef.set(subscription);
-            onSubscribeListener.accept(null, null);
+            EventConsumer consumer = onSubscribeListener.apply(this, null);
+            eventConsumerRef.set(consumer);
         }
         
         @Override
@@ -224,26 +288,29 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             eventConsumerRef.get().onComplete();
         }
 
-        @Override
-        public void close() {
-            onComplete();
+        public void cancel() {
+            subscriptionRef.get().cancel();
         }
 
+        public void request(long num) {
+            subscriptionRef.get().request(num);
+        }
 
-        private class EmptyEventConsumer implements EventConsumer {
+        
+        private class InitialEventConsumer implements EventConsumer {
+            
+            @Override
+            public void onError(Throwable error) {
+                onSubscribeListener.apply(null, error);
+            }
             
             @Override
             public void onNext(ServerSentEvent event) {
             }
             
             @Override
-            public void onError(Throwable error) {
-                onSubscribeListener.accept(null, error);
-            }
-            
-            @Override
             public void onComplete() {
-            }            
+            }           
         }
 
     }

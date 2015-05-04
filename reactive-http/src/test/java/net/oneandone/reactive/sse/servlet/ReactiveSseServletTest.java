@@ -101,7 +101,7 @@ public class ReactiveSseServletTest {
         consumer.waitForSubscribedAsync().get();
 
 
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(10000)
                                                                  .subscribe(new ClientSseSink(url).autoId(true));
         
         sleep(500);  // wait for internal async connects

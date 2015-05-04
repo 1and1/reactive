@@ -17,9 +17,9 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+
 import java.nio.ByteBuffer;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import net.oneandone.reactive.ReactiveSource;
@@ -64,6 +63,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     private final Optional<String> lastEventId;
     private final Optional<Duration> connectionTimeout;
     private final Optional<Duration> socketTimeout;
+    private final int numPrefetchedElements;
     private final int numFollowRedirects;
     
 
@@ -72,20 +72,23 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
              Optional.empty(), 
              true, 
              DEFAULT_NUM_FOILLOW_REDIRECTS,
+             DEFAULT_BUFFER_SIZE,
              Optional.empty(),
              Optional.empty());
     }
     
     private ClientSseSource(URI uri,
-                               Optional<String> lastEventId,
-                               boolean isFailOnConnectError,
-                               int numFollowRedirects,
-                               Optional<Duration> connectionTimeout,
-                               Optional<Duration> socketTimeout) {
+                            Optional<String> lastEventId,
+                            boolean isFailOnConnectError,
+                            int numFollowRedirects,
+                            int numPrefetchedElements,
+                            Optional<Duration> connectionTimeout,
+                            Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.lastEventId = lastEventId;
         this.isFailOnConnectError = isFailOnConnectError;
         this.numFollowRedirects = numFollowRedirects;
+        this.numPrefetchedElements = numPrefetchedElements;
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
     }
@@ -93,57 +96,69 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
     public ClientSseSource connectionTimeout(Duration connectionTimeout) {
         return new ClientSseSource(this.uri, 
-                                      this.lastEventId, 
-                                      this.isFailOnConnectError,
-                                      this.numFollowRedirects,
-                                      Optional.of(connectionTimeout), 
-                                      this.socketTimeout);
+                                   this.lastEventId, 
+                                   this.isFailOnConnectError,
+                                   this.numFollowRedirects,
+                                   this.numPrefetchedElements,
+                                   Optional.of(connectionTimeout), 
+                                   this.socketTimeout);
     }
 
     public ClientSseSource socketTimeout(Duration socketTimeout) {
         return new ClientSseSource(this.uri, 
-                                      this.lastEventId, 
-                                      this.isFailOnConnectError,
-                                      this.numFollowRedirects,
-                                      this.connectionTimeout, 
-                                      Optional.of(socketTimeout));
+                                   this.lastEventId, 
+                                   this.isFailOnConnectError,
+                                   this.numFollowRedirects,
+                                   this.numPrefetchedElements,
+                                   this.connectionTimeout, 
+                                   Optional.of(socketTimeout));
     }
 
     public ClientSseSource withLastEventId(String lastEventId) {
         return new ClientSseSource(this.uri,
-                                      Optional.ofNullable(lastEventId),
-                                      this.isFailOnConnectError,
-                                      this.numFollowRedirects,
-                                      this.connectionTimeout, 
-                                      this.socketTimeout);
+                                   Optional.ofNullable(lastEventId),
+                                   this.isFailOnConnectError,
+                                   this.numFollowRedirects,
+                                   this.numPrefetchedElements,
+                                   this.connectionTimeout, 
+                                   this.socketTimeout);
     }
 
     public ClientSseSource failOnConnectError(boolean isFailOnConnectError) {
         return new ClientSseSource(this.uri,
-                                      this.lastEventId,
-                                      isFailOnConnectError,
-                                      this.numFollowRedirects,
-                                      this.connectionTimeout, 
-                                      this.socketTimeout);
+                                   this.lastEventId,
+                                   isFailOnConnectError,
+                                   this.numFollowRedirects,
+                                   this.numPrefetchedElements,
+                                   this.connectionTimeout, 
+                                   this.socketTimeout);
     }
 
     public ClientSseSource followRedirects(boolean isFollowRedirects) {
         return new ClientSseSource(this.uri,
-                                      this.lastEventId,
-                                      this.isFailOnConnectError,
-                                      isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
-                                      this.connectionTimeout, 
-                                      this.socketTimeout);
+                                   this.lastEventId,
+                                   this.isFailOnConnectError,
+                                   isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
+                                   this.numPrefetchedElements,
+                                   this.connectionTimeout, 
+                                   this. socketTimeout);
+    }
+
+
+    public ClientSseSource buffer(int numPrefetched) {
+        return new ClientSseSource(this.uri,
+                                   this.lastEventId,
+                                   this.isFailOnConnectError,
+                                   this.numFollowRedirects,
+                                   numPrefetchedElements,
+                                   this.connectionTimeout, 
+                                   this.socketTimeout);
     }
 
     
     public ReactiveSource<ServerSentEvent> open() {
-        return open(DEFAULT_BUFFER_SIZE);
-    }
-    
-    public ReactiveSource<ServerSentEvent> open(int buffersize) {
         try {
-            return openAsync(buffersize).get();
+            return openAsync().get();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
@@ -153,181 +168,8 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
     
     public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync() {
-        return openAsync(DEFAULT_BUFFER_SIZE);
+        return ReactiveSource.subscribeAsync(this);
     }
-    
-    public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync(int buffersize) {
-        CompletableFuture<ReactiveSource<ServerSentEvent>> promise = new CompletableFuture<>();
-        
-        SourceSubscriber sourceSubscriber = new SourceSubscriber((source, error) -> {
-                                                                                      if (error == null) {
-                                                                                          source.request(buffersize);
-                                                                                          ReactiveSourceImpl reactiveSource = new ReactiveSourceImpl(source);
-                                                                                          promise.complete(reactiveSource);
-                                                                                          return reactiveSource;
-                                                                                      } else {
-                                                                                          promise.completeExceptionally(error);
-                                                                                          return null;
-                                                                                      }
-                                                                                    });
-        
-        subscribe(sourceSubscriber);
-        
-        return promise; 
-    }
-    
-
-    private static class ReactiveSourceImpl implements ReactiveSource<ServerSentEvent>, EventConsumer {
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
-        private final SourceSubscriber source;
-        
-        private final Object processingLock = new Object();
-        private final List<CompletableFuture<ServerSentEvent>> pendingReads = Lists.newArrayList();
-        private final List<ServerSentEvent> inBuffer = Lists.newArrayList();
-
-        private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
-        
-        
-        public ReactiveSourceImpl(SourceSubscriber source) {
-            this.source = source;
-        }
- 
-        @Override
-        public void close() {
-            if (isOpen.getAndSet(false)) {
-                source.cancel();
-            }
-        }
-        
-        @Override
-        public CompletableFuture<ServerSentEvent> readAsync() {
-            CompletableFuture<ServerSentEvent> promise = new CompletableFuture<ServerSentEvent>(); 
-
-            if (isOpen.get()) {
-                
-                synchronized (processingLock) {
-                    
-                    if (errorRef.get() == null) {
-                        source.request(1);
-                        pendingReads.add(promise);
-                        process();
-                        
-                    } else {
-                        promise.completeExceptionally(errorRef.get());
-                    }
-                }
-            } else {
-                promise.completeExceptionally(new IllegalStateException("source is closed"));
-            }
-            
-            return promise;
-        }
- 
-        
-        @Override
-        public void onNext(ServerSentEvent event) {
-            synchronized (processingLock) {
-                inBuffer.add(event);
-                process();
-            }
-        }
-        
-        private void process() {
-            while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
-                CompletableFuture<ServerSentEvent> promise = pendingReads.remove(0);
-                promise.complete(inBuffer.remove(0));
-            }
-        }
-        
-        @Override
-        public void onComplete() {
-            isOpen.set(false);
-        }
-        
-        @Override
-        public void onError(Throwable error) {
-            synchronized (processingLock) {
-                errorRef.set(error);
-                for (CompletableFuture<ServerSentEvent> promise : pendingReads) {
-                    promise.completeExceptionally(error);
-                }
-                pendingReads.clear();
-            }
-        }
-    }
-    
-    
-    
-    private static interface EventConsumer {
-        
-        void onNext(ServerSentEvent event);
-        
-        void onError(Throwable error);
-        
-        void onComplete();
-    }
-    
-    
-    private static class SourceSubscriber implements Subscriber<ServerSentEvent> {
-        private final BiFunction<SourceSubscriber, Throwable, EventConsumer> onSubscribeListener;
-        
-        private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-        private final AtomicReference<EventConsumer> eventConsumerRef = new AtomicReference<>(new InitialEventConsumer());
-        
-        SourceSubscriber(BiFunction<SourceSubscriber, Throwable, EventConsumer> onSubscribeListener) {
-            this.onSubscribeListener = onSubscribeListener;
-        }
-
-        
-        @Override
-        public void onSubscribe(Subscription subscription) {
-            subscriptionRef.set(subscription);
-            EventConsumer consumer = onSubscribeListener.apply(this, null);
-            eventConsumerRef.set(consumer);
-        }
-        
-        @Override
-        public void onNext(ServerSentEvent event) {
-            eventConsumerRef.get().onNext(event);
-        }
-        
-        @Override
-        public void onError(Throwable error) {
-            eventConsumerRef.get().onError(error);
-        }
-        
-        @Override
-        public void onComplete() {
-            eventConsumerRef.get().onComplete();
-        }
-
-        public void cancel() {
-            subscriptionRef.get().cancel();
-        }
-
-        public void request(long num) {
-            subscriptionRef.get().request(num);
-        }
-
-        
-        private class InitialEventConsumer implements EventConsumer {
-            
-            @Override
-            public void onError(Throwable error) {
-                onSubscribeListener.apply(null, error);
-            }
-            
-            @Override
-            public void onNext(ServerSentEvent event) {
-            }
-            
-            @Override
-            public void onComplete() {
-            }           
-        }
-
-    }
-    
     
     
     

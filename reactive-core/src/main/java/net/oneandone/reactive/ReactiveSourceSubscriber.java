@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -76,7 +75,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
     public void request(long num) {
         subscriptionRef.get().request(num);
     }
-
+    
     
     private class InitialEventConsumer implements EventConsumer<T> {
         
@@ -108,6 +107,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
     
     private static class ReactiveSourceImpl<T> implements ReactiveSource<T>, EventConsumer<T> {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
+
         private final ReactiveSourceSubscriber<T> source;
         
         private final Object processingLock = new Object();
@@ -115,9 +115,6 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private final List<T> inBuffer = Lists.newArrayList();
 
         private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
-        // statistics
-        private final AtomicLong numReceived = new AtomicLong(); 
 
         
         private ReactiveSourceImpl(ReactiveSourceSubscriber<T> source) {
@@ -169,11 +166,9 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         }
      
         
-        
         @Override
         public void onNext(T element) {
             synchronized (processingLock) {
-                numReceived.incrementAndGet();
                 inBuffer.add(element);
                 process();
             }
@@ -206,14 +201,15 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         @Override
         public String toString() {
             StringBuilder builder = new StringBuilder();
-            if (isOpen.get()) {
+            if (!isOpen.get()) {
                 builder.append("[closed] " );
-            } else {
-                
             }
+            builder.append("numPendingRequests=" + pendingReads.size() + " numBuffered=" + inBuffer.size());
             
-            builder.append(" numReceived=" + numReceived);
-            
+            if (source.subscriptionRef.get() != null) {
+                builder.append("  (subscription: " + source.subscriptionRef.get() + ")");
+            }
+                
             return builder.toString();
         }
     }

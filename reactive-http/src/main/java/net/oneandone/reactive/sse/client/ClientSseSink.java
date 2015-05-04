@@ -104,7 +104,6 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final class SseOutboundStream {
         private final String id = "cl-out-" + UUID.randomUUID().toString();
         private final boolean isAutoId;
-        private final URI uri;
         private final Subscription subscription;
         
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -123,7 +122,6 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  Optional<Duration> connectionTimeout,
                                  Optional<Duration> socketTimeout) {
             this.subscription = subscription;
-            this.uri = uri;
             this.isAutoId = isAutoId;
             
             LOG.debug("[" + id + "] opening");

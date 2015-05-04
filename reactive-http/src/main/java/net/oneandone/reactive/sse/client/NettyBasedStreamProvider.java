@@ -185,7 +185,7 @@ class NettyBasedStreamProvider implements StreamProvider {
                                                      Optional<Duration> socketTimeout,
                                                      InboundStreamHandler streamHandler) {
         
-        ConnectedPromise connectedPromise = new ConnectedPromise(streamHandler);
+        ConnectedPromise connectedPromise = new ConnectedPromise(id, streamHandler);
         
         try {
             String scheme = (uri.getScheme() == null) ? "http" : uri.getScheme();
@@ -253,16 +253,18 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     private static class ConnectedPromise extends CompletableFuture<InboundStream> implements HttpResponseHandler {
         private final StreamProvider.InboundStreamHandler streamHandler;
+        private final String id;
         private final AtomicBoolean isHandled = new AtomicBoolean(false);
         
-        public ConnectedPromise(StreamProvider.InboundStreamHandler streamHandler) {
+        public ConnectedPromise(String id, StreamProvider.InboundStreamHandler streamHandler) {
+            this.id = id;
             this.streamHandler = streamHandler;
         }
         
         @Override
         public StreamProvider.InboundStreamHandler onConnect(Channel channel) {
             if (!isHandled.getAndSet(true)) {
-                complete(new Http11InboundStream(channel));
+                complete(new Http11InboundStream(id, channel));
             }
             return streamHandler;
         }
@@ -278,28 +280,29 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     private static class Http11InboundStream implements InboundStream  {
+        private final String id; 
         private final Channel channel; 
         
-        public Http11InboundStream(Channel channel) {
+        public Http11InboundStream(String id, Channel channel) {
+            this.id = id;
             this.channel = channel;
         }
         
         @Override
         public boolean isSuspended() {
-            // TODO Auto-generated method stub
-            return false;
+            return !channel.config().isAutoRead();
         }
         
         @Override
         public void suspend() {
-            // TODO Auto-generated method stub
-            
+            LOG.debug("[" + id + "] - channel " + channel.hashCode() + " suspended");
+            channel.config().setAutoRead(false);
         }
         
         @Override
         public void resume() {
-            // TODO Auto-generated method stub
-            
+            LOG.debug("[" + id + "] - channel " + channel.hashCode() + " resumed");
+            channel.config().setAutoRead(true);
         }
         
         @Override
@@ -526,7 +529,6 @@ class NettyBasedStreamProvider implements StreamProvider {
             
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                // TODO Auto-generated method stub
                 super.exceptionCaught(ctx, cause);
             }
         }
@@ -646,7 +648,7 @@ class NettyBasedStreamProvider implements StreamProvider {
         
         @Override
         public void initChannel(SocketChannel ch) {
-             ChannelPipeline p = ch.pipeline();
+            ChannelPipeline p = ch.pipeline();
              
              if (sslCtx != null) {
                  p.addLast(sslCtx.newHandler(ch.alloc()));
@@ -687,7 +689,6 @@ class NettyBasedStreamProvider implements StreamProvider {
                         responseHandler.onError(new HttpResponseError(response));
                         ctx.close();
                     }
-
                     
                 } else  if (msg instanceof HttpContent) {
                     HttpContent content = (HttpContent) msg;

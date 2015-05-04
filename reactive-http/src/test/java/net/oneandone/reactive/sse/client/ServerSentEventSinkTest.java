@@ -18,11 +18,10 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
-import java.util.Iterator;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
-import net.oneandone.reactive.TestSubscriber;
+import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
@@ -36,14 +35,9 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     public void testSimple() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri).autoId(true));
-        
         sleep(500);  // wait for internal async connects
         
         
@@ -52,14 +46,12 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple312123123123123"));
         
         
+        Assert.assertEquals("testeventSinkSimple1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testeventSinkSimple21212", reactiveSource.read().getData().get());
+        Assert.assertEquals("testeventSinkSimple312123123123123", reactiveSource.read().getData().get());
         
-        Iterator<ServerSentEvent> sseIt = consumer.getEventsAsync(3).get().iterator();
-        Assert.assertEquals("testeventSinkSimple1", sseIt.next().getData().get());
-        Assert.assertEquals("testeventSinkSimple21212", sseIt.next().getData().get());
-        Assert.assertEquals("testeventSinkSimple312123123123123", sseIt.next().getData().get());
         
+        reactiveSource.close();        
         reactiveSink.shutdown();
-        
-        System.out.println("closed");
     }
 }

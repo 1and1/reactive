@@ -18,12 +18,11 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ReactiveSource;
-import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
@@ -68,64 +67,100 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     }
     
     
-    
-    
+
     @Test
-    public void testInboundSuspending() throws Exception {
+    public void testIncomingBufferSize0() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
 
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer);
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri)
+                                                                    .buffer(0)
+                                                                    .open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         
         sleep(500);  // wait for internal async connects
         
         
-        for (int i = 0; i < 10; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsuspending" + i));
+        for (int i = 0; i < 5; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
-        consumer.getEventsAsync(10).get();
-
+        sleep(500); 
+        Assert.assertTrue(reactiveSource.toString().contains("numPendingRequests=0 numBuffered=0  (subscription: [suspended]"));
         
-        consumer.suspend();
-
+        Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple3", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple4", reactiveSource.read().getData().get());
         
-        for (int i = 0; i < 20; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsuspending2" + i));
-        }
-        
-        
-        consumer.getEventsAsync(11).get();
-        
-        Assert.assertTrue(consumer.toString().contains("[suspended]"));
-        Assert.assertEquals(11, consumer.getNumReceived());
-
-
-        
-        consumer.resume();
-
-
-        consumer.getEventsAsync(30).get();
-        Assert.assertFalse(consumer.toString().contains("[suspended]"));
-
-        
-
-        for (int i = 0; i < 70; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsuspending3" + i));
-        }
-        
-        
-        consumer.getEventsAsync(100).get();
-        
+        reactiveSource.close();
         reactiveSink.shutdown();
     }
     
+    
+    
+    @Test
+    public void testIncomingBufferSize3() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).buffer(3).open();    
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSink(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        for (int i = 0; i < 5; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+        }
+        
+        sleep(500); 
+        Assert.assertEquals("numPendingRequests=0 numBuffered=3  (subscription: [suspended] buffered events: 1, num requested: 0)", reactiveSource.toString());
+        
+        Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple3", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple4", reactiveSource.read().getData().get());
+        
+        reactiveSource.close();
+        reactiveSink.shutdown();
+    }
+    
+    
+    @Test
+    public void testIncomingBufferSizeDefault() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSink(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        for (int i = 0; i < 5; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+        }
+        
+        sleep(500); 
+        Assert.assertEquals("numPendingRequests=0 numBuffered=5  (subscription: buffered events: 0, num requested: 45)", reactiveSource.toString());
+        
+        Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple3", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple4", reactiveSource.read().getData().get());
+        
+        reactiveSource.close();
+        reactiveSink.shutdown();
+    }
+    
+   
     
 
     
@@ -282,7 +317,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testServerError() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
         
-        
         try {
             new ClientSseSource(uri).open();    
             Assert.fail("RuntimeException expected");
@@ -296,16 +330,14 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testIgnoreErrorOnConnect() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).failOnConnectError(false).subscribe(consumer);
-        consumer.waitForSubscribedAsync().get();
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).failOnConnectError(false).open();    
 
         sleep(400);
-        Assert.assertTrue(consumer.toString().contains("subscription [not connected]"));
+        Assert.assertTrue(reactiveSource.toString().contains("(subscription: [not connected]"));
         
-        consumer.close();
+        reactiveSource.close();
         
         sleep(400);
-        Assert.assertTrue(consumer.toString().contains("subscription [closed]"));
+        Assert.assertTrue(reactiveSource.toString().contains("subscription: [closed]"));
     }
 }

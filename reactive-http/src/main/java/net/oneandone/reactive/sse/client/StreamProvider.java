@@ -27,14 +27,14 @@ import java.util.function.Consumer;
 
 
 
-interface StreamProvider extends Closeable {
+interface StreamProvider {
     
     CompletableFuture<InboundStream> openInboundStreamAsync(String id,
                                                             URI uri, 
                                                             Optional<String> lastEventId, 
-                                                            Consumer<ByteBuffer[]> dataConsumer, 
-                                                            Consumer<Void> closeConsumer,
-                                                            Consumer<Throwable> errorConsumer,
+                                                            boolean isFailOnConnectError,
+                                                            int numFollowRedirects,
+                                                            InboundStreamHandler handler,
                                                             Optional<Duration> connectTimeout, 
                                                             Optional<Duration> socketTimeout);
     
@@ -44,8 +44,7 @@ interface StreamProvider extends Closeable {
                                                         Optional<Duration> connectTimeout, 
                                                         Optional<Duration> socketTimeout);
 
-    @Override
-    public void close();
+    CompletableFuture<Void> closeAsync();
     
     
 
@@ -87,6 +86,28 @@ interface StreamProvider extends Closeable {
         
         void close();
     }
+    
+    static interface InboundStreamHandler {
+        
+        void onContent(ByteBuffer[] buffers);
+        
+        void onError(Throwable error);
+         
+        void onCompleted();
+        
+        
+        public class Empty implements InboundStreamHandler {
+            
+            @Override
+            public void onCompleted() { }
+            
+            @Override
+            public void onContent(ByteBuffer[] buffers) { }
+            
+            @Override
+            public void onError(Throwable error) { }
+        }
+     }
     
     static class EmptyInboundStream implements InboundStream {
         

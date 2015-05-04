@@ -40,8 +40,8 @@ import com.google.common.io.BaseEncoding;
 
 
 
-public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
-    private static final Logger LOG = LoggerFactory.getLogger(ClientSseSubscriber.class);
+public class ClientSseSource implements Subscriber<ServerSentEvent> {
+    private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
@@ -51,28 +51,28 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
     private final Optional<Duration> socketTimeout;
 
     
-    public ClientSseSubscriber(URI uri) {
+    public ClientSseSource(URI uri) {
         this(uri, true, Optional.empty(), Optional.empty());
     }
 
-    private ClientSseSubscriber(URI uri, boolean isAutoId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
+    private ClientSseSource(URI uri, boolean isAutoId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.isAutoId = isAutoId;
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
     }
     
-    public ClientSseSubscriber autoId(boolean isAutoId) {
-        return new ClientSseSubscriber(this.uri, isAutoId, this.connectionTimeout, this.socketTimeout);
+    public ClientSseSource autoId(boolean isAutoId) {
+        return new ClientSseSource(this.uri, isAutoId, this.connectionTimeout, this.socketTimeout);
     }
 
 
-    public ClientSseSubscriber connectionTimeout(Duration connectionTimeout) {
-        return new ClientSseSubscriber(this.uri, this.isAutoId, Optional.of(connectionTimeout), this.socketTimeout);
+    public ClientSseSource connectionTimeout(Duration connectionTimeout) {
+        return new ClientSseSource(this.uri, this.isAutoId, Optional.of(connectionTimeout), this.socketTimeout);
     }
 
-    public ClientSseSubscriber socketTimeout(Duration socketTimeout) {
-        return new ClientSseSubscriber(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
+    public ClientSseSource socketTimeout(Duration socketTimeout) {
+        return new ClientSseSource(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
     }
 
 
@@ -184,7 +184,7 @@ public class ClientSseSubscriber implements Subscriber<ServerSentEvent> {
                 synchronized (this) {
                     outboundStreamRef.getAndSet(new EmptyOutboundStream()).close();
                 }
-                streamProvider.close();
+                streamProvider.closeAsync();
                 
                 subscription.cancel();
             }

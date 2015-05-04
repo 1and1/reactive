@@ -33,6 +33,7 @@ import java.util.function.Consumer;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
+import net.oneandone.reactive.sse.client.StreamProvider.InboundStreamHandler;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
@@ -51,70 +52,107 @@ import com.google.common.collect.Maps;
 public class ClientSsePublisher implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSsePublisher.class);
     
-    private boolean subscribed = false; // true after first subscribe
+    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 15;
     
     private final URI uri;
+    private boolean isFailOnConnectError;
     private final Optional<String> lastEventId;
     private final Optional<Duration> connectionTimeout;
     private final Optional<Duration> socketTimeout;
+    private final int numFollowRedirects;
 
 
     public ClientSsePublisher(URI uri) {
-        this(uri, Optional.empty(), Optional.empty(), Optional.empty());
+        this(uri, 
+             Optional.empty(), 
+             true, 
+             DEFAULT_NUM_FOILLOW_REDIRECTS,
+             Optional.empty(),
+             Optional.empty());
     }
     
     private ClientSsePublisher(URI uri,
                                Optional<String> lastEventId,
+                               boolean isFailOnConnectError,
+                               int numFollowRedirects,
                                Optional<Duration> connectionTimeout,
                                Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.lastEventId = lastEventId;
+        this.isFailOnConnectError = isFailOnConnectError;
+        this.numFollowRedirects = numFollowRedirects;
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
     }
 
 
     public ClientSsePublisher connectionTimeout(Duration connectionTimeout) {
-        return new ClientSsePublisher(this.uri, this.lastEventId, Optional.of(connectionTimeout), this.socketTimeout);
+        return new ClientSsePublisher(this.uri, 
+                                      this.lastEventId, 
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      Optional.of(connectionTimeout), 
+                                      this.socketTimeout);
     }
 
     public ClientSsePublisher socketTimeout(Duration socketTimeout) {
-        return new ClientSsePublisher(this.uri, this.lastEventId, this.connectionTimeout, Optional.of(socketTimeout));
+        return new ClientSsePublisher(this.uri, 
+                                      this.lastEventId, 
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      this.connectionTimeout, 
+                                      Optional.of(socketTimeout));
     }
-
-
 
     public ClientSsePublisher withLastEventId(String lastEventId) {
         return new ClientSsePublisher(this.uri,
-                                      Optional.ofNullable(lastEventId), 
+                                      Optional.ofNullable(lastEventId),
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
                                       this.connectionTimeout, 
                                       this.socketTimeout);
     }
 
+    public ClientSsePublisher failOnConnectError(boolean isFailOnConnectError) {
+        return new ClientSsePublisher(this.uri,
+                                      this.lastEventId,
+                                      isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
+    }
 
-    
+    public ClientSsePublisher followRedirects(boolean isFollowRedirects) {
+        return new ClientSsePublisher(this.uri,
+                                      this.lastEventId,
+                                      this.isFailOnConnectError,
+                                      isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
+    }
+
     
     
     @Override
     public void subscribe(Subscriber<? super ServerSentEvent> subscriber) {
-        synchronized (this) {
-            // https://github.com/reactive-streams/reactive-streams-jvm#1.9
-            if (subscriber == null) {  
-                throw new NullPointerException("subscriber is null");
-            }
-            
-            if (subscribed == true) {
-                subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
-            } else {
-                subscribed = true;
-                SseInboundStreamSubscription.newSseInboundStreamSubscription(uri, lastEventId, connectionTimeout, socketTimeout, subscriber);
-            }
-        }   
+        // https://github.com/reactive-streams/reactive-streams-jvm#1.9
+        if (subscriber == null) {  
+            throw new NullPointerException("subscriber is null");
+        }
+        
+        SseInboundStreamSubscription.newSseInboundStreamSubscription(uri, 
+                                                                     lastEventId, 
+                                                                     isFailOnConnectError,
+                                                                     numFollowRedirects,
+                                                                     connectionTimeout, 
+                                                                     socketTimeout, 
+                                                                     subscriber);
     }
 
     
+    
     private static class SseInboundStreamSubscription implements Subscription {
-        private final RetrySequence retrySequence = new RetrySequence(0, 100, 300, 500, 1000, 2000, 3000);
+        private final RetrySequence retrySequence = new RetrySequence(0, 50, 250, 500, 1000, 2000, 3000);
         
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
@@ -122,6 +160,7 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
+        private final boolean isFailOnConnectError;
         private final Optional<Duration> connectionTimeout;
         private final Optional<Duration> socketTimeout;
 
@@ -131,42 +170,70 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
     
         private final StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
         private final URI uri;
+        private final int numFollowRedirects;
         private final AtomicReference<StreamProvider.InboundStream> inboundStreamReference = new AtomicReference<>(new StreamProvider.EmptyInboundStream());
         private Optional<String> lastEventId;
         
         
         
-        public static void newSseInboundStreamSubscription(URI uri, Optional<String> lastEventId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout, Subscriber<? super ServerSentEvent> subscriber) {
-            SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri, lastEventId, connectionTimeout, socketTimeout, subscriber);
+        public static void newSseInboundStreamSubscription(URI uri, 
+                                                           Optional<String> lastEventId, 
+                                                           boolean isFailOnConnectError,
+                                                           int numFollowRedirects,
+                                                           Optional<Duration> connectionTimeout, 
+                                                           Optional<Duration> socketTimeout, 
+                                                           Subscriber<? super ServerSentEvent> subscriber) {
+            SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri,
+                                                                                                      lastEventId,
+                                                                                                      isFailOnConnectError,
+                                                                                                      numFollowRedirects,
+                                                                                                      connectionTimeout,
+                                                                                                      socketTimeout, 
+                                                                                                      subscriber);
             inboundStreamSubscription.init();
         }
         
     
-        private SseInboundStreamSubscription(URI uri, Optional<String> lastEventId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout, Subscriber<? super ServerSentEvent> subscriber) {
+        private SseInboundStreamSubscription(URI uri, 
+                                             Optional<String> lastEventId,
+                                             boolean isFailOnConnectError,
+                                             int numFollowRedirects,
+                                             Optional<Duration> connectionTimeout, 
+                                             Optional<Duration> socketTimeout, 
+                                             Subscriber<? super ServerSentEvent> subscriber) {
             this.uri = uri;
             this.lastEventId = lastEventId;
+            this.numFollowRedirects = numFollowRedirects;
+            this.isFailOnConnectError = isFailOnConnectError;
             this.connectionTimeout = connectionTimeout;
             this.socketTimeout = socketTimeout;
             subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
         
+        
         public void init() {
             newChannelAsync(Duration.ofMillis(0))
-                        .thenAccept(stream -> { 
-                                                inboundStreamReference.getAndSet(stream); 
-                                                subscriberNotifier.start();  // will start/notify subscriber only, if inbound connection is established  
-                                              });
+                        .whenComplete((stream, error) -> { 
+                                                            if (error == null) {
+                                                                inboundStreamReference.getAndSet(stream); 
+                                                                subscriberNotifier.start();
+                                                            } else if (isFailOnConnectError) {
+                                                                subscriberNotifier.startWithError(error);
+                                                            } else {
+                                                                subscriberNotifier.start();
+                                                                new CloseHandler<>(Duration.ofMillis(0)).accept(null);
+                                                            }
+                                                         });
         }
  
-     
         
         @Override
         public void cancel() {
-            inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
+            closeUnderlyingConnection();
             
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
-                streamProvider.close();
+                streamProvider.closeAsync();
             }
         } 
        
@@ -174,12 +241,31 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         private CompletableFuture<StreamProvider.InboundStream> newChannelAsync(Duration retryDelay) {
             if (isOpen.get()) {
                 LOG.debug("[" + id + "] open underyling channel with last event id " + lastEventId.orElse(""));
+                
+                InboundStreamHandler handler = new InboundStreamHandler() {
+                  
+                    @Override
+                    public void onContent(ByteBuffer[] buffers) {
+                        processNetworkdata(buffers);
+                    }
+                    
+                    @Override
+                    public void onError(Throwable error) {
+                        new CloseHandler<Throwable>(retryDelay).accept(error);
+                    }
+                    
+                    @Override
+                    public void onCompleted() {
+                        new CloseHandler<Void>(retryDelay).accept(null);
+                    }
+                };
+                
                 return streamProvider.openInboundStreamAsync(id, 
                                                              uri, 
-                                                             lastEventId, 
-                                                             buffers -> processNetworkdata(buffers), 
-                                                             new CloseHandler<Void>(retryDelay),
-                                                             new CloseHandler<Throwable>(retryDelay),
+                                                             lastEventId,
+                                                             isFailOnConnectError,
+                                                             numFollowRedirects,
+                                                             handler,
                                                              connectionTimeout,
                                                              socketTimeout);
             } else {
@@ -204,17 +290,30 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
             }
         }
        
+
+        private void closeUnderlyingConnection() {
+            if (isConnected()) {
+                LOG.debug("[" + id + "] close underlying channel");
+            }
+            inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
+        }
         
         private void resetUnderlyingConnection(Duration delay) {
-            LOG.debug("[" + id + "] close underyling channel");
-            inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
+            closeUnderlyingConnection();
 
             if (isOpen.get()) {
                 LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
                 
-                ScheduledExceutor.common().schedule(() -> newChannelAsync(retrySequence.nextDelay(delay)).thenAccept(stream -> inboundStreamReference.getAndSet(stream).close()), 
-                                                    delay.toMillis(), 
-                                                    TimeUnit.MILLISECONDS);
+                
+                Runnable retryConnect = () -> newChannelAsync(retrySequence.nextDelay(delay)).whenComplete((stream, error) -> { 
+                                                                                                                                if (error == null) {
+                                                                                                                                    inboundStreamReference.getAndSet(stream).close();
+                                                                                                                                } else {
+                                                                                                                                    resetUnderlyingConnection(retrySequence.nextDelay(delay));
+                                                                                                                                }
+                                                                                                                              });
+                
+                ScheduledExceutor.common().schedule(retryConnect, delay.toMillis(), TimeUnit.MILLISECONDS);
             }
         }
         
@@ -297,11 +396,28 @@ public class ClientSsePublisher implements Publisher<ServerSentEvent> {
         }
         
         
-      
+
+        private boolean isConnected() {
+            return !(inboundStreamReference.get() instanceof StreamProvider.EmptyInboundStream);
+            
+        }
+        
         
         @Override
         public String toString() {
-            return (inboundStreamReference.get().isSuspended() ? "[suspended] " : "") +  "buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get();
+            StringBuilder sb = new StringBuilder();
+            
+            if (!isOpen.get()) {
+                sb.append("[closed] ");
+                
+            } else if (isConnected()) {
+                sb.append(inboundStreamReference.get().isSuspended() ? "[suspended] " : "");
+                
+            } else {
+                sb.append("[not connected] ");
+            }
+            
+            return sb.append("buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get()).toString();
         }
     }
     

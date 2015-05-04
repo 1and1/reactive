@@ -38,11 +38,11 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri).autoId(true));
+                                                                 .subscribe(new ClientSseSource(uri).autoId(true));
         
         sleep(500);  // wait for internal async connects
         

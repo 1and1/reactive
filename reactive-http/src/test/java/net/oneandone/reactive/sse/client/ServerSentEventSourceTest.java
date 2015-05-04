@@ -19,12 +19,14 @@ package net.oneandone.reactive.sse.client;
 
 import java.net.URI;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
@@ -35,6 +37,33 @@ import com.google.common.collect.ImmutableList;
 public class ServerSentEventSourceTest extends TestServletbasedTest {
     
     
+    @Test
+    public void testSimple() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer);
+        consumer.waitForSubscribedAsync().get();
+
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSource(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        for (int i = 0; i < 10; i++) {
+            reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i));
+        }
+        
+        consumer.getEventsAsync(10).get();
+        
+        reactiveSink.shutdown();
+    }
+    
+    
+    
     
     @Test
     public void testInboundSuspending() throws Exception {
@@ -43,11 +72,11 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer);
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri));
+                                                                 .subscribe(new ClientSseSource(uri));
         
         sleep(500);  // wait for internal async connects
         
@@ -101,11 +130,11 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri).autoId(true));
+                                                                 .subscribe(new ClientSseSource(uri).autoId(true));
 
         
         sleep(500);  // wait for internal async connects
@@ -142,11 +171,11 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri));
+                                                                 .subscribe(new ClientSseSource(uri));
         
         sleep(500);  // wait for internal async connects
         
@@ -164,7 +193,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         sleep(500);
         
         reactiveSink = ReactiveSink.buffer(1000)
-                                   .subscribe(new ClientSseSubscriber(uri));
+                                   .subscribe(new ClientSseSource(uri));
         sleep(500);  // wait for internal async connects
 
         
@@ -188,11 +217,11 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSsePublisher(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(uri));
+                                                                 .subscribe(new ClientSseSource(uri));
         
         sleep(500);  // wait for internal async connects
         
@@ -211,7 +240,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         sleep(4000);
         
         reactiveSink = ReactiveSink.buffer(1000)
-                                   .subscribe(new ClientSseSubscriber(uri));
+                                   .subscribe(new ClientSseSource(uri));
         sleep(500);  // wait for internal async connects
 
         
@@ -228,8 +257,80 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     }
     
 
+    @Ignore
     @Test
-    public void testRedirectConnecet() throws Exception {
+    public void testRedirected() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + UUID.randomUUID().toString());
         
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer);
+        consumer.waitForSubscribedAsync().get();
+
+
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
+                                                                 .subscribe(new ClientSseSource(uri));
+        
+        sleep(500);  // wait for internal async connects
+        
+        
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("test2"));
+        
+        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(2).get();
+        Assert.assertEquals("test1", events.get(0).getData().get());
+        Assert.assertEquals("test2", events.get(1).getData().get());
+
+        
+        reactiveSink.shutdown();        
+    }
+    
+    
+
+    @Test
+    public void testNotFoundError() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/notfound/");
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer);
+        try {
+            consumer.waitForSubscribedAsync().get();
+            Assert.fail("ExecutionException expected");
+        } catch (ExecutionException expected) {
+            Assert.assertTrue(expected.getMessage().contains("404 Not Found response received"));
+        }
+    }
+
+
+    @Test
+    public void testServerError() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).subscribe(consumer);
+        
+        try {
+            consumer.waitForSubscribedAsync().get();
+            Assert.fail("ExecutionException expected");
+        } catch (ExecutionException expected) { 
+            Assert.assertTrue(expected.getMessage().contains("500 Internal Server Error response received"));
+        }
+    }
+    
+    
+    @Test
+    public void testIgnoreErrorOnConnect() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
+        
+        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
+        new ClientSsePublisher(uri).failOnConnectError(false).subscribe(consumer);
+        consumer.waitForSubscribedAsync();
+
+        sleep(400);
+        Assert.assertTrue(consumer.toString().contains("subscription [not connected]"));
+        
+        consumer.close();
+        
+        sleep(400);
+        Assert.assertTrue(consumer.toString().contains("subscription [closed]"));
     }
 }

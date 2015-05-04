@@ -24,7 +24,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-
+import org.apache.http.annotation.Obsolete;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -38,7 +38,9 @@ import com.google.common.collect.Sets;
 public class TestSubscriber<T> implements Subscriber<T> {
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(); 
     private final List<T> elements = Collections.synchronizedList(Lists.newArrayList());
+    private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
+    private final Object lock = new Object(); 
     private final Set<WaitForElementsPromise> waitForElementsPromises = Sets.newCopyOnWriteArraySet();
     private final Set<CompletableFuture<Void>> waitForSubscribedPromises = Sets.newCopyOnWriteArraySet();
     
@@ -65,18 +67,18 @@ public class TestSubscriber<T> implements Subscriber<T> {
     
     @Override
     public void onSubscribe(Subscription subscription) {
-        synchronized (waitForSubscribedPromises) {
+        synchronized (lock) {
             this.subscriptionRef.set(subscription);
             subscription.request(1);
         
-            notifyWaitForSubscribedPromises();
+            notifyWaitForSubscribedPromises(null);
         }
     }
     
     
     @Override
     public void onNext(T element) {
-        synchronized (waitForElementsPromises) {
+        synchronized (lock) {
             try {
                 System.out.print("TestSubscriber reveived: " + element);
                 elements.add(element);
@@ -91,12 +93,11 @@ public class TestSubscriber<T> implements Subscriber<T> {
     
     @Override
     public void onError(Throwable error) {
-        synchronized (waitForElementsPromises) {
+        errorRef.set(error);
+
+        synchronized (lock) {
             notifyWaitForElementsPromises(error);
-        }
-        
-        synchronized (waitForSubscribedPromises) {
-            notifyWaitForSubscribedPromises();
+            notifyWaitForSubscribedPromises(error);
         }
     }
     
@@ -116,7 +117,7 @@ public class TestSubscriber<T> implements Subscriber<T> {
     
     @Override
     public String toString() {
-        String msg = "num received: " + getNumReceived() + "\r\nsubscription "+ subscriptionRef.get().toString();
+        String msg = "num received: " + getNumReceived() + "\r\nsubscription " + ((subscriptionRef.get() == null) ? "<unset>" : subscriptionRef.get().toString());
         if (isSuspended) {
             msg = "[suspended] " + msg;
         }
@@ -127,19 +128,26 @@ public class TestSubscriber<T> implements Subscriber<T> {
     public CompletableFuture<Void> waitForSubscribedAsync() {
         CompletableFuture<Void> promise = new CompletableFuture<>();
         
-        synchronized (waitForSubscribedPromises) {
-            if (subscriptionRef.get() == null) {
+        synchronized (lock) {
+            
+            if (errorRef.get() != null) {
+                notifyWaitForSubscribedPromises(errorRef.get());
+            } else if (subscriptionRef.get() == null) {
                 waitForSubscribedPromises.add(promise);
             } else {
-                notifyWaitForSubscribedPromises();
+                notifyWaitForSubscribedPromises(null);
             }
         }
         
         return promise;
     }
     
-    private void notifyWaitForSubscribedPromises() {
-        waitForSubscribedPromises.forEach(promise -> promise.complete(null));
+    private void notifyWaitForSubscribedPromises(Throwable error) {
+        if (error == null) {
+            waitForSubscribedPromises.forEach(promise -> promise.complete(null));
+        } else {
+            waitForSubscribedPromises.forEach(promise -> promise.completeExceptionally(error));
+        }
         waitForSubscribedPromises.clear();
     }
 
@@ -152,7 +160,7 @@ public class TestSubscriber<T> implements Subscriber<T> {
     }
     
     public CompletableFuture<ImmutableList<T>> getEventsAsync(int numWaitfor) {
-        synchronized (waitForElementsPromises) {
+        synchronized (lock) {
             WaitForElementsPromise promise = new WaitForElementsPromise(numWaitfor);
             
             elements.forEach(element -> promise.onNext(element));
@@ -164,6 +172,8 @@ public class TestSubscriber<T> implements Subscriber<T> {
             return promise;
         }        
     }
+    
+  
     
     
     private final class WaitForElementsPromise extends CompletableFuture<ImmutableList<T>> {
@@ -185,4 +195,6 @@ public class TestSubscriber<T> implements Subscriber<T> {
         }
     }
    
+    
+    
 }

@@ -71,12 +71,24 @@ public class TestServlet extends HttpServlet {
     
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync();
         
-        String lastEventId = req.getHeader("Last-Event-ID");
-        resp.setContentType("text/event-stream");
-        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(1));
-        broker.registerSubscriber(req.getPathInfo(), subscriber, lastEventId);
+        if (req.getPathInfo().startsWith("/redirect")) {
+            resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+
+        } else if (req.getPathInfo().startsWith("/notfound")) {
+            resp.sendError(404);
+
+        } else if (req.getPathInfo().startsWith("/servererror")) {
+            resp.sendError(500);
+
+        } else {
+            req.startAsync();
+            
+            String lastEventId = req.getHeader("Last-Event-ID");
+            resp.setContentType("text/event-stream");
+            Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(1));
+            broker.registerSubscriber(req.getPathInfo(), subscriber, lastEventId);
+        }
     }
     
     

@@ -25,7 +25,7 @@ import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSsePublisher;
-import net.oneandone.reactive.sse.client.ClientSseSubscriber;
+import net.oneandone.reactive.sse.client.ClientSseSource;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -68,7 +68,7 @@ public class ReactiveSseServletTest {
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(url).autoId(true));
+                                                                 .subscribe(new ClientSseSource(url).autoId(true));
         
         sleep(500);  // wait for internal async connects
                 
@@ -102,7 +102,7 @@ public class ReactiveSseServletTest {
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSubscriber(url).autoId(true));
+                                                                 .subscribe(new ClientSseSource(url).autoId(true));
         
         sleep(500);  // wait for internal async connects
                 

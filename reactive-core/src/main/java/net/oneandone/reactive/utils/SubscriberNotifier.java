@@ -47,6 +47,12 @@ public class SubscriberNotifier<T> {
         scheduler.tryScheduleToExecute();
     }
     
+    public void startWithError(Throwable error) {
+        notifications.clear();
+        notifyOnError(error);
+        start();
+    }
+    
     
     private void close() {
         isOpen.set(false);

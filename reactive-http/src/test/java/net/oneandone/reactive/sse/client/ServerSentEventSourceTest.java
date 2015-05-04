@@ -323,7 +323,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
         new ClientSseSource(uri).failOnConnectError(false).subscribe(consumer);
-        consumer.waitForSubscribedAsync();
+        consumer.waitForSubscribedAsync().get();
 
         sleep(400);
         Assert.assertTrue(consumer.toString().contains("subscription [not connected]"));

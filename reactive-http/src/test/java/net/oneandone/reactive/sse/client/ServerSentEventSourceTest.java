@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
 import net.oneandone.reactive.ReactiveSink;
+import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
@@ -42,11 +43,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
 
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer);
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         
@@ -57,8 +54,18 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
-        consumer.getEventsAsync(10).get();
+        Assert.assertEquals("testsimple0", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple1", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple2", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple3", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple4", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple5", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple6", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple7", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple8", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple9", reactiveSource.readAsync().get().getData().get());
         
+        reactiveSource.close();
         reactiveSink.shutdown();
     }
     

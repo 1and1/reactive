@@ -34,7 +34,7 @@ import com.google.common.collect.Sets;
 
 
 
-
+@Deprecated
 public class TestSubscriber<T> implements Subscriber<T> {
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(); 
     private final List<T> elements = Collections.synchronizedList(Lists.newArrayList());

@@ -56,6 +56,7 @@ import com.google.common.collect.Maps;
 public class ClientSseSource implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     
+    private final static int DEFAULT_BUFFER_SIZE = 50;
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 15;
     
     private final URI uri;
@@ -64,7 +65,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     private final Optional<Duration> connectionTimeout;
     private final Optional<Duration> socketTimeout;
     private final int numFollowRedirects;
-
+    
 
     public ClientSseSource(URI uri) {
         this(uri, 
@@ -137,8 +138,12 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
     
     public ReactiveSource<ServerSentEvent> open() {
+        return open(DEFAULT_BUFFER_SIZE);
+    }
+    
+    public ReactiveSource<ServerSentEvent> open(int buffersize) {
         try {
-            return openAsync().get();
+            return openAsync(buffersize).get();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
@@ -148,18 +153,26 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
     
     public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync() {
+        return openAsync(DEFAULT_BUFFER_SIZE);
+    }
+    
+    public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync(int buffersize) {
         CompletableFuture<ReactiveSource<ServerSentEvent>> promise = new CompletableFuture<>();
         
-        new SourceSubscriber((source, error) -> {
-                                                  if (error == null) {
-                                                      ReactiveSourceImpl reactiveSource = new ReactiveSourceImpl(source);
-                                                      promise.complete(reactiveSource);
-                                                      return reactiveSource;
-                                                  } else {
-                                                      promise.completeExceptionally(error);
-                                                      return null;
-                                                  }
-                                                 });
+        SourceSubscriber sourceSubscriber = new SourceSubscriber((source, error) -> {
+                                                                                      if (error == null) {
+                                                                                          source.request(buffersize);
+                                                                                          ReactiveSourceImpl reactiveSource = new ReactiveSourceImpl(source);
+                                                                                          promise.complete(reactiveSource);
+                                                                                          return reactiveSource;
+                                                                                      } else {
+                                                                                          promise.completeExceptionally(error);
+                                                                                          return null;
+                                                                                      }
+                                                                                    });
+        
+        subscribe(sourceSubscriber);
+        
         return promise; 
     }
     

@@ -26,7 +26,6 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 
@@ -276,12 +275,13 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     }
     
 
-    @Ignore
     @Test
     public void testRedirected() throws Exception {
-        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + UUID.randomUUID().toString());
+        String id = UUID.randomUUID().toString();
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + id);
+        URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=3");
         
-        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(redirectUri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         

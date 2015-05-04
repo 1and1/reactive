@@ -161,7 +161,13 @@ class NettyBasedStreamProvider implements StreamProvider {
                                                         if (redirectURI.isPresent()) {
                                                             LOG.debug("[" + id + "] follow redirect " + redirectURI.get());
                                                             connect(id, redirectURI.get(), method, headers, connectTimeout, socketTimeout, numFollowRedirects - 1, streamHandler)
-                                                                    .whenComplete((stream2, error2) -> { if (error2 == null) promise.complete(stream2); else promise.completeExceptionally(error2); });
+                                                                    .whenComplete((stream2, error2) -> { 
+                                                                                                            if (error2 == null) {
+                                                                                                                promise.complete(stream2);
+                                                                                                            } else {
+                                                                                                                promise.completeExceptionally(error2); 
+                                                                                                            }
+                                                                                                       });
                                                         } else {
                                                             promise.completeExceptionally(error);
                                                         }
@@ -229,9 +235,9 @@ class NettyBasedStreamProvider implements StreamProvider {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
-                        LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened. Sending GET request header " + uri.getRawPath() + ((uri.getQuery() == null) ? "" : "?" + uri.getQuery()));
+                        LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened. Sending GET request header " + uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
                         
-                        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, method, uri.getRawPath());
+                        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, method, uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
                         request.headers().set(HttpHeaders.Names.HOST, host + ":" + port);
                         request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
                         headers.forEach((name, value) -> request.headers().set(name, value));

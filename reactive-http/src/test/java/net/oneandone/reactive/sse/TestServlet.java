@@ -44,6 +44,7 @@ import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -62,7 +63,7 @@ public class TestServlet extends HttpServlet {
         req.startAsync().setTimeout(10 * 60 * 1000);
 
         Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
-        broker.registerPublisher(req.getPathInfo(), publisher);
+        broker.registerPublisher(normalizeId(req.getPathInfo()), publisher);
     }
     
  
@@ -72,8 +73,18 @@ public class TestServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         
-        if (req.getPathInfo().startsWith("/redirect")) {
-            resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+        if (req.getPathInfo().startsWith("/brokerinfo")) {
+            resp.setContentType("text/plain");
+            resp.getWriter().write(broker.toString());
+            
+        } else if (req.getPathInfo().startsWith("/redirect")) {
+            System.out.println(req.getQueryString());
+            int num = Integer.parseInt(req.getParameter("num"));
+            if (num > 0)  {
+                resp.sendRedirect(req.getRequestURL().toString() + "?num=" + (num  - 1));
+            } else {
+                resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+            }
 
         } else if (req.getPathInfo().startsWith("/notfound")) {
             resp.sendError(404);
@@ -87,11 +98,22 @@ public class TestServlet extends HttpServlet {
             String lastEventId = req.getHeader("Last-Event-ID");
             resp.setContentType("text/event-stream");
             Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(1));
-            broker.registerSubscriber(req.getPathInfo(), subscriber, lastEventId);
+            broker.registerSubscriber(normalizeId(req.getPathInfo()), subscriber, lastEventId);
         }
     }
     
     
+    private String normalizeId(String id) {
+        id = id.trim();
+        if (id.startsWith("/")) {
+            id = id.substring(1, id.length());
+        }
+        if (id.endsWith("/")) {
+            id = id.substring(0, id.length() - 1);
+        }
+        
+        return id;
+    }
     
     
     private static final class Broker {
@@ -153,6 +175,14 @@ public class TestServlet extends HttpServlet {
                     return subs;
                 }
             }
+        }
+        
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            subscriptions.forEach((id, subscripotions) -> sb.append(id + " -> " + Joiner.on(", ").join(subscripotions)));
+            
+            return sb.toString();
         }
         
         

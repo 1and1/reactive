@@ -30,8 +30,6 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.collect.ImmutableList;
-
 
 
 
@@ -54,16 +52,16 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
-        Assert.assertEquals("testsimple0", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple1", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple2", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple3", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple4", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple5", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple6", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple7", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple8", reactiveSource.readAsync().get().getData().get());
-        Assert.assertEquals("testsimple9", reactiveSource.readAsync().get().getData().get());
+        Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple3", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple4", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple5", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple6", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple7", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple8", reactiveSource.read().getData().get());
+        Assert.assertEquals("testsimple9", reactiveSource.read().getData().get());
         
         reactiveSource.close();
         reactiveSink.shutdown();
@@ -135,11 +133,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testInboundStartWithLastEventId() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri).autoId(true));
 
@@ -150,21 +144,19 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         reactiveSink.accept(ServerSentEvent.newEvent().id("2").data("testStartWithLastEventId2"));
         reactiveSink.accept(ServerSentEvent.newEvent().id("3").data("testStartWithLastEventId3"));
         
-        consumer.getEventsAsync(3).get();
+        Assert.assertEquals("testStartWithLastEventId1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testStartWithLastEventId2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testStartWithLastEventId3", reactiveSource.read().getData().get());
         
-        
-        TestSubscriber<ServerSentEvent> consumer2 = new TestSubscriber<>();
-        new ClientSseSource(uri).withLastEventId("1")
-                                   .subscribe(consumer2); 
-        consumer2.waitForSubscribedAsync();
-
-        
-        ImmutableList<ServerSentEvent> events = consumer2.getEventsAsync(2).get();
-        Assert.assertEquals("2", events.get(0).getId().get());
-        Assert.assertEquals("3", events.get(1).getId().get());
+        reactiveSource.close();    
         
         
         
+        reactiveSource = new ClientSseSource(uri).withLastEventId("1").open();
+        Assert.assertEquals("testStartWithLastEventId2", reactiveSource.read().getData().get());
+        Assert.assertEquals("testStartWithLastEventId3", reactiveSource.read().getData().get());
+        
+        reactiveSource.close();
         reactiveSink.shutdown();
     }
     
@@ -176,11 +168,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testInboundConnectionTerminated() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync().get();
-
-
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         
@@ -190,7 +179,9 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         // sendig data 
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated1"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated2"));
-        consumer.getEventsAsync(2).get();
+        
+        Assert.assertEquals("testInboundConnectionTerminated1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testInboundConnectionTerminated2", reactiveSource.read().getData().get());
 
         
         // invalidate the connection
@@ -203,14 +194,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
                                    .subscribe(new ClientSseSink(uri));
         sleep(500);  // wait for internal async connects
 
-        
-        
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated3"));
-        
-        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(3).get();
-        Assert.assertEquals("testInboundConnectionTerminated1", events.get(0).getData().get());
-        Assert.assertEquals("testInboundConnectionTerminated2", events.get(1).getData().get());
-        Assert.assertEquals("testInboundConnectionTerminated3", events.get(2).getData().get());
+        Assert.assertEquals("testInboundConnectionTerminated3", reactiveSource.read().getData().get());
         
         
         reactiveSink.shutdown();
@@ -222,11 +207,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testInboundConnectionServerDown() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer); 
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         
@@ -236,8 +217,9 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         // sendig data 
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown1"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown2"));
-        consumer.getEventsAsync(2).get();
 
+        Assert.assertEquals("testInboundConnectionServerDown1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testInboundConnectionServerDown2", reactiveSource.read().getData().get());
         
         // invalidate the connection
         reactiveSink.accept(ServerSentEvent.newEvent().event("knockout drops").data("1000"));
@@ -251,13 +233,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         sleep(500);  // wait for internal async connects
 
         
-        
         reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown3"));
-        
-        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(3).get();
-        Assert.assertEquals("testInboundConnectionServerDown1", events.get(0).getData().get());
-        Assert.assertEquals("testInboundConnectionServerDown2", events.get(1).getData().get());
-        Assert.assertEquals("testInboundConnectionServerDown3", events.get(2).getData().get());
+        Assert.assertEquals("testInboundConnectionServerDown3", reactiveSource.read().getData().get());
         
         
         reactiveSink.shutdown();
@@ -269,11 +246,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testRedirected() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + UUID.randomUUID().toString());
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer);
-        consumer.waitForSubscribedAsync().get();
-
-
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
                                                                  .subscribe(new ClientSseSink(uri));
         
@@ -283,11 +256,10 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
         reactiveSink.accept(ServerSentEvent.newEvent().data("test2"));
         
-        ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(2).get();
-        Assert.assertEquals("test1", events.get(0).getData().get());
-        Assert.assertEquals("test2", events.get(1).getData().get());
+        Assert.assertEquals("test1", reactiveSource.read().getData().get());
+        Assert.assertEquals("test2", reactiveSource.read().getData().get());
 
-        
+        reactiveSource.close();
         reactiveSink.shutdown();        
     }
     
@@ -297,12 +269,10 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testNotFoundError() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/notfound/");
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer);
         try {
-            consumer.waitForSubscribedAsync().get();
-            Assert.fail("ExecutionException expected");
-        } catch (ExecutionException expected) {
+            new ClientSseSource(uri).open();
+            Assert.fail("RuntimeException expected");
+        } catch (RuntimeException expected) { 
             Assert.assertTrue(expected.getMessage().contains("404 Not Found response received"));
         }
     }
@@ -312,13 +282,11 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testServerError() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
         
-        TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSseSource(uri).subscribe(consumer);
         
         try {
-            consumer.waitForSubscribedAsync().get();
-            Assert.fail("ExecutionException expected");
-        } catch (ExecutionException expected) { 
+            new ClientSseSource(uri).open();    
+            Assert.fail("RuntimeException expected");
+        } catch (RuntimeException expected) { 
             Assert.assertTrue(expected.getMessage().contains("500 Internal Server Error response received"));
         }
     }

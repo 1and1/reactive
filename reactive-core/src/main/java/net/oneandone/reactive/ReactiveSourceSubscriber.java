@@ -20,7 +20,10 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+
 
 
 
@@ -31,6 +34,7 @@ import com.google.common.collect.Lists;
 
 
 class ReactiveSourceSubscriber<T> implements Subscriber<T> {
+    
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
     private final AtomicReference<EventConsumer<T>> eventConsumerRef = new AtomicReference<>(new InitialEventConsumer());
     
@@ -112,6 +116,9 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
 
         private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
+        // statistics
+        private final AtomicLong numReceived = new AtomicLong(); 
+
         
         private ReactiveSourceImpl(ReactiveSourceSubscriber<T> source) {
             this.source = source;
@@ -166,6 +173,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         @Override
         public void onNext(T element) {
             synchronized (processingLock) {
+                numReceived.incrementAndGet();
                 inBuffer.add(element);
                 process();
             }
@@ -192,6 +200,21 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
                 CompletableFuture<T> promise = pendingReads.remove(0);
                 promise.complete(inBuffer.remove(0));
             }
+        }
+        
+        
+        @Override
+        public String toString() {
+            StringBuilder builder = new StringBuilder();
+            if (isOpen.get()) {
+                builder.append("[closed] " );
+            } else {
+                
+            }
+            
+            builder.append(" numReceived=" + numReceived);
+            
+            return builder.toString();
         }
     }
 }

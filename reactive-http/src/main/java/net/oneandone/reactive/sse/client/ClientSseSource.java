@@ -203,6 +203,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
         private final boolean isFailOnConnectError;
+        private final int numPrefetchedElements;
         private final Optional<Duration> connectionTimeout;
         private final Optional<Duration> socketTimeout;
 
@@ -250,10 +251,10 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             this.lastEventId = lastEventId;
             this.numFollowRedirects = numFollowRedirects;
             this.isFailOnConnectError = isFailOnConnectError;
+            this.numPrefetchedElements = numPrefetchedElements;
             this.connectionTimeout = connectionTimeout;
             this.socketTimeout = socketTimeout;
             
-            this.numRequested.addAndGet(numPrefetchedElements);
             subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
         
@@ -261,12 +262,8 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         public void init() {
             newChannelAsync(Duration.ofMillis(0))
                         .whenComplete((stream, error) -> { 
-                                                            if (numRequested.get() < 1) {
-                                                                stream.suspend(); 
-                                                            }
-                                                            
                                                             if (error == null) {
-                                                                inboundStreamReference.getAndSet(stream); 
+                                                                setUnderlyingConnection(stream); 
                                                                 subscriberNotifier.start();
                                                                 
                                                             } else if (isFailOnConnectError) {
@@ -402,15 +399,19 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         private void refreshFlowControl() {
             synchronized (consumesLock) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
-                if ((bufferedEvents.size() > numRequested.get()) && !inboundStreamReference.get().isSuspended()) {
+                if ((bufferedEvents.size() > getMaxBuffersize()) && !inboundStreamReference.get().isSuspended()) {
                     inboundStreamReference.get().suspend();
                 } 
     
-                // [Flow-control] will be resumed, if num prefetched less than one or 25% of the requested ones  
-                if (inboundStreamReference.get().isSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < numRequested.get() * 0.25)) ) {
+                // [Flow-control] will be resumed, if num prefetched less than one or 25% of the max buffer size  
+                if (inboundStreamReference.get().isSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
                     inboundStreamReference.get().resume();
                 }
             }
+        }
+        
+        private int getMaxBuffersize() {
+            return numRequested.get() + numPrefetchedElements;
         }
 
     

@@ -16,196 +16,553 @@
 package net.oneandone.reactive.sse.client;
 
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
+import net.oneandone.reactive.ReactiveSource;
+import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.StreamProvider.EmptyOutboundStream;
+import net.oneandone.reactive.sse.ServerSentEventParser;
+import net.oneandone.reactive.sse.client.StreamProvider.InboundStreamHandler;
+import net.oneandone.reactive.utils.SubscriberNotifier;
 
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.io.BaseEncoding;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 
 
-
-public class ClientSseSource implements Subscriber<ServerSentEvent> {
+public class ClientSseSource implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     
-    private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
+    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 15;
     
     private final URI uri;
-    private final boolean isAutoId;
+    private boolean isFailOnConnectError;
+    private final Optional<String> lastEventId;
     private final Optional<Duration> connectionTimeout;
     private final Optional<Duration> socketTimeout;
+    private final int numFollowRedirects;
 
-    
+
     public ClientSseSource(URI uri) {
-        this(uri, true, Optional.empty(), Optional.empty());
+        this(uri, 
+             Optional.empty(), 
+             true, 
+             DEFAULT_NUM_FOILLOW_REDIRECTS,
+             Optional.empty(),
+             Optional.empty());
     }
-
-    private ClientSseSource(URI uri, boolean isAutoId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
+    
+    private ClientSseSource(URI uri,
+                               Optional<String> lastEventId,
+                               boolean isFailOnConnectError,
+                               int numFollowRedirects,
+                               Optional<Duration> connectionTimeout,
+                               Optional<Duration> socketTimeout) {
         this.uri = uri;
-        this.isAutoId = isAutoId;
+        this.lastEventId = lastEventId;
+        this.isFailOnConnectError = isFailOnConnectError;
+        this.numFollowRedirects = numFollowRedirects;
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
-    }
-    
-    public ClientSseSource autoId(boolean isAutoId) {
-        return new ClientSseSource(this.uri, isAutoId, this.connectionTimeout, this.socketTimeout);
     }
 
 
     public ClientSseSource connectionTimeout(Duration connectionTimeout) {
-        return new ClientSseSource(this.uri, this.isAutoId, Optional.of(connectionTimeout), this.socketTimeout);
+        return new ClientSseSource(this.uri, 
+                                      this.lastEventId, 
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      Optional.of(connectionTimeout), 
+                                      this.socketTimeout);
     }
 
     public ClientSseSource socketTimeout(Duration socketTimeout) {
-        return new ClientSseSource(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
+        return new ClientSseSource(this.uri, 
+                                      this.lastEventId, 
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      this.connectionTimeout, 
+                                      Optional.of(socketTimeout));
     }
 
+    public ClientSseSource withLastEventId(String lastEventId) {
+        return new ClientSseSource(this.uri,
+                                      Optional.ofNullable(lastEventId),
+                                      this.isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
+    }
+
+    public ClientSseSource failOnConnectError(boolean isFailOnConnectError) {
+        return new ClientSseSource(this.uri,
+                                      this.lastEventId,
+                                      isFailOnConnectError,
+                                      this.numFollowRedirects,
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
+    }
+
+    public ClientSseSource followRedirects(boolean isFollowRedirects) {
+        return new ClientSseSource(this.uri,
+                                      this.lastEventId,
+                                      this.isFailOnConnectError,
+                                      isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
+                                      this.connectionTimeout, 
+                                      this.socketTimeout);
+    }
 
     
+    public ReactiveSource<ServerSentEvent> open() {
+        try {
+            return openAsync().get();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        }
+    }
 
-    @Override
-    public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId, connectionTimeout, socketTimeout));
+    
+    public CompletableFuture<ReactiveSource<ServerSentEvent>> openAsync() {
+        CompletableFuture<ReactiveSource<ServerSentEvent>> promise = new CompletableFuture<>();
         
+        SourceSubscriber subscriber = new SourceSubscriber((source, error) -> {
+                                                                                if (error == null) {
+                                                                                  //  promise.complete(new ReactiveSourceImpl(source)); 
+                                                                                } else {
+                                                                                  //  promise.completeExceptionally(error);  
+                                                                                }
+                                                                               });
+        return promise; 
     }
+    
+
+    private static class ReactiveSourceImpl implements ReactiveSource<ServerSentEvent> {
+        private final SourceSubscriber source;
+        
+        public ReactiveSourceImpl(SourceSubscriber source) {
+            this.source = source;
+        }
+        
+        @Override
+        public CompletableFuture<ServerSentEvent> readAsync() {
+            // TODO Auto-generated method stub
+            return null;
+        }
+        
+        @Override
+        public void close() {
+            source.close();
+        }
+    }
+    
+    
+    
+    private static interface EventConsumer {
+        
+        void onNext(ServerSentEvent event);
+        
+        void onError(Throwable error);
+        
+        void onComplete();
+    }
+    
+    
+    private static class SourceSubscriber implements Subscriber<ServerSentEvent>, Closeable {
+        private final BiConsumer<Void, Throwable> onSubscribeListener;
+        
+        private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
+        private final AtomicReference<EventConsumer> eventConsumerRef = new AtomicReference<>(new EmptyEventConsumer());
+        
+        SourceSubscriber(BiConsumer<Void, Throwable> onSubscribeListener) {
+            this.onSubscribeListener = onSubscribeListener;
+        }
+
+        @Override
+        public void onSubscribe(Subscription subscription) {
+            subscriptionRef.set(subscription);
+            onSubscribeListener.accept(null, null);
+        }
+        
+        @Override
+        public void onNext(ServerSentEvent event) {
+            eventConsumerRef.get().onNext(event);
+        }
+        
+        @Override
+        public void onError(Throwable error) {
+            eventConsumerRef.get().onError(error);
+        }
+        
+        @Override
+        public void onComplete() {
+            eventConsumerRef.get().onComplete();
+        }
+
+        @Override
+        public void close() {
+            onComplete();
+        }
+
+
+        private class EmptyEventConsumer implements EventConsumer {
+            
+            @Override
+            public void onNext(ServerSentEvent event) {
+            }
+            
+            @Override
+            public void onError(Throwable error) {
+                onSubscribeListener.accept(null, error);
+            }
+            
+            @Override
+            public void onComplete() {
+            }            
+        }
+
+    }
+    
+    
+    
     
     @Override
-    public void onNext(ServerSentEvent event) {
-        sseOutboundStreamRef.get().write(event);
+    public void subscribe(Subscriber<? super ServerSentEvent> subscriber) {
+        // https://github.com/reactive-streams/reactive-streams-jvm#1.9
+        if (subscriber == null) {  
+            throw new NullPointerException("subscriber is null");
+        }
+        
+        SseInboundStreamSubscription.newSseInboundStreamSubscription(uri, 
+                                                                     lastEventId, 
+                                                                     isFailOnConnectError,
+                                                                     numFollowRedirects,
+                                                                     connectionTimeout, 
+                                                                     socketTimeout, 
+                                                                     subscriber);
     }
-    
-    @Override
-    public void onError(Throwable t) {
-        sseOutboundStreamRef.get().terminate(t);
-    }
-    
-    @Override
-    public void onComplete() {
-        sseOutboundStreamRef.get().close();
-    }
+
     
     
     
-    private static final class SseOutboundStream {
-        private final String id = "cl-out-" + UUID.randomUUID().toString();
-        private final boolean isAutoId;
-        private final URI uri;
-        private final Subscription subscription;
+    private static class SseInboundStreamSubscription implements Subscription {
+        private final RetrySequence retrySequence = new RetrySequence(0, 50, 250, 500, 1000, 2000, 3000);
         
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
-        private final String globalId = newGlobalId();
-        private final AtomicLong nextLocalId = new AtomicLong(1);
+        private final String id = "cl-in-" + UUID.randomUUID().toString();
+        private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
+        private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
+        private final boolean isFailOnConnectError;
+        private final Optional<Duration> connectionTimeout;
+        private final Optional<Duration> socketTimeout;
+
+        private final Object consumesLock = new Object();
+        private final AtomicInteger numRequested = new AtomicInteger(0);
+        private final ServerSentEventParser parser = new ServerSentEventParser();
+    
         private final StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
-        private final AtomicReference<StreamProvider.OutboundStream> outboundStreamRef = new AtomicReference<>(new StreamProvider.EmptyOutboundStream());
-
+        private final URI uri;
+        private final int numFollowRedirects;
+        private final AtomicReference<StreamProvider.InboundStream> inboundStreamReference = new AtomicReference<>(new StreamProvider.EmptyInboundStream());
+        private Optional<String> lastEventId;
         
         
-        public SseOutboundStream(Subscription subscription, 
-                                 URI uri, 
-                                 boolean isAutoId,
-                                 Optional<Duration> connectionTimeout,
-                                 Optional<Duration> socketTimeout) {
-            this.subscription = subscription;
+        
+        public static void newSseInboundStreamSubscription(URI uri, 
+                                                           Optional<String> lastEventId, 
+                                                           boolean isFailOnConnectError,
+                                                           int numFollowRedirects,
+                                                           Optional<Duration> connectionTimeout, 
+                                                           Optional<Duration> socketTimeout, 
+                                                           Subscriber<? super ServerSentEvent> subscriber) {
+            SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri,
+                                                                                                      lastEventId,
+                                                                                                      isFailOnConnectError,
+                                                                                                      numFollowRedirects,
+                                                                                                      connectionTimeout,
+                                                                                                      socketTimeout, 
+                                                                                                      subscriber);
+            inboundStreamSubscription.init();
+        }
+        
+    
+        private SseInboundStreamSubscription(URI uri, 
+                                             Optional<String> lastEventId,
+                                             boolean isFailOnConnectError,
+                                             int numFollowRedirects,
+                                             Optional<Duration> connectionTimeout, 
+                                             Optional<Duration> socketTimeout, 
+                                             Subscriber<? super ServerSentEvent> subscriber) {
             this.uri = uri;
-            this.isAutoId = isAutoId;
-            
-            LOG.debug("[" + id + "] opening");
-            
-            
-            streamProvider.newOutboundStream(id, uri, (Void) -> close(), connectionTimeout, socketTimeout)
-                          .whenComplete((stream, error) ->  {
-                                                              if (error == null) {
-                                                                  outboundStreamRef.set(stream); 
-                                                                  subscription.request(1);
-                                                              } else {
-                                                                  terminate(error);
-                                                              }
-                                                            });
-        }
-                
-        
-        public void write(ServerSentEvent event) {
-            if (!event.getId().isPresent() && isAutoId) {
-                event = ServerSentEvent.newEvent()
-                                       .id(globalId + "-" + nextLocalId.getAndIncrement())
-                                       .event(event.getEvent().orElse(null))
-                                       .data(event.getData().orElse(null))
-                                       .retry(event.getRetry().orElse(null))
-                                       .comment(event.getComment().orElse(null));
-            }
-            
-            writeInternal(event);
-        }
-        
-
-        private void writeInternal(ServerSentEvent event) {
-            LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
-            outboundStreamRef.get().write(event.toWire())
-                                   .whenComplete((Void, error) -> { 
-                                                               if (error == null) {
-                                                                   subscription.request(1);
-                                                               } else {
-                                                                   LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                                   //terminateCurrentHttpStream();
-                                                                   subscription.cancel();
-                                                               }
-                           }); 
-        }     
-            
-       
-
-        
-        public void terminate(Throwable t) {
-            outboundStreamRef.get().terminate();
+            this.lastEventId = lastEventId;
+            this.numFollowRedirects = numFollowRedirects;
+            this.isFailOnConnectError = isFailOnConnectError;
+            this.connectionTimeout = connectionTimeout;
+            this.socketTimeout = socketTimeout;
+            subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
         
         
+        public void init() {
+            newChannelAsync(Duration.ofMillis(0))
+                        .whenComplete((stream, error) -> { 
+                                                            if (error == null) {
+                                                                inboundStreamReference.getAndSet(stream); 
+                                                                subscriberNotifier.start();
+                                                            } else if (isFailOnConnectError) {
+                                                                subscriberNotifier.startWithError(error);
+                                                            } else {
+                                                                subscriberNotifier.start();
+                                                                new CloseHandler<>(Duration.ofMillis(0)).accept(null);
+                                                            }
+                                                         });
+        }
+ 
         
-        public void close() {
+        @Override
+        public void cancel() {
+            closeUnderlyingConnection();
+            
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
-                synchronized (this) {
-                    outboundStreamRef.getAndSet(new EmptyOutboundStream()).close();
-                }
                 streamProvider.closeAsync();
+            }
+        } 
+       
+        
+        private CompletableFuture<StreamProvider.InboundStream> newChannelAsync(Duration retryDelay) {
+            if (isOpen.get()) {
+                LOG.debug("[" + id + "] open underyling channel with last event id " + lastEventId.orElse(""));
                 
-                subscription.cancel();
+                InboundStreamHandler handler = new InboundStreamHandler() {
+                  
+                    @Override
+                    public void onContent(ByteBuffer[] buffers) {
+                        processNetworkdata(buffers);
+                    }
+                    
+                    @Override
+                    public void onError(Throwable error) {
+                        new CloseHandler<Throwable>(retryDelay).accept(error);
+                    }
+                    
+                    @Override
+                    public void onCompleted() {
+                        new CloseHandler<Void>(retryDelay).accept(null);
+                    }
+                };
+                
+                return streamProvider.openInboundStreamAsync(id, 
+                                                             uri, 
+                                                             lastEventId,
+                                                             isFailOnConnectError,
+                                                             numFollowRedirects,
+                                                             handler,
+                                                             connectionTimeout,
+                                                             socketTimeout);
+            } else {
+                return CompletableFuture.completedFuture(new StreamProvider.EmptyInboundStream());
+            }
+        }
+        
+        
+        private final class CloseHandler<T> implements Consumer<T> {
+            private final AtomicBoolean isOpen = new AtomicBoolean(true);
+            private final Duration retryDelay;
+            
+            public CloseHandler(Duration retryDelay) {
+                this.retryDelay = retryDelay;
+            }
+            
+            @Override
+            public void accept(T t) {
+                if (isOpen.getAndSet(false)) {
+                    resetUnderlyingConnection(retryDelay);
+                }
+            }
+        }
+       
+
+        private void closeUnderlyingConnection() {
+            if (isConnected()) {
+                LOG.debug("[" + id + "] close underlying channel");
+            }
+            inboundStreamReference.getAndSet(new StreamProvider.EmptyInboundStream()).close();
+        }
+        
+        private void resetUnderlyingConnection(Duration delay) {
+            closeUnderlyingConnection();
+
+            if (isOpen.get()) {
+                LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
+                
+                
+                Runnable retryConnect = () -> newChannelAsync(retrySequence.nextDelay(delay)).whenComplete((stream, error) -> { 
+                                                                                                                                if (error == null) {
+                                                                                                                                    inboundStreamReference.getAndSet(stream).close();
+                                                                                                                                } else {
+                                                                                                                                    resetUnderlyingConnection(retrySequence.nextDelay(delay));
+                                                                                                                                }
+                                                                                                                              });
+                
+                ScheduledExceutor.common().schedule(retryConnect, delay.toMillis(), TimeUnit.MILLISECONDS);
             }
         }
         
         
         
-        private static String newGlobalId() {
-            try {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                DataOutputStream dos = new DataOutputStream(baos);
-                
-                UUID uuid = UUID.randomUUID();
-                dos.writeLong(uuid.getMostSignificantBits());
-                dos.writeLong(uuid.getLeastSignificantBits());
-                dos.flush();
-                
-                return BaseEncoding.base64Url().omitPadding().encode(baos.toByteArray());
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
+        private void processNetworkdata(ByteBuffer[] buffers) {
+            if (isEmpty(buffers)) {
+                return;
             }
+            
+            synchronized (consumesLock) {
+                for (int i = 0; i < buffers.length; i++) {
+                    ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
+                    for (ServerSentEvent event : events) {
+                        LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
+                        bufferedEvents.add(event);
+                        lastEventId = event.getId(); 
+                    }
+                }
+                
+                // [Flow-control] will be suspended, if num pre-fetched more than requested ones  
+                if ((bufferedEvents.size() > numRequested.get()) && !inboundStreamReference.get().isSuspended()) {
+                    inboundStreamReference.get().suspend();
+                } 
+            }
+            
+            process();
+        }
+
+    
+        private boolean isEmpty(ByteBuffer[] buffers) {
+            if (buffers.length > 0) {
+                for (int i = 0; i < buffers.length; i++) {
+                    if (buffers[i].remaining() > 0) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        
+  
+        
+        
+        @Override
+        public void request(long n) {
+            if (isOpen.get()) {
+                if(n <= 0) {
+                    // https://github.com/reactive-streams/reactive-streams#3.9
+                    subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
+                } else {
+                    numRequested.addAndGet((int) n);
+                    process();
+                }
+            } else {
+                subscriberNotifier.notifyOnError((new IllegalArgumentException("Stream is closed")));
+            }
+        }
+        
+        private void process() {
+            
+            synchronized (consumesLock) {
+
+                while (numRequested.get() > 0) {
+            
+                    // [Flow-control] will be resumed, if num prefetched less than one or 25% of the requested ones  
+                    if (inboundStreamReference.get().isSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < numRequested.get() * 0.25)) ) {
+                        inboundStreamReference.get().resume();
+                    }
+                    
+                    if (bufferedEvents.isEmpty()) {
+                        return;
+                    } else {
+                        ServerSentEvent event = bufferedEvents.poll();
+                        numRequested.decrementAndGet();
+                        subscriberNotifier.notifyOnNext(event);
+                    }
+                }
+            }
+        }
+        
+        
+
+        private boolean isConnected() {
+            return !(inboundStreamReference.get() instanceof StreamProvider.EmptyInboundStream);
+            
+        }
+        
+        
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            
+            if (!isOpen.get()) {
+                sb.append("[closed] ");
+                
+            } else if (isConnected()) {
+                sb.append(inboundStreamReference.get().isSuspended() ? "[suspended] " : "");
+                
+            } else {
+                sb.append("[not connected] ");
+            }
+            
+            return sb.append("buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get()).toString();
         }
     }
-}
+    
+    
+    
+    private static final class RetrySequence {
+        
+        private ImmutableMap<Duration, Duration> delayMap;
+        
+        public RetrySequence(int... delaysMillis) {
+            Map<Duration, Duration> map = Maps.newHashMap();
+            
+            for (int i = 0; i < delaysMillis.length; i++) {
+                if (delaysMillis.length > (i+1)) {
+                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i+1]));
+                } else {
+                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i]));
+                }
+            }
+            
+            delayMap = ImmutableMap.copyOf(map);
+        }
+        
+        public Duration nextDelay(Duration previous) {
+            Duration newDelay = delayMap.get(previous);
+            return (newDelay == null) ? previous : newDelay;
+        }
+    }
+}  

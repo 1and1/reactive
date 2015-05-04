@@ -24,8 +24,8 @@ import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.TestSubscriber;
 import net.oneandone.reactive.WebContainer;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.ClientSsePublisher;
 import net.oneandone.reactive.sse.client.ClientSseSource;
+import net.oneandone.reactive.sse.client.ClientSseSink;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -63,12 +63,12 @@ public class ReactiveSseServletTest {
 
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSsePublisher(url).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        new ClientSseSource(url).subscribe(consumer); 
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSource(url).autoId(true));
+                                                                 .subscribe(new ClientSseSink(url).autoId(true));
         
         sleep(500);  // wait for internal async connects
                 
@@ -97,12 +97,12 @@ public class ReactiveSseServletTest {
 
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSsePublisher(url).subscribe(consumer); 
-        consumer.waitForSubscribedAsync();
+        new ClientSseSource(url).subscribe(consumer); 
+        consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSource(url).autoId(true));
+                                                                 .subscribe(new ClientSseSink(url).autoId(true));
         
         sleep(500);  // wait for internal async connects
                 
@@ -112,7 +112,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 10; i++) {
-                    reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    reactiveSink.accept(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             
@@ -122,10 +122,10 @@ public class ReactiveSseServletTest {
         System.out.println("receiving");
 
         ImmutableList<ServerSentEvent> events = consumer.getEventsAsync(4).get();
-        Assert.assertTrue(events.get(0).getData().get().startsWith("test0"));
-        Assert.assertTrue(events.get(1).getData().get().startsWith("test1"));
-        Assert.assertTrue(events.get(2).getData().get().startsWith("test2"));
-        Assert.assertTrue(events.get(3).getData().get().startsWith("test3"));
+        Assert.assertTrue(events.get(0).getData().get().startsWith("testBulk0"));
+        Assert.assertTrue(events.get(1).getData().get().startsWith("testBulk1"));
+        Assert.assertTrue(events.get(2).getData().get().startsWith("testBulk2"));
+        Assert.assertTrue(events.get(3).getData().get().startsWith("testBulk3"));
 
         System.out.println("pausing");
         sleep(500);
@@ -133,8 +133,8 @@ public class ReactiveSseServletTest {
         
         System.out.println("receiving more");
         events = consumer.getEventsAsync(6).get();
-        Assert.assertTrue(events.get(4).getData().get().startsWith("test4"));
-        Assert.assertTrue(events.get(5).getData().get().startsWith("test5"));
+        Assert.assertTrue(events.get(4).getData().get().startsWith("testBulk4"));
+        Assert.assertTrue(events.get(5).getData().get().startsWith("testBulk5"));
 
         
         
@@ -143,7 +143,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 1000000; i++) {
-                    reactiveSink.accept(ServerSentEvent.newEvent().data("test" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    reactiveSink.accept(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             

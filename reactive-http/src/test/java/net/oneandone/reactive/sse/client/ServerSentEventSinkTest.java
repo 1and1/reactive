@@ -37,26 +37,26 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         TestSubscriber<ServerSentEvent> consumer = new TestSubscriber<>();
-        new ClientSsePublisher(uri).subscribe(consumer); 
+        new ClientSseSource(uri).subscribe(consumer); 
         consumer.waitForSubscribedAsync().get();
 
 
         ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSource(uri).autoId(true));
+                                                                 .subscribe(new ClientSseSink(uri).autoId(true));
         
         sleep(500);  // wait for internal async connects
         
         
-        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("test21212"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("test312123123123123"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));
+        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple312123123123123"));
         
         
         
         Iterator<ServerSentEvent> sseIt = consumer.getEventsAsync(3).get().iterator();
-        Assert.assertEquals("test1", sseIt.next().getData().get());
-        Assert.assertEquals("test21212", sseIt.next().getData().get());
-        Assert.assertEquals("test312123123123123", sseIt.next().getData().get());
+        Assert.assertEquals("testeventSinkSimple1", sseIt.next().getData().get());
+        Assert.assertEquals("testeventSinkSimple21212", sseIt.next().getData().get());
+        Assert.assertEquals("testeventSinkSimple312123123123123", sseIt.next().getData().get());
         
         reactiveSink.shutdown();
         

@@ -26,6 +26,14 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 
+
+/**
+ * Helper class to call the callback methods of an subscriber
+ * 
+ * @author grro
+ *
+ * @param <T> the element type 
+ */
 public class SubscriberNotifier<T> {
     private final ConcurrentLinkedQueue<Notification<T>> notifications = Queues.newConcurrentLinkedQueue();
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -36,43 +44,61 @@ public class SubscriberNotifier<T> {
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
     
-    
+    /**
+     * Constructor
+     * @param subscriber    the subscriber to call
+     * @param subscription  the subscription 
+     */
     public SubscriberNotifier(Subscriber<? super T> subscriber, Subscription subscription) {
         this.subscriber = subscriber;
         notify(new OnSubscribe<>(subscription));
     }
     
+    
+    /**
+     * start notifying the subscriber
+     */
     public void start() {
         isInitialized.set(true);
         scheduler.tryScheduleToExecute();
     }
     
+    /**
+     * start notifying the subscriber with error
+     * @param error the error
+     */
     public void startWithError(Throwable error) {
         notifications.clear();
         notifyOnError(error);
         start();
     }
+
     
-    
-    private void close() {
-        isOpen.set(false);
-        notifications.clear();  
-    }
-    
-    
-    
+    /**
+     * perform the onNext callback
+     * @param t the element
+     */
     public void notifyOnNext(T t) {
         notify(new OnNext<>(t));
     }
 
     
+    /**
+     * perform the onError callback
+     * @param error the error to notify
+     */
     public void notifyOnError(Throwable error) {
         notify(new OnError<>(error));
     }
     
+    
+    /**
+     * perform the onComplete callback
+     */
     public void notifyOnComplete() {
         notify(new OnComplete<>());
     }
+    
     
     private void notify(Notification<T> notification) {
         if (isOpen.get()) {
@@ -81,6 +107,14 @@ public class SubscriberNotifier<T> {
             }
         }
     }
+
+    
+    private void close() {
+        isOpen.set(false);
+        notifications.clear();  
+    }
+    
+    
 
     
     private final class Scheduler implements Runnable {

@@ -91,11 +91,8 @@ class NettyBasedStreamProvider implements StreamProvider {
         });
         
         return promise;
-         
     }
     
-    
-   
     
     
     @Override

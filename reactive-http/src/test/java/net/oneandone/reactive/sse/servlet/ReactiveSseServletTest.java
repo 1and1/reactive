@@ -61,7 +61,6 @@ public class ReactiveSseServletTest {
 
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(url).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).open();
-        sleep(500);  // wait for internal async connects
                 
         
         reactiveSink.write(ServerSentEvent.newEvent()
@@ -89,7 +88,6 @@ public class ReactiveSseServletTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(url).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).open();
-        sleep(500);  // wait for internal async connects
                 
         
         System.out.println("sending small number of events");

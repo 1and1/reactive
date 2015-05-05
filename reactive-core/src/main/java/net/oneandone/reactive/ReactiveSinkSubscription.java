@@ -46,15 +46,19 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private final Object processingLock = new Object();
     private final AtomicLong pendingRequests = new AtomicLong();
     private final LinkedList<Write> pendingWrites = Lists.newLinkedList();
+    
+    private final AtomicBoolean isStarted = new AtomicBoolean(false);
+    private final CompletableFuture<ReactiveSink<T>> startPromise; 
 
 
     
-    public ReactiveSinkSubscription(Subscriber<T> subscriber) {
+    public ReactiveSinkSubscription(Subscriber<T> subscriber, CompletableFuture<ReactiveSink<T>> startPromise) {
         // https://github.com/reactive-streams/reactive-streams-jvm#1.9
         if (subscriber == null) {  
             throw new NullPointerException("subscriber is null");
         }
 
+        this.startPromise = startPromise;
         this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         this.subscriberNotifier.start();
     }
@@ -63,6 +67,11 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     @Override
     public void cancel() {
         if (isOpen.getAndSet(false)) {
+            if (!isStarted.get()) {
+                isStarted.set(true);
+                startPromise.completeExceptionally(new RuntimeException("closed"));
+            }
+            
             subscriberNotifier.notifyOnComplete();
         }
     }
@@ -71,6 +80,11 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     public void request(long n) {
         if (isOpen.get()) {
             synchronized (processingLock) {
+                if (!isStarted.get()) {
+                    isStarted.set(true);
+                    startPromise.complete(this);
+                }
+                
                 pendingRequests.addAndGet(n);                
                 process();
             }

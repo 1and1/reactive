@@ -37,8 +37,6 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).autoId(true).open();
-        sleep(500);  // wait for internal async connects
-        
         
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));

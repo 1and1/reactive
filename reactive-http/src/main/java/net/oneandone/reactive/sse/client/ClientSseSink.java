@@ -23,6 +23,8 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -78,6 +80,20 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     
     public ReactiveSink<ServerSentEvent> open() {
+        try {
+            return openAsync().get();
+        } catch (InterruptedException e) {
+            throw new ConnectException(e);
+        } catch (ExecutionException e) {
+            throw new ConnectException(e.getCause());
+        }
+    }
+    
+    
+    /**
+     * @return the new source instance future
+     */
+    public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
         return ReactiveSink.subscribe(this);
     }
     

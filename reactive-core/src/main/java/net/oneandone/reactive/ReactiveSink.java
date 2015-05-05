@@ -26,8 +26,6 @@ import com.google.common.collect.ImmutableList;
 
 
 
-
-
 public interface ReactiveSink<T> extends Closeable {
     
     
@@ -64,7 +62,11 @@ public interface ReactiveSink<T> extends Closeable {
     
     
     
-    static <T> ReactiveSink<T> subscribe(Subscriber<T> subscriber) {
-        return new ReactiveSinkSubscription<>(subscriber);
+    @SuppressWarnings("resource")
+    static <T> CompletableFuture<ReactiveSink<T>> subscribe(Subscriber<T> subscriber) {
+        CompletableFuture<ReactiveSink<T>> promise = new CompletableFuture<>();
+        new ReactiveSinkSubscription<>(subscriber, promise);
+
+        return promise; 
     }
 }

@@ -43,11 +43,11 @@ public class SubscriberNotifier<T> {
     
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
-    
+
     /**
      * Constructor
-     * @param subscriber    the subscriber to call
-     * @param subscription  the subscription 
+     * @param subscriber         the subscriber to call
+     * @param subscription       the subscription 
      */
     public SubscriberNotifier(Subscriber<? super T> subscriber, Subscription subscription) {
         this.subscriber = subscriber;
@@ -162,7 +162,6 @@ public class SubscriberNotifier<T> {
     
    
     private static class OnSubscribe<T> extends SubscriberNotifier.Notification<T> {
-        
         private final Subscription subscription;
         
         public OnSubscribe(Subscription subscription) {

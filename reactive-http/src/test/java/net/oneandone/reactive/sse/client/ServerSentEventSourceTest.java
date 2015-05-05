@@ -37,10 +37,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     public void testSimple() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
 
-        
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 10; i++) {
@@ -73,7 +71,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
                                                                     .buffer(0)
                                                                     .open();
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 5; i++) {
@@ -102,8 +99,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).buffer(3).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();        
-        sleep(500);  // wait for internal async connects
-        
         
         for (int i = 0; i < 5; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data("testsimple" + i));
@@ -130,7 +125,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 5; i++) {
@@ -160,7 +154,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();        
-        sleep(500);  // wait for internal async connects
+
         
         reactiveSink.write(ServerSentEvent.newEvent().id("1").data("testStartWithLastEventId1"));
         reactiveSink.write(ServerSentEvent.newEvent().id("2").data("testStartWithLastEventId2"));
@@ -193,7 +187,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
         
         
         // sendig data 
@@ -211,7 +204,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         sleep(500);
         
         reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
 
         reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated3"));
         Assert.assertEquals("testInboundConnectionTerminated3", reactiveSource.read().getData().get());
@@ -228,7 +220,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
         
         
         // sendig data 
@@ -246,8 +237,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         sleep(4000);
         
         reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
-
         
         reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionServerDown3"));
         Assert.assertEquals("testInboundConnectionServerDown3", reactiveSource.read().getData().get());
@@ -265,8 +254,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(redirectUri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
-        sleep(500);  // wait for internal async connects
-        
         
         reactiveSink.write(ServerSentEvent.newEvent().data("test1"));
         reactiveSink.write(ServerSentEvent.newEvent().data("test2"));
@@ -282,7 +269,6 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
     @Test
     public void testMaxRedirectedExceeded() throws Exception {
         String id = UUID.randomUUID().toString();
-        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + id);
         URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=11");
         
         try {

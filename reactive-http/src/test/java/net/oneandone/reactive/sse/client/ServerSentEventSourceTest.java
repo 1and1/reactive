@@ -298,7 +298,22 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         reactiveSink.shutdown();        
     }
     
+
+    @Test
+    public void testMaxRedirectedExceeded() throws Exception {
+        String id = UUID.randomUUID().toString();
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + id);
+        URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=11");
+        
+        try {
+            new ClientSseSource(redirectUri).open();    
+        } catch (ConnectException expected) { 
+            Assert.assertTrue(expected.getMessage().contains("302 Found response received"));
+        }         
+    }
     
+    
+
 
     @Test
     public void testNotFoundError() throws Exception {
@@ -306,8 +321,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         try {
             new ClientSseSource(uri).open();
-            Assert.fail("RuntimeException expected");
-        } catch (RuntimeException expected) { 
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) { 
             Assert.assertTrue(expected.getMessage().contains("404 Not Found response received"));
         }
     }
@@ -319,8 +334,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         try {
             new ClientSseSource(uri).open();    
-            Assert.fail("RuntimeException expected");
-        } catch (RuntimeException expected) { 
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) { 
             Assert.assertTrue(expected.getMessage().contains("500 Internal Server Error response received"));
         }
     }

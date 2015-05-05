@@ -56,7 +56,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     
     private final static int DEFAULT_BUFFER_SIZE = 50;
-    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 15;
+    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
     
     private final URI uri;
     private boolean isFailOnConnectError;
@@ -156,13 +156,13 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
     }
 
     
-    public ReactiveSource<ServerSentEvent> open() {
+    public ReactiveSource<ServerSentEvent> open() throws ConnectException {
         try {
             return openAsync().get();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            throw new ConnectException(e);
         } catch (ExecutionException e) {
-            throw new RuntimeException(e.getCause());
+            throw new ConnectException(e.getCause());
         }
     }
 

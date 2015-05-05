@@ -249,7 +249,7 @@ class NettyBasedStreamProvider implements StreamProvider {
             bootstrap.connect(host, port).addListener(listener);
             
         } catch (SSLException | RuntimeException e) {
-            connectedPromise.onError(e);
+            connectedPromise.onError(new ConnectException("could not connect to " + uri, e));
         }
         
         return connectedPromise;
@@ -385,7 +385,7 @@ class NettyBasedStreamProvider implements StreamProvider {
                                                                                      LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " POST request header sent");
                                                                                      promise.complete(new NettyHttp11OutboundStream(id, future.channel())); 
                                                                               } else {
-                                                                                  promise.completeExceptionally(error);
+                                                                                  promise.completeExceptionally(new ConnectException("could not connect to " + uri, error));
                                                                               }
                                                                             });
                         } else {

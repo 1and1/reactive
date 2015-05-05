@@ -31,7 +31,6 @@ public abstract class TestServletbasedTest {
    
     @Before
     public void before() throws Exception {
-        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         server = new WebContainer("/ssetest");
         server.start();
     }

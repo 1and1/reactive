@@ -19,7 +19,6 @@
 	<modules>
 		<module>reactive-core</module>
 		<module>reactive-http</module>
-		<module>reactive-pipe</module>
 	</modules>
 
 

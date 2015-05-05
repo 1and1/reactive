@@ -16,11 +16,13 @@
 package net.oneandone.reactive;
 
 
-import java.util.List;
+import java.util.LinkedList;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+
 
 
 
@@ -111,8 +113,8 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private final ReactiveSourceSubscriber<T> source;
         
         private final Object processingLock = new Object();
-        private final List<CompletableFuture<T>> pendingReads = Lists.newArrayList();
-        private final List<T> inBuffer = Lists.newArrayList();
+        private final LinkedList<CompletableFuture<T>> pendingReads = Lists.newLinkedList();
+        private final LinkedList<T> inBuffer = Lists.newLinkedList();
 
         private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
@@ -151,7 +153,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
                     source.request(1);
                     
                     if (errorRef.get() == null) {
-                        pendingReads.add(promise);
+                        pendingReads.addLast(promise);
                         process();
                         
                     } else {
@@ -169,7 +171,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         @Override
         public void onNext(T element) {
             synchronized (processingLock) {
-                inBuffer.add(element);
+                inBuffer.addLast(element);
                 process();
             }
         }
@@ -192,8 +194,8 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         
         private void process() {
             while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
-                CompletableFuture<T> promise = pendingReads.remove(0);
-                promise.complete(inBuffer.remove(0));
+                CompletableFuture<T> promise = pendingReads.removeFirst();
+                promise.complete(inBuffer.removeFirst());
             }
         }
         

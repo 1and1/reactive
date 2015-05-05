@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.StreamProvider.EmptyOutboundStream;
 
@@ -75,7 +76,10 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         return new ClientSseSink(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
     }
 
-
+    
+    public ReactiveSink<ServerSentEvent> open() {
+        return ReactiveSink.subscribe(this);
+    }
     
 
     @Override

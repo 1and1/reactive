@@ -36,14 +36,13 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri).autoId(true));
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).autoId(true).open();
         sleep(500);  // wait for internal async connects
         
         
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testeventSinkSimple312123123123123"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple312123123123123"));
         
         
         Assert.assertEquals("testeventSinkSimple1", reactiveSource.read().getData().get());

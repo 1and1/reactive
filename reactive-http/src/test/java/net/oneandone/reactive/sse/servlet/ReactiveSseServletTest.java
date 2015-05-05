@@ -60,17 +60,16 @@ public class ReactiveSseServletTest {
 
 
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(url).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(url).autoId(true));
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).open();
         sleep(500);  // wait for internal async connects
                 
         
-        reactiveSink.accept(ServerSentEvent.newEvent()
-                                           .id("1")
-                                           .event("evt2")
-                                           .data("data")
-                                           .comment("comment")
-                                           .retry(11));
+        reactiveSink.write(ServerSentEvent.newEvent()
+                                          .id("1")
+                                          .event("evt2")
+                                          .data("data")
+                                          .comment("comment")
+                                          .retry(11));
         
         ServerSentEvent event = reactiveSource.read();
         Assert.assertEquals("1", event.getId().get());
@@ -89,8 +88,7 @@ public class ReactiveSseServletTest {
 
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(url).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(10000)
-                                                                 .subscribe(new ClientSseSink(url).autoId(true));
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).open();
         sleep(500);  // wait for internal async connects
                 
         
@@ -99,7 +97,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 10; i++) {
-                    reactiveSink.accept(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    reactiveSink.write(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             
@@ -125,7 +123,7 @@ public class ReactiveSseServletTest {
             
             public void run() {
                 for (int i = 0; i < 1000000; i++) {
-                    reactiveSink.accept(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
+                    reactiveSink.write(ServerSentEvent.newEvent().data("testBulk" + i + " ..............................................................................................................................................................................................................................................................................................................................."));
                 }
             };
             

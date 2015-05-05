@@ -18,7 +18,6 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
-
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
@@ -40,14 +39,12 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 10; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+            reactiveSink.write(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
         Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
@@ -74,15 +71,13 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri)
                                                                     .buffer(0)
-                                                                    .open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+                                                                    .open();
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 5; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+            reactiveSink.write(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
         sleep(500); 
@@ -106,14 +101,12 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).buffer(3).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();        
         sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 5; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+            reactiveSink.write(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
         sleep(500); 
@@ -136,14 +129,12 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
 
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
         for (int i = 0; i < 5; i++) {
-            reactiveSink.accept(ServerSentEvent.newEvent().data("testsimple" + i));
+            reactiveSink.write(ServerSentEvent.newEvent().data("testsimple" + i));
         }
         
         sleep(500); 
@@ -168,15 +159,12 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri).autoId(true));
-
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();        
         sleep(500);  // wait for internal async connects
         
-        reactiveSink.accept(ServerSentEvent.newEvent().id("1").data("testStartWithLastEventId1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().id("2").data("testStartWithLastEventId2"));
-        reactiveSink.accept(ServerSentEvent.newEvent().id("3").data("testStartWithLastEventId3"));
+        reactiveSink.write(ServerSentEvent.newEvent().id("1").data("testStartWithLastEventId1"));
+        reactiveSink.write(ServerSentEvent.newEvent().id("2").data("testStartWithLastEventId2"));
+        reactiveSink.write(ServerSentEvent.newEvent().id("3").data("testStartWithLastEventId3"));
         
         Assert.assertEquals("testStartWithLastEventId1", reactiveSource.read().getData().get());
         Assert.assertEquals("testStartWithLastEventId2", reactiveSource.read().getData().get());
@@ -204,31 +192,28 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
         // sendig data 
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated2"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated2"));
         
         Assert.assertEquals("testInboundConnectionTerminated1", reactiveSource.read().getData().get());
         Assert.assertEquals("testInboundConnectionTerminated2", reactiveSource.read().getData().get());
 
         
         // invalidate the connection
-        reactiveSink.accept(ServerSentEvent.newEvent().event("posion pill"));
+        reactiveSink.write(ServerSentEvent.newEvent().event("posion pill"));
         reactiveSink.shutdown();
         
         sleep(500);
         
-        reactiveSink = ReactiveSink.buffer(1000)
-                                   .subscribe(new ClientSseSink(uri));
+        reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
 
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionTerminated3"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated3"));
         Assert.assertEquals("testInboundConnectionTerminated3", reactiveSource.read().getData().get());
         
         
@@ -242,32 +227,29 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
         // sendig data 
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown2"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionServerDown1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionServerDown2"));
 
         Assert.assertEquals("testInboundConnectionServerDown1", reactiveSource.read().getData().get());
         Assert.assertEquals("testInboundConnectionServerDown2", reactiveSource.read().getData().get());
         
         // invalidate the connection
-        reactiveSink.accept(ServerSentEvent.newEvent().event("knockout drops").data("1000"));
+        reactiveSink.write(ServerSentEvent.newEvent().event("knockout drops").data("1000"));
         reactiveSink.shutdown();
 
         
         sleep(4000);
         
-        reactiveSink = ReactiveSink.buffer(1000)
-                                   .subscribe(new ClientSseSink(uri));
+        reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
 
         
-        reactiveSink.accept(ServerSentEvent.newEvent().data("testInboundConnectionServerDown3"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionServerDown3"));
         Assert.assertEquals("testInboundConnectionServerDown3", reactiveSource.read().getData().get());
         
         
@@ -282,14 +264,12 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=3");
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(redirectUri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.buffer(1000)
-                                                                 .subscribe(new ClientSseSink(uri));
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
         sleep(500);  // wait for internal async connects
         
         
-        reactiveSink.accept(ServerSentEvent.newEvent().data("test1"));
-        reactiveSink.accept(ServerSentEvent.newEvent().data("test2"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("test2"));
         
         Assert.assertEquals("test1", reactiveSource.read().getData().get());
         Assert.assertEquals("test2", reactiveSource.read().getData().get());

@@ -17,6 +17,7 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
+
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -197,6 +198,10 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 int numFollowRedirects = 9;                 
 boolean isFailOnConnectError = true;
                 
+
+                // why not using Expect: 100-continue. why not using Expect: 100-continue. Unfortunately 
+                // Tomcat sends the 100 continue response before passing control to the servlet. 
+                // This means if the servlet sends a redirect, the 100-continue response will be alreday received  
                 return streamProvider.openChannelAsync(id, 
                                                       uri,
                                                       "POST",

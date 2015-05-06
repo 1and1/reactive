@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableMap;
 
 interface ChannelProvider {
     
-    
     CompletableFuture<Stream> openChannelAsync(String id,
                                               URI uri, 
                                               String method, 

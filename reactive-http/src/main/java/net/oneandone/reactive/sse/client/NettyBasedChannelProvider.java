@@ -411,7 +411,9 @@ class NettyBasedChannelProvider implements ChannelProvider {
         private final SslContext sslCtx;
         private final HttpResponseHandler responseHandler;
 
-        public HttpChannelInitializer(String id, SslContext sslCtx, HttpResponseHandler responseHandler) {
+        public HttpChannelInitializer(String id,
+                                      SslContext sslCtx,
+                                      HttpResponseHandler responseHandler) {
             this.id = id;
             this.sslCtx = sslCtx;
             this.responseHandler = responseHandler;
@@ -431,59 +433,58 @@ class NettyBasedChannelProvider implements ChannelProvider {
              p.addLast(new HttpContentDecompressor());
              p.addLast(new HttpInboundHandler(id, responseHandler));
         }
-        
-        
-        
-        private static class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
-            private final String id;
-            private final HttpResponseHandler responseHandler;
-            private final AtomicReference<ChannelProvider.ChannelHandler> streamHandlerRef = new AtomicReference<>(new ChannelProvider.ChannelHandler.Empty());
-
+    }
     
-            public HttpInboundHandler(String id, HttpResponseHandler responseHandler) {
-                this.id = id;
-                this.responseHandler = responseHandler;
-            }
-                    
-            
-            @Override
-            protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
+    
+    private static class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
+        private final String id;
+        private final HttpResponseHandler responseHandler;
+        private final AtomicReference<ChannelProvider.ChannelHandler> streamHandlerRef = new AtomicReference<>(new ChannelProvider.ChannelHandler.Empty());
 
-                if (msg instanceof HttpResponse) {
-                    HttpResponse response = (HttpResponse) msg;
-                    int status = response.getStatus().code();
-                    LOG.debug("[" + id + "] - channel " + ctx.channel().hashCode() + " response " + status +  " received");
-                    
-                    if ((status / 100) == 2) {
-                        ChannelProvider.ChannelHandler streamHandler = responseHandler.onResponseHeader(ctx.channel());
-                        streamHandlerRef.set(streamHandler);
-                    } else {
-                        responseHandler.onError(new HttpResponseError(response));
-                        ctx.close();
-                    }
-                    
-                } else  if (msg instanceof HttpContent) {
-                    HttpContent content = (HttpContent) msg;
-                    
-                    streamHandlerRef.get().onContent(content.content().nioBuffers());
-                    if (content instanceof LastHttpContent) {
-                        ctx.close();
-                    }
+        public HttpInboundHandler(String id, 
+                                  HttpResponseHandler responseHandler) {
+            this.id = id;
+            this.responseHandler = responseHandler;
+        }
+                
+        
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
+
+            if (msg instanceof HttpResponse) {
+                HttpResponse response = (HttpResponse) msg;
+                int status = response.getStatus().code();
+                LOG.debug("[" + id + "] - channel " + ctx.channel().hashCode() + " response " + status +  " received");
+
+                if ((status / 100) == 2) {
+                    ChannelProvider.ChannelHandler streamHandler = responseHandler.onResponseHeader(ctx.channel());
+                    streamHandlerRef.set(streamHandler);
+                } else {
+                    responseHandler.onError(new HttpResponseError(response));
+                    ctx.close();
+                }
+                
+            } else  if (msg instanceof HttpContent) {
+                HttpContent content = (HttpContent) msg;
+                
+                streamHandlerRef.get().onContent(content.content().nioBuffers());
+                if (content instanceof LastHttpContent) {
+                    ctx.close();
                 }
             }
-            
-            @Override
-            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                responseHandler.onError(cause);
-                streamHandlerRef.get().onError(cause);
-                ctx.close();
-            }
-            
-            @Override
-            public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
-                responseHandler.onError(new RuntimeException("channel is closed"));
-                streamHandlerRef.get().onCompleted();
-            }
+        }
+        
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            responseHandler.onError(cause);
+            streamHandlerRef.get().onError(cause);
+            ctx.close();
+        }
+        
+        @Override
+        public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+            responseHandler.onError(new RuntimeException("channel is closed"));
+            streamHandlerRef.get().onCompleted();
         }
     }
 }        

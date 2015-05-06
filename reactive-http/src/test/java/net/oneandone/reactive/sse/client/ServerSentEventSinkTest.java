@@ -31,11 +31,14 @@ import org.junit.Test;
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
     
+    public ServerSentEventSinkTest() {
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
+        System.setProperty("log4j.logger.net.oneandone.reactive.LEVEL", "DEBUG");
+    }
+    
     @Test
-    public void testSimple() throws Exception {
-                 System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
-
-        
+    public void testSimple() throws Exception {        
+    
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    

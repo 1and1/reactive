@@ -489,9 +489,9 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         
         
         private final class EventBuffer {
-            
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
 
+            
             synchronized boolean isEmpty() {
                 return bufferedEvents.isEmpty();
             }

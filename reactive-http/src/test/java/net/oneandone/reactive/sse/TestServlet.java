@@ -19,7 +19,6 @@ package net.oneandone.reactive.sse;
 
 
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -61,13 +60,31 @@ public class TestServlet extends HttpServlet {
     
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync().setTimeout(10 * 60 * 1000);
         
-        resp.setStatus(200);
-        resp.flushBuffer();
+        if (req.getPathInfo().startsWith("/redirect")) {
+            System.out.println(req.getQueryString());
+            int num = Integer.parseInt(req.getParameter("num"));
+            if (num > 0)  {
+                resp.sendRedirect(req.getRequestURL().toString() + "?num=" + (num  - 1));
+            } else {
+                resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+            }
 
-        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
-        broker.registerPublisher(normalizeId(req.getPathInfo()), publisher);
+        } else if (req.getPathInfo().startsWith("/notfound")) {
+            resp.sendError(404);
+
+        } else if (req.getPathInfo().startsWith("/servererror")) {
+            resp.sendError(500);
+
+        } else {
+            req.startAsync().setTimeout(10 * 60 * 1000);
+            
+            resp.setStatus(200);
+            resp.flushBuffer();
+            
+            Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
+            broker.registerPublisher(normalizeId(req.getPathInfo()), publisher);
+        }
     }
     
  

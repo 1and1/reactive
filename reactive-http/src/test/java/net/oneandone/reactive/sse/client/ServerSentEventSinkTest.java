@@ -33,7 +33,7 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
     @Test
     public void testSimple() throws Exception {
-        //         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
+                 System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
 
         
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());

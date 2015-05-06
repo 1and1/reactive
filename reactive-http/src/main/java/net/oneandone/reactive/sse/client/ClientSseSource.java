@@ -16,6 +16,8 @@
 package net.oneandone.reactive.sse.client;
 
 
+import io.netty.handler.codec.http.HttpHeaders;
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -34,8 +36,8 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
-import net.oneandone.reactive.sse.client.StreamProvider.InboundStream;
-import net.oneandone.reactive.sse.client.StreamProvider.InboundStreamHandler;
+import net.oneandone.reactive.sse.client.ChannelProvider.Stream;
+import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
@@ -221,20 +223,27 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         if (subscriber == null) {  
             throw new NullPointerException("subscriber is null");
         }
+
         
-        SseInboundStreamSubscription.newSseInboundStreamSubscription(uri, 
-                                                                     lastEventId, 
-                                                                     isFailOnConnectError,
-                                                                     numFollowRedirects,
-                                                                     numPrefetchedElements,
-                                                                     connectionTimeout, 
-                                                                     socketTimeout, 
-                                                                     subscriber);
+        SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri,
+                                                                                                  lastEventId,
+                                                                                                  isFailOnConnectError,
+                                                                                                  numFollowRedirects,
+                                                                                                  numPrefetchedElements,
+                                                                                                  connectionTimeout,
+                                                                                                  socketTimeout, 
+                                                                                                  subscriber);
+        inboundStreamSubscription.init();
     }
 
     
     
     
+    /**
+     * internal subscription handle
+     * 
+     * @author grro
+     */
     private static class SseInboundStreamSubscription implements Subscription {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final String id = "cl-in-" + UUID.randomUUID().toString();
@@ -249,7 +258,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         private Optional<String> lastEventId;
         
         // incoming event handling
-        private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
+        private final EventBuffer eventBuffer = new EventBuffer();
         private final Object consumesLock = new Object();
         private final AtomicInteger numRequested = new AtomicInteger(0);
         private final ServerSentEventParser parser = new ServerSentEventParser();
@@ -257,30 +266,9 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         
         // underlying stream
         private final RetrySequence retrySequence = new RetrySequence(0, 50, 250, 500, 1000, 2000, 3000);
-        private final StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
-        private final AtomicReference<StreamProvider.InboundStream> inboundStreamReference = new AtomicReference<>(new StreamProvider.EmptyInboundStream());
+        private final ChannelProvider channelProvider = NettyBasedChannelProvider.newStreamProvider();
+        private final AtomicReference<ChannelProvider.Stream> channelRef = new AtomicReference<>(new ChannelProvider.NullChannel());
         
-        
-        
-        public static void newSseInboundStreamSubscription(URI uri, 
-                                                           Optional<String> lastEventId, 
-                                                           boolean isFailOnConnectError,
-                                                           int numFollowRedirects,
-                                                           int numPrefetchedElements,
-                                                           Optional<Duration> connectionTimeout, 
-                                                           Optional<Duration> socketTimeout, 
-                                                           Subscriber<? super ServerSentEvent> subscriber) {
-            
-            SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri,
-                                                                                                      lastEventId,
-                                                                                                      isFailOnConnectError,
-                                                                                                      numFollowRedirects,
-                                                                                                      numPrefetchedElements,
-                                                                                                      connectionTimeout,
-                                                                                                      socketTimeout, 
-                                                                                                      subscriber);
-            inboundStreamSubscription.init();
-        }
         
     
         private SseInboundStreamSubscription(URI uri, 
@@ -305,13 +293,16 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         public void init() {
             newChannelAsync(Duration.ZERO)
                         .whenComplete((stream, error) -> { 
+                                                            // initial "connect" successfully
                                                             if (error == null) {
                                                                 setUnderlyingChannel(stream); 
                                                                 subscriberNotifier.start();
-                                                                
+                                                            
+                                                            // initial "connect" failed, however should be ignored    
                                                             } else if (isFailOnConnectError) {
                                                                 subscriberNotifier.startWithError(error);
-                                                                
+                                                            
+                                                            // initial "connect" error will be reported    
                                                             } else {
                                                                 subscriberNotifier.start();
                                                                 resetUnderlyingChannel(Duration.ZERO);
@@ -326,24 +317,25 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] close");
-                streamProvider.closeAsync();
+                channelProvider.closeAsync();
             }
         } 
        
         
-        private void setUnderlyingChannel(InboundStream stream) {
-            inboundStreamReference.getAndSet(stream).close();
-            refreshFlowControl();
-        }        
-       
-       
+        
         private void closeUnderlyingChannel() {
-            if (isConnected()) {
+            if (!channelRef.get().isNullStream()) {
                 LOG.debug("[" + id + "] close underlying channel");
             }
-            setUnderlyingChannel(new StreamProvider.EmptyInboundStream());
+            setUnderlyingChannel(new ChannelProvider.NullChannel());
         }
         
+        
+        private void setUnderlyingChannel(Stream stream) {
+            channelRef.getAndSet(stream).close();
+            eventBuffer.refreshFlowControl();
+        }        
+              
         
         private void resetUnderlyingChannel(Duration delay) {
             closeUnderlyingChannel();
@@ -352,8 +344,11 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                 LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
                 Runnable retryConnect = () -> newChannelAsync(retrySequence.nextDelay(delay))
                                                     .whenComplete((stream, error) -> { 
+                                                                                        // re"connect" successfully
                                                                                         if (error == null) {
                                                                                             setUnderlyingChannel(stream);
+                                                                                            
+                                                                                        // re"connect" failed
                                                                                         } else {
                                                                                             resetUnderlyingChannel(retrySequence.nextDelay(delay));
                                                                                         }
@@ -365,11 +360,16 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
        
         
         
-        private CompletableFuture<StreamProvider.InboundStream> newChannelAsync(Duration retryDelay) {
+        private CompletableFuture<ChannelProvider.Stream> newChannelAsync(Duration retryDelay) {
+            
             if (isOpen.get()) {
-                LOG.debug("[" + id + "] open underlying channel with last event id " + lastEventId.orElse(""));
+                if (lastEventId.isPresent()) {
+                    LOG.debug("[" + id + "] open underlying channel with last event id " + lastEventId.get());
+                } else {
+                    LOG.debug("[" + id + "] open underlying channel");
+                }
                 
-                InboundStreamHandler handler = new InboundStreamHandler() {
+                ChannelHandler handler = new ChannelHandler() {
                   
                     @Override
                     public void onContent(ByteBuffer[] buffers) {
@@ -378,7 +378,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     
                     @Override
                     public void onError(Throwable error) {
-                        LOG.debug("error occured. reset underlying channel", error);
+                        LOG.debug("error occured. reseting underlying channel", error);
                         onCompleted();
                     }
                     
@@ -388,16 +388,18 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     }
                 };
                 
-                return streamProvider.openInboundStreamAsync(id, 
-                                                             uri, 
-                                                             lastEventId,
-                                                             isFailOnConnectError,
-                                                             numFollowRedirects,
-                                                             handler,
-                                                             connectionTimeout,
-                                                             socketTimeout);
+                
+                return channelProvider.openChannelAsync(id, 
+                                                       uri,
+                                                       "GET", 
+                                                       lastEventId.isPresent() ? ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream", "Last-Event-ID", lastEventId.get()) : ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
+                                                       isFailOnConnectError,
+                                                       numFollowRedirects,
+                                                       handler, 
+                                                       connectionTimeout, 
+                                                       socketTimeout);
             } else {
-                return CompletableFuture.completedFuture(new StreamProvider.EmptyInboundStream());
+                return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
             }
         }
         
@@ -413,15 +415,14 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
                     for (ServerSentEvent event : events) {
                         LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
-                        bufferedEvents.add(event);
+                        eventBuffer.add(event);
                         lastEventId = event.getId(); 
                     }
                 }
                 
-                refreshFlowControl();
+                process();
             }
             
-            process();
         }
         
 
@@ -438,20 +439,11 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         private void process() {
-            
-            synchronized (consumesLock) {
-
-                while (numRequested.get() > 0) {
-                    refreshFlowControl();
-                    
-                    if (bufferedEvents.isEmpty()) {
-                        return;
-                    } else {
-                        ServerSentEvent event = bufferedEvents.poll();
-                        numRequested.decrementAndGet();
-                        subscriberNotifier.notifyOnNext(event);
-                    }
-                }
+            while ((numRequested.get() > 0) && !eventBuffer.isEmpty()) {
+                eventBuffer.poll().ifPresent(event ->  {
+                                                            numRequested.decrementAndGet();
+                                                            subscriberNotifier.notifyOnNext(event);
+                                                       });
             }
         }
         
@@ -463,41 +455,19 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     // https://github.com/reactive-streams/reactive-streams#3.9
                     subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
                 } else {
-                    numRequested.addAndGet((int) n);
-                    process();
+                    synchronized (consumesLock) {
+                        numRequested.addAndGet((int) n);
+                        process();
+                    }
                 }
             } else {
-                subscriberNotifier.notifyOnError((new IllegalArgumentException("Stream is closed")));
+                subscriberNotifier.notifyOnError((new IllegalArgumentException("source is closed")));
             }
         }
 
 
-
-        
-        private void refreshFlowControl() {
-            
-            synchronized (consumesLock) {
-                
-                // [Flow-control] will be suspended, if num pre-fetched more than requested ones
-                if ((bufferedEvents.size() > getMaxBuffersize()) && !inboundStreamReference.get().isSuspended()) {
-                    inboundStreamReference.get().suspend();
-                
-                 // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
-                } else  if (inboundStreamReference.get().isSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
-                    inboundStreamReference.get().resume();
-                }
-            }
-        }
-        
-        private int getMaxBuffersize() {
-            return numRequested.get() + numPrefetchedElements;
-        }
-        
-
-        private boolean isConnected() {
-            return !(inboundStreamReference.get() instanceof StreamProvider.EmptyInboundStream);
-        }
-        
+    
+   
         
         @Override
         public String toString() {
@@ -506,18 +476,69 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             if (!isOpen.get()) {
                 sb.append("[closed] ");
                 
-            } else if (isConnected()) {
-                sb.append(inboundStreamReference.get().isSuspended() ? "[suspended] " : "");
+            } else if (channelRef.get().isNullStream()) {
+                sb.append("[not connected] ");
                 
             } else {
-                sb.append("[not connected] ");
+                sb.append(channelRef.get().isReadSuspended() ? "[suspended] " : "");
             }
             
-            return sb.append("buffered events: " + bufferedEvents.size() + ", num requested: " + numRequested.get()).toString();
+            return sb.append("buffered events: " + eventBuffer.size() + ", num requested: " + numRequested.get()).toString();
+        }
+        
+        
+        
+        private final class EventBuffer {
+            
+            private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
+
+            synchronized boolean isEmpty() {
+                return bufferedEvents.isEmpty();
+            }
+
+            synchronized int size() {
+                return bufferedEvents.size();
+            }
+            
+            synchronized void add(ServerSentEvent event) {
+                bufferedEvents.add(event);
+                suspendIfBuffersizeToHigh();
+            }
+            
+            synchronized Optional<ServerSentEvent> poll() {
+                Optional<ServerSentEvent> optionalEvent = Optional.ofNullable(bufferedEvents.poll());
+                resumeIfBuffersizeTooLow();
+                
+                return optionalEvent;
+            }
+
+            synchronized void refreshFlowControl() {
+                resumeIfBuffersizeTooLow();
+            }
+
+            
+            private void suspendIfBuffersizeToHigh() {
+                // [Flow-control] will be suspended, if num pre-fetched more than requested ones
+                if ((bufferedEvents.size() > getMaxBuffersize()) && !channelRef.get().isReadSuspended()) {
+                    channelRef.get().suspendRead();
+                }
+            }
+        
+            private void resumeIfBuffersizeTooLow() {
+                // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
+                if (channelRef.get().isReadSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
+                   channelRef.get().resumeRead();
+                }
+            }
+
+            private int getMaxBuffersize() {
+                return numRequested.get() + numPrefetchedElements;
+            }
         }
     }
     
-    
+
+
     
     
     private static final class RetrySequence {
@@ -527,19 +548,14 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             Map<Duration, Duration> map = Maps.newHashMap();
             
             for (int i = 0; i < delaysMillis.length; i++) {
-                if (delaysMillis.length > (i+1)) {
-                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i+1]));
-                } else {
-                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis(delaysMillis[i]));
-                }
+                map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis( (delaysMillis.length > (i+1)) ? delaysMillis[i+1] : delaysMillis[i]) );
             }
             
             delayMap = ImmutableMap.copyOf(map);
         }
         
         public Duration nextDelay(Duration previous) {
-            Duration newDelay = delayMap.get(previous);
-            return (newDelay == null) ? previous : newDelay;
+            return (delayMap.get(previous) == null) ? previous : delayMap.get(previous);
         }
     }
 }  

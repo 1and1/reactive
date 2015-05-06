@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,13 +32,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.StreamProvider.EmptyOutboundStream;
+import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 
 
@@ -126,13 +128,17 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         private final boolean isAutoId;
         private final Subscription subscription;
         
+        private final URI uri;
+        private final Optional<Duration> connectionTimeout;
+        private final Optional<Duration> socketTimeout;
+        
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         private final String globalId = newGlobalId();
         private final AtomicLong nextLocalId = new AtomicLong(1);
         
-        private final StreamProvider streamProvider = NettyBasedStreamProvider.newStreamProvider();
-        private final AtomicReference<StreamProvider.OutboundStream> outboundStreamRef = new AtomicReference<>(new StreamProvider.EmptyOutboundStream());
+        private final ChannelProvider streamProvider = NettyBasedChannelProvider.newStreamProvider();
+        private final AtomicReference<ChannelProvider.Stream> outboundStreamRef = new AtomicReference<>(new ChannelProvider.NullChannel());
 
         
         
@@ -143,11 +149,15 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  Optional<Duration> socketTimeout) {
             this.subscription = subscription;
             this.isAutoId = isAutoId;
+            this.uri = uri;
+            this.connectionTimeout = connectionTimeout;
+            this.socketTimeout = socketTimeout;
+            
             
             LOG.debug("[" + id + "] opening");
             
             
-            streamProvider.newOutboundStream(id, uri, (Void) -> close(), connectionTimeout, socketTimeout)
+            newChannelAsync(Duration.ZERO)
                           .whenComplete((stream, error) ->  {
                                                               if (error == null) {
                                                                   outboundStreamRef.set(stream); 
@@ -157,6 +167,51 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                               }
                                                             });
         }
+        
+        
+        
+        
+        private CompletableFuture<ChannelProvider.Stream> newChannelAsync(Duration retryDelay) {
+            if (isOpen.get()) {
+                LOG.debug("[" + id + "] open underlying channel ");
+                
+                ChannelHandler handler = new ChannelHandler() {
+                  
+                    @Override
+                    public void onContent(ByteBuffer[] buffers) {
+                        System.out.println(buffers);
+                    }
+                    
+                    @Override
+                    public void onError(Throwable error) {
+                        LOG.debug("error occured. reset underlying channel", error);
+                        System.out.println(error);
+                    }
+                    
+                    @Override
+                    public void onCompleted() {
+                        System.out.println("completed");
+                    }
+                };
+                
+int numFollowRedirects = 9;                 
+boolean isFailOnConnectError = true;
+                
+                return streamProvider.openChannelAsync(id, 
+                                                      uri,
+                                                      "POST",
+                                                      ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
+                                                      isFailOnConnectError,
+                                                      numFollowRedirects,
+                                                      handler,
+                                                      connectionTimeout, 
+                                                      socketTimeout);
+                
+            } else {
+                return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
+            }
+        }
+        
                 
         
         public void write(ServerSentEvent event) {
@@ -200,7 +255,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
                 synchronized (this) {
-                    outboundStreamRef.getAndSet(new EmptyOutboundStream()).close();
+                    outboundStreamRef.getAndSet(new ChannelProvider.NullChannel()).close();
                 }
                 streamProvider.closeAsync();
                 

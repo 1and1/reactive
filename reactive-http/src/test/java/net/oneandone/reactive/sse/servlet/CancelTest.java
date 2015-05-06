@@ -77,7 +77,7 @@ public class CancelTest {
 
         LineNumberReader lnr = new LineNumberReader(new InputStreamReader(is));
         String line = lnr.readLine();
-        Assert.assertTrue(line.contains("HTTP/1.1 204"));
+        Assert.assertTrue(line.contains("HTTP/1.1 200"));
    
         s.close();
     }

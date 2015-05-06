@@ -18,10 +18,10 @@ package net.oneandone.reactive.sse.client;
 
 import io.netty.handler.codec.http.HttpHeaders;
 
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
@@ -49,7 +49,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+
 
 
 
@@ -58,11 +58,10 @@ import com.google.common.collect.Maps;
  *  
  * @author grro
  */
-public class ClientSseSource implements Publisher<ServerSentEvent> {
+public class ClientSseSource extends SseEndpoint implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     
     private final static int DEFAULT_BUFFER_SIZE = 50;
-    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
     
     private final URI uri;
     private boolean isFailOnConnectError;
@@ -534,28 +533,6 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             private int getMaxBuffersize() {
                 return numRequested.get() + numPrefetchedElements;
             }
-        }
-    }
-    
-
-
-    
-    
-    private static final class RetrySequence {
-        private ImmutableMap<Duration, Duration> delayMap;
-        
-        public RetrySequence(int... delaysMillis) {
-            Map<Duration, Duration> map = Maps.newHashMap();
-            
-            for (int i = 0; i < delaysMillis.length; i++) {
-                map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis( (delaysMillis.length > (i+1)) ? delaysMillis[i+1] : delaysMillis[i]) );
-            }
-            
-            delayMap = ImmutableMap.copyOf(map);
-        }
-        
-        public Duration nextDelay(Duration previous) {
-            return (delayMap.get(previous) == null) ? previous : delayMap.get(previous);
         }
     }
 }  

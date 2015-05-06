@@ -17,7 +17,6 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
-
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -46,39 +45,69 @@ import com.google.common.io.BaseEncoding;
 
 
 
-public class ClientSseSink implements Subscriber<ServerSentEvent> {
+public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
     private final URI uri;
     private final boolean isAutoId;
+    private boolean isFailOnConnectError;
     private final Optional<Duration> connectionTimeout;
     private final Optional<Duration> socketTimeout;
+    private final int numFollowRedirects;
+
 
     
     public ClientSseSink(URI uri) {
-        this(uri, true, Optional.empty(), Optional.empty());
+        this(uri, 
+             true,
+             DEFAULT_NUM_FOILLOW_REDIRECTS,
+             true,
+             Optional.empty(), 
+             Optional.empty());
     }
 
-    private ClientSseSink(URI uri, boolean isAutoId, Optional<Duration> connectionTimeout, Optional<Duration> socketTimeout) {
+    private ClientSseSink(URI uri, 
+                          boolean isAutoId,
+                          int numFollowRedirects,
+                          boolean isFailOnConnectError,
+                          Optional<Duration> connectionTimeout, 
+                          Optional<Duration> socketTimeout) {
         this.uri = uri;
         this.isAutoId = isAutoId;
+        this.numFollowRedirects = numFollowRedirects;
+        this.isFailOnConnectError = isFailOnConnectError;
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
     }
     
     public ClientSseSink autoId(boolean isAutoId) {
-        return new ClientSseSink(this.uri, isAutoId, this.connectionTimeout, this.socketTimeout);
+        return new ClientSseSink(this.uri, 
+                                 isAutoId,
+                                 this.numFollowRedirects,
+                                 this.isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 this.socketTimeout);
     }
 
 
     public ClientSseSink connectionTimeout(Duration connectionTimeout) {
-        return new ClientSseSink(this.uri, this.isAutoId, Optional.of(connectionTimeout), this.socketTimeout);
+        return new ClientSseSink(this.uri,
+                                 this.isAutoId, 
+                                 this.numFollowRedirects,
+                                 this.isFailOnConnectError,
+                                 Optional.of(connectionTimeout), 
+                                 this.socketTimeout);
     }
 
     public ClientSseSink socketTimeout(Duration socketTimeout) {
-        return new ClientSseSink(this.uri, this.isAutoId, this.connectionTimeout, Optional.of(socketTimeout));
+        return new ClientSseSink(this.uri, 
+                                 this.isAutoId,
+                                 this.numFollowRedirects,
+                                 this.isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 Optional.of(socketTimeout));
     }
 
     
@@ -103,7 +132,13 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription, uri, isAutoId, connectionTimeout, socketTimeout));
+        sseOutboundStreamRef.set(new SseOutboundStream(subscription,
+                                                       uri,
+                                                       isAutoId,
+                                                       numFollowRedirects,
+                                                       isFailOnConnectError,
+                                                       connectionTimeout, 
+                                                       socketTimeout));
         
     }
     
@@ -132,6 +167,9 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         private final URI uri;
         private final Optional<Duration> connectionTimeout;
         private final Optional<Duration> socketTimeout;
+        private boolean isFailOnConnectError;
+        private final int numFollowRedirects;
+
         
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
@@ -146,11 +184,15 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         public SseOutboundStream(Subscription subscription, 
                                  URI uri, 
                                  boolean isAutoId,
+                                 int numFollowRedirects,
+                                 boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
                                  Optional<Duration> socketTimeout) {
             this.subscription = subscription;
             this.isAutoId = isAutoId;
             this.uri = uri;
+            this.numFollowRedirects = numFollowRedirects;
+            this.isFailOnConnectError = isFailOnConnectError;
             this.connectionTimeout = connectionTimeout;
             this.socketTimeout = socketTimeout;
             
@@ -195,13 +237,11 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                     }
                 };
                 
-int numFollowRedirects = 9;                 
-boolean isFailOnConnectError = true;
-                
 
-                // why not using Expect: 100-continue. why not using Expect: 100-continue. Unfortunately 
-                // Tomcat sends the 100 continue response before passing control to the servlet. 
-                // This means if the servlet sends a redirect, the 100-continue response will be alreday received  
+                // [why not using Expect: 100-continue]
+                // Unfortunately Tomcat sends the 100 continue response before passing control to the servlet. 
+                // This means if the servlet sends a redirect, the 100-continue response will be alreday received
+                
                 return streamProvider.openChannelAsync(id, 
                                                       uri,
                                                       "POST",

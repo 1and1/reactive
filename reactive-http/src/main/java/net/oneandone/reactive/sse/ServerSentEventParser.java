@@ -17,11 +17,11 @@ package net.oneandone.reactive.sse;
 
 
 import java.io.UnsupportedEncodingException;
-
 import java.nio.ByteBuffer;
 import java.util.List;
 
 import com.google.common.base.CharMatcher;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -37,7 +37,8 @@ public class ServerSentEventParser {
     
     private String id = null;
     private String event = null;
-    private String data = "";
+    private String data = null;
+    private String comment = null;
     private Integer retry = null;
     
     private String field = ""; 
@@ -65,28 +66,24 @@ public class ServerSentEventParser {
                     
                     // If the data buffer's last character is a U+000A LINE FEED (LF) character,
                     // then remove the last character from the data buffer.
-                    if (data.endsWith("\n")) {
+                    if (!Strings.isNullOrEmpty(data) && data.endsWith("\n")) {
                         data = data.substring(0, data.length() - 1);
                     }
 
-                    // If the data buffer is an empty string, set the data buffer and the event type 
-                    // buffer to the empty string and abort these steps.
-
-                    if ((data.length() > 0 ) || (id != null) || (event != null)) {
-                        events.add(ServerSentEvent.newEvent()
-                                           .id(id)
-                                           .event(event)
-                                           .data(data)
-                                           .retry(retry));
-                    }
-                    
+                    ServerSentEvent sse = ServerSentEvent.newEvent()
+                                                         .comment(comment)
+                                                         .id(id)
+                                                         .event(event)
+                                                         .data(data)
+                                                         .retry(retry);
+                    events.add(sse);
                     resetEventParsingData();
                     
                 } else {
 
                     // line starts with a U+003A COLON character (:)
                     if (trimmedLine.startsWith(":")) {
-                        // Ignore the line
+                        comment = append(comment, trimmedLine.substring(1).trim()  + '\n');
                         
                     } else {
                         int idx = line.indexOf(":");
@@ -119,7 +116,7 @@ public class ServerSentEventParser {
                             // If the field name is "data"-> Append the field value to the data buffer, then
                             // append a single U+000A LINE FEED (LF) character to the data buffer.
                             } else if (trimmedField.equalsIgnoreCase("data")) {
-                                data += value + '\n';
+                                data = append(data, value + '\n');
                             
                             // If the field value consists of only ASCII digits, then interpret the field 
                             // value as an integer in base ten, and set the event stream's reconnection time to that integer.
@@ -142,11 +139,16 @@ public class ServerSentEventParser {
         return ImmutableList.copyOf(events);
     }
     
+    private String append(String txt, String txtToAppend) {
+        return (txt == null) ? txtToAppend : (txt + txtToAppend);
+    }
+    
 
     private void resetEventParsingData() {
         id = null;
         event = null;
-        data = "";
+        data = null;
+        comment = null;
         
         resetFieldValueParsingData();
     }

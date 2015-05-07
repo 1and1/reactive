@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -52,12 +53,16 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
 
     
     
-    public ServletSseSubscriber(HttpServletResponse resp) {
-        this(resp, Duration.ofSeconds(25));
+    public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp) {
+        this(req, resp, Duration.ofSeconds(25));
     }   
 
     
-    public ServletSseSubscriber(HttpServletResponse resp, Duration keepAlivePeriod) {
+    public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp, Duration keepAlivePeriod) {
+        if (!req.isAsyncStarted()) {
+            req.startAsync().setTimeout(Long.MAX_VALUE);  // tomcat 7 default is 30 sec 
+        }
+        
         try {
             this.channel = new SseOutboundChannel(resp.getOutputStream(), error -> onError(error), keepAlivePeriod);
         } catch (IOException ioe) {

@@ -46,12 +46,7 @@ public class ReactiveSseServlet extends HttpServlet {
     
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync();
-        
-        resp.setStatus(200);
-        resp.flushBuffer();
-        
-        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req);
+        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
         broker.registerPublisher(req.getPathInfo(), publisher);
     }
     
@@ -59,10 +54,8 @@ public class ReactiveSseServlet extends HttpServlet {
     
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.startAsync();
-        
         resp.setContentType("text/event-stream");
-        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(5));
+        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(req, resp, Duration.ofSeconds(5));
         broker.registerSubscriber(req.getPathInfo(), subscriber, 60 * 1000);
     }
     

@@ -20,17 +20,21 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ReactiveSink;
+import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
 
@@ -48,15 +52,16 @@ import com.google.common.io.BaseEncoding;
 public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     
+    private final static Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(40);
+    
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
     private final URI uri;
     private final boolean isAutoId;
     private boolean isFailOnConnectError;
     private final Optional<Duration> connectionTimeout;
-    private final Optional<Duration> socketTimeout;
     private final int numFollowRedirects;
-
+    private final Duration keepAlivePeriod;
 
     
     public ClientSseSink(URI uri) {
@@ -65,7 +70,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
              DEFAULT_NUM_FOILLOW_REDIRECTS,
              true,
              Optional.empty(), 
-             Optional.empty());
+             DEFAULT_KEEP_ALIVE_PERIOD);
     }
 
     private ClientSseSink(URI uri, 
@@ -73,13 +78,13 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                           int numFollowRedirects,
                           boolean isFailOnConnectError,
                           Optional<Duration> connectionTimeout, 
-                          Optional<Duration> socketTimeout) {
+                          Duration keepAlivePeriod) {
         this.uri = uri;
         this.isAutoId = isAutoId;
         this.numFollowRedirects = numFollowRedirects;
         this.isFailOnConnectError = isFailOnConnectError;
         this.connectionTimeout = connectionTimeout;
-        this.socketTimeout = socketTimeout;
+        this.keepAlivePeriod = keepAlivePeriod;
     }
     
     public ClientSseSink autoId(boolean isAutoId) {
@@ -88,7 +93,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
-                                 this.socketTimeout);
+                                 this.keepAlivePeriod);
     }
 
 
@@ -98,17 +103,50 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  Optional.of(connectionTimeout), 
-                                 this.socketTimeout);
+                                 this.keepAlivePeriod);
     }
 
-    public ClientSseSink socketTimeout(Duration socketTimeout) {
+    /**
+     * @param keepAlivePeriod  the keep alive period 
+     * @return a new instance with the updated behavior
+     */
+    public ClientSseSink keepAlivePeriod(Duration keepAlivePeriod) {
         return new ClientSseSink(this.uri, 
                                  this.isAutoId,
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
-                                 Optional.of(socketTimeout));
+                                 keepAlivePeriod);
     }
+
+    
+    /**
+     * @param isFailOnConnectError true, if connect should fail on connect errors
+     * @return a new instance with the updated behavior
+     */
+    public ClientSseSink failOnConnectError(boolean isFailOnConnectError) {
+        return new ClientSseSink(this.uri, 
+                                 this.isAutoId,
+                                 this.numFollowRedirects,
+                                 isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 this.keepAlivePeriod);
+    }
+
+    
+    /**
+     * @param isFollowRedirects true, if redirects should be followed
+     * @return a new instance with the updated behavior
+     */
+    public ClientSseSink followRedirects(boolean isFollowRedirects) {
+        return new ClientSseSink(this.uri, 
+                                 this.isAutoId,
+                                 isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
+                                 this.isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 this.keepAlivePeriod);
+    }
+    
 
     
     public ReactiveSink<ServerSentEvent> open() {
@@ -138,7 +176,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                                                        numFollowRedirects,
                                                        isFailOnConnectError,
                                                        connectionTimeout, 
-                                                       socketTimeout));
+                                                       keepAlivePeriod));
         
     }
     
@@ -166,7 +204,6 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
         
         private final URI uri;
         private final Optional<Duration> connectionTimeout;
-        private final Optional<Duration> socketTimeout;
         private boolean isFailOnConnectError;
         private final int numFollowRedirects;
 
@@ -187,14 +224,14 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                                  int numFollowRedirects,
                                  boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
-                                 Optional<Duration> socketTimeout) {
+                                 Duration keepAlivePeriod) {
+            
             this.subscription = subscription;
             this.isAutoId = isAutoId;
             this.uri = uri;
             this.numFollowRedirects = numFollowRedirects;
             this.isFailOnConnectError = isFailOnConnectError;
             this.connectionTimeout = connectionTimeout;
-            this.socketTimeout = socketTimeout;
             
             
             LOG.debug("[" + id + "] opening");
@@ -203,7 +240,11 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
             newChannelAsync(Duration.ZERO)
                           .whenComplete((stream, error) ->  {
                                                               if (error == null) {
-                                                                  outboundStreamRef.set(stream); 
+                                                                  LOG.debug("[" + id + "] opened");
+                                                                  outboundStreamRef.set(stream);
+                                                                  
+                                                                  // init message
+                                                                  new KeepAliveEmitter(keepAlivePeriod).start();
                                                                   subscription.request(1);
                                                               } else {
                                                                   terminate(error);
@@ -221,22 +262,12 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                 ChannelHandler handler = new ChannelHandler() {
                   
                     @Override
-                    public void onContent(ByteBuffer[] buffers) {
-                        System.out.println(buffers);
-                    }
-                    
-                    @Override
-                    public void onError(Throwable error) {
+                    public void onError(int chanelId, Throwable error) {
                         LOG.debug("error occured. reset underlying channel", error);
-                        System.out.println(error);
-                    }
-                    
-                    @Override
-                    public void onCompleted() {
-                        System.out.println("completed");
+// TODO implement reset                        
                     }
                 };
-                
+                                
 
                 // [why not using Expect: 100-continue]
                 // Unfortunately Tomcat sends the 100 continue response before passing control to the servlet. 
@@ -249,8 +280,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                                                       isFailOnConnectError,
                                                       numFollowRedirects,
                                                       handler,
-                                                      connectionTimeout, 
-                                                      socketTimeout);
+                                                      connectionTimeout);
                 
             } else {
                 return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
@@ -274,8 +304,13 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
         
 
         private void writeInternal(ServerSentEvent event) {
-            LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
-            outboundStreamRef.get().write(event.toWire())
+            if (event.isSystem()) {
+                LOG.debug("[" + id + "] sending system event " + event.toString().trim());
+            } else  {
+                LOG.debug("[" + id + "] sending event " + event.getId().orElse(""));
+            }
+            
+            outboundStreamRef.get().writeAsync(event.toWire())
                                    .whenComplete((Void, error) -> { 
                                                                if (error == null) {
                                                                    subscription.request(1);
@@ -325,5 +360,51 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
                 throw new RuntimeException(ioe);
             }
         }
+        
+        
+        
+        
+        /**
+         * sents keep alive messages to keep the http connection alive in case of idling
+         * @author grro
+         */
+        private final class KeepAliveEmitter {
+            private final DecimalFormat formatter = new DecimalFormat("#.#");
+            private final Instant start = Instant.now(); 
+            private final ScheduledExecutorService executor = ScheduledExceutor.common();
+            private final Duration keepAlivePeriod;
+            
+            
+            public KeepAliveEmitter(Duration keepAlivePeriod) {
+                this.keepAlivePeriod = keepAlivePeriod;
+            }
+            
+            public void start() {
+                writeAsync(ServerSentEvent.newEvent().comment("start client event streaming (keep alive period=" + keepAlivePeriod.getSeconds() + " sec)"));
+                executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS);
+            }
+            
+            private void scheduleNextKeepAliveEvent() {
+                if (isOpen.get()) {
+                    writeAsync(ServerSentEvent.newEvent().comment("keep alive from client (age " + format(Duration.between(start, Instant.now())) + ")"))
+                        .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
+                }
+            }       
+            
+            private CompletableFuture<Void> writeAsync(ServerSentEvent event) {
+                LOG.debug("[" + id + "] writing system event " + event.toString().trim());
+                return outboundStreamRef.get().writeAsync(event.toWire());
+            }
+            
+            private String format(Duration duration) {
+                if (duration.getSeconds() > (60 * 60)) {
+                    return formatter.format(((float) duration.getSeconds() / (60 * 60))) + " hours";
+                } else if (duration.getSeconds() > 120) {
+                    return formatter.format(((float) duration.getSeconds() / 60)) + " min";
+                } else {
+                    return duration.getSeconds() + " sec";
+                }
+            }
+        } 
     }
 }

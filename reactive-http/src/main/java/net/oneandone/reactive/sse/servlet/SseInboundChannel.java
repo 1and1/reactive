@@ -184,8 +184,12 @@ class SseInboundChannel {
                 while (bufferedEvents.isEmpty() && isNetworkdataAvailable() && (len = is.read(buf)) > 0) {            
                     ImmutableList<ServerSentEvent> events = parser.parse(ByteBuffer.wrap(buf, 0, len));
                     for (ServerSentEvent event : events) {
-                        LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
-                        bufferedEvents.add(event);
+                        if (event.isSystem()) {
+                            LOG.debug("[" + id + "] system event received " + event.toString().trim());
+                        } else {
+                            LOG.debug("[" + id + "] event received " + event.getId().orElse(""));
+                            bufferedEvents.add(event);
+                        }
                     }
                 }    
             }

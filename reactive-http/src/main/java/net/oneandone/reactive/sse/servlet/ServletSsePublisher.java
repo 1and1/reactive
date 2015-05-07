@@ -47,16 +47,24 @@ public class ServletSsePublisher implements Publisher<ServerSentEvent> {
     private final Consumer<Throwable> errorListener;
 
     
-    public ServletSsePublisher(HttpServletRequest req) {
-        this(req, (Void) -> { }, (error) -> LOG.debug("error occured " + error));
-    }
-    
+
     public ServletSsePublisher(HttpServletRequest req, HttpServletResponse resp) {
         this(req, (Void) -> sendNoContentResponse(resp),  (error) -> sendServerError(resp, error));
+        
+        try {
+            resp.flushBuffer();
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }
     
-      private ServletSsePublisher(HttpServletRequest req, Consumer<Void> closeListener, Consumer<Throwable> errorListener) {
+    
+    private ServletSsePublisher(HttpServletRequest req, Consumer<Void> closeListener, Consumer<Throwable> errorListener) {
         LOG.debug(req.getMethod() + " " + req.getRequestURL().toString());
+        
+        if (!req.isAsyncStarted()) {
+            req.startAsync().setTimeout(Long.MAX_VALUE);  // tomcat 7 default is 30 sec 
+        }
         
         try {
             this.inputStream = req.getInputStream();

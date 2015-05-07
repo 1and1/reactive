@@ -19,6 +19,7 @@ package net.oneandone.reactive.sse;
 
 
 import java.io.IOException;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -43,6 +44,8 @@ import net.oneandone.reactive.utils.SubscriberNotifier;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
@@ -53,6 +56,8 @@ import com.google.common.collect.Queues;
 
 
 public class TestServlet extends HttpServlet {
+    private static final Logger LOG = LoggerFactory.getLogger(TestServlet.class);
+    
     private static final long serialVersionUID = -7372081048856966492L;
 
     private final Broker broker = new Broker();
@@ -77,11 +82,6 @@ public class TestServlet extends HttpServlet {
             resp.sendError(500);
 
         } else {
-            req.startAsync().setTimeout(10 * 60 * 1000);
-            
-            resp.setStatus(200);
-            resp.flushBuffer();
-            
             Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
             broker.registerPublisher(normalizeId(req.getPathInfo()), publisher);
         }
@@ -114,11 +114,14 @@ public class TestServlet extends HttpServlet {
             resp.sendError(500);
 
         } else {
-            req.startAsync();
-            
             String lastEventId = req.getHeader("Last-Event-ID");
             resp.setContentType("text/event-stream");
-            Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(resp, Duration.ofSeconds(1));
+            
+            String keepAlivePeriod = req.getParameter("keepaliveperiod");
+            if (keepAlivePeriod == null) {
+                keepAlivePeriod = "60";
+            }
+            Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(req, resp, Duration.ofSeconds(Integer.parseInt(keepAlivePeriod)));
             broker.registerSubscriber(normalizeId(req.getPathInfo()), subscriber, lastEventId);
         }
     }
@@ -289,18 +292,21 @@ public class TestServlet extends HttpServlet {
 
             @Override
             public void onComplete() {
+                LOG.debug("completed");
                 subscriptionRef.get().cancel();
                 getSubscriptions(id).forEach(subscription -> subscription.cancel());
             }
             
             @Override
             public void onError(Throwable t) {
+                LOG.debug("error " + t);
                 subscriptionRef.get().cancel();
                 getSubscriptions(id).forEach(subscription -> subscription.cancel());
             }
             
             @Override
             public void onNext(ServerSentEvent event) {
+                LOG.debug("received\r\n" + event);
                 
                 if (event.getEvent().orElse("").equalsIgnoreCase("posion pill")) {
                     subscriptionRef.get().cancel();

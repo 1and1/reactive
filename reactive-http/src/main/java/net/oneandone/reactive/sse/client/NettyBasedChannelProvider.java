@@ -46,11 +46,12 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.net.ssl.SSLException;
@@ -101,14 +102,12 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                                      boolean isFailOnConnectError,
                                                      int numFollowRedirects,
                                                      ChannelHandler handler,
-                                                     Optional<Duration> connectTimeout, 
-                                                     Optional<Duration> socketTimeout) {
+                                                     Optional<Duration> connectTimeout) {
         return connect(id, 
                        uri, 
                        HttpMethod.valueOf(method), 
                        headers, 
                        connectTimeout, 
-                       socketTimeout, 
                        numFollowRedirects,
                        handler);
     }
@@ -121,14 +120,13 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                               HttpMethod method, 
                                               ImmutableMap<String, String> headers,
                                               Optional<Duration> connectTimeout, 
-                                              Optional<Duration> socketTimeout,
                                               int numFollowRedirects,
                                               ChannelHandler streamHandler) {
     
         CompletableFuture<Stream> promise = new CompletableFuture<>();
         
         
-        connect(id, uri, method, headers, connectTimeout, socketTimeout, streamHandler)
+        connect(id, uri, method, headers, connectTimeout, streamHandler)
             .whenComplete((stream, error) -> { 
                                                 if (error == null) {
                                                     promise.complete(stream);
@@ -137,7 +135,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                                         Optional<URI> redirectURI = ((HttpResponseError) error).getRedirectLocation();
                                                         if (redirectURI.isPresent()) {
                                                             LOG.debug("[" + id + "] follow redirect " + redirectURI.get());
-                                                            connect(id, redirectURI.get(), method, headers, connectTimeout, socketTimeout, numFollowRedirects - 1, streamHandler)
+                                                            connect(id, redirectURI.get(), method, headers, connectTimeout, numFollowRedirects - 1, streamHandler)
                                                                     .whenComplete((stream2, error2) -> { 
                                                                                                             if (error2 == null) {
                                                                                                                 promise.complete(stream2);
@@ -165,7 +163,6 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                               HttpMethod method, 
                                               ImmutableMap<String, String> headers,
                                               Optional<Duration> connectTimeout, 
-                                              Optional<Duration> socketTimeout,
                                               ChannelHandler streamHandler) {
         
         ConnectedPromise connectedPromise = new ConnectedPromise(id, streamHandler);
@@ -189,10 +186,6 @@ class NettyBasedChannelProvider implements ChannelProvider {
             if (connectTimeout.isPresent()) {
                 bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.get().toMillis());
             }
-            if (socketTimeout.isPresent()) {
-                bootstrap = bootstrap.option(ChannelOption.SO_TIMEOUT, (int) socketTimeout.get().toMillis());
-            }
-    
     
     
             String host = uri.getHost(); 
@@ -207,6 +200,8 @@ class NettyBasedChannelProvider implements ChannelProvider {
             int port = p; 
             
             
+            LOG.debug("[" + id + "] - opening channel with "  + bootstrap.toString());
+            
             ChannelFutureListener listener = new ChannelFutureListener() {
     
                 @Override
@@ -220,13 +215,16 @@ class NettyBasedChannelProvider implements ChannelProvider {
                         headers.forEach((name, value) -> request.headers().set(name, value));
                         
                         future.channel().writeAndFlush(request);
+                    } else {
+                        connectedPromise.onError(future.channel().hashCode(), future.cause());
                     }
                 }
             };
             bootstrap.connect(host, port).addListener(listener);
             
+            
         } catch (SSLException | RuntimeException e) {
-            connectedPromise.onError(new ConnectException("could not connect to " + uri, e));
+            connectedPromise.onError(-1, new ConnectException("could not connect to " + uri, e));
         }
         
         return connectedPromise;
@@ -234,29 +232,31 @@ class NettyBasedChannelProvider implements ChannelProvider {
     
     
     
-    private static class ConnectedPromise extends CompletableFuture<Stream> implements HttpResponseHandler {
-        private final ChannelProvider.ChannelHandler streamHandler;
+    private static class ConnectedPromise extends CompletableFuture<Stream> implements ChannelHandler {
+        private final ChannelProvider.ChannelHandler dataHandler;
         private final String id;
-        private final AtomicBoolean isHandled = new AtomicBoolean(false);
         
-        public ConnectedPromise(String id, ChannelProvider.ChannelHandler streamHandler) {
+        public ConnectedPromise(String id, ChannelProvider.ChannelHandler dataHandler) {
             this.id = id;
-            this.streamHandler = streamHandler;
+            this.dataHandler = dataHandler;
+        }
+        
+        public ChannelHandler onResponseHeader(Channel channel, HttpResponse response) {
+            LOG.debug("[" + id + "] - channel " + channel.hashCode() + " got response " + response.getStatus().code());
+            complete(new Http11Stream(id, channel));
+            
+            return dataHandler;
         }
         
         @Override
-        public ChannelProvider.ChannelHandler onResponseHeader(Channel channel) {
-            if (!isHandled.getAndSet(true)) {
-                complete(new Http11Stream(id, channel));
-            }
-            return streamHandler;
+        public void onError(int channelId, Throwable error) {
+            LOG.debug("[" + id + "] - channel " + channelId + " error occured " + error.getMessage());
+            completeExceptionally(error);
         }
-            
+        
         @Override
-        public void onError(Throwable error) {
-            if (!isHandled.getAndSet(true)) {
-                completeExceptionally(error);
-            }
+        public Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
+            return Optional.empty();
         }
     }
 
@@ -273,10 +273,9 @@ class NettyBasedChannelProvider implements ChannelProvider {
         
         
         @Override
-        public CompletableFuture<Void> write(String msg) {
+        public CompletableFuture<Void> writeAsync(String msg) {
             CompletableFuture<Void> promise = new CompletableFuture<>();
 
-            
             ChannelFuture future = channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8)));
 
             ChannelFutureListener listener = new ChannelFutureListener() {
@@ -322,6 +321,11 @@ class NettyBasedChannelProvider implements ChannelProvider {
         public void close() {
             channel.close();
         }
+        
+        @Override
+        public boolean isConnected() {
+            return channel.isOpen();
+        }
     }
 
 
@@ -351,8 +355,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                                          boolean isFailOnConnectError, 
                                                          int numFollowRedirects,
                                                          ChannelHandler handler,
-                                                         Optional<Duration> connectTimeout,
-                                                         Optional<Duration> socketTimeout) {
+                                                         Optional<Duration> connectTimeout) {
             return delegate.openChannelAsync(id, 
                                             uri, 
                                             method,
@@ -360,8 +363,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
                                             isFailOnConnectError, 
                                             numFollowRedirects,
                                             handler,
-                                            connectTimeout,
-                                            socketTimeout);
+                                            connectTimeout);
         }
         
         
@@ -374,14 +376,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
     
     
       
-    
-
-    public static interface HttpResponseHandler {
-        
-        ChannelProvider.ChannelHandler onResponseHeader(Channel channel);
-        
-        void onError(Throwable error);
-    }
+   
     
     
     private static final class HttpResponseError extends RuntimeException {
@@ -409,14 +404,14 @@ class NettyBasedChannelProvider implements ChannelProvider {
     private static class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
         private final String id;
         private final SslContext sslCtx;
-        private final HttpResponseHandler responseHandler;
+        private final ChannelHandler channelHandler;
 
         public HttpChannelInitializer(String id,
                                       SslContext sslCtx,
-                                      HttpResponseHandler responseHandler) {
+                                      ChannelHandler channelHandler) {
             this.id = id;
             this.sslCtx = sslCtx;
-            this.responseHandler = responseHandler;
+            this.channelHandler = channelHandler;
         }
                 
         
@@ -431,20 +426,19 @@ class NettyBasedChannelProvider implements ChannelProvider {
              p.addLast(new HttpClientCodec());
   
              p.addLast(new HttpContentDecompressor());
-             p.addLast(new HttpInboundHandler(id, responseHandler));
+             p.addLast(new HttpInboundHandler(id, channelHandler));
         }
     }
     
     
     private static class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
         private final String id;
-        private final HttpResponseHandler responseHandler;
-        private final AtomicReference<ChannelProvider.ChannelHandler> streamHandlerRef = new AtomicReference<>(new ChannelProvider.ChannelHandler.Empty());
+        private final Instant start = Instant.now();
+        private final AtomicReference<ChannelProvider.ChannelHandler> channelHandlerRef;
 
-        public HttpInboundHandler(String id, 
-                                  HttpResponseHandler responseHandler) {
+        public HttpInboundHandler(String id, ChannelHandler channelHandler) {
             this.id = id;
-            this.responseHandler = responseHandler;
+            this.channelHandlerRef = new AtomicReference<>(channelHandler);
         }
                 
         
@@ -457,17 +451,18 @@ class NettyBasedChannelProvider implements ChannelProvider {
                 LOG.debug("[" + id + "] - channel " + ctx.channel().hashCode() + " response " + status +  " received");
 
                 if ((status / 100) == 2) {
-                    ChannelProvider.ChannelHandler streamHandler = responseHandler.onResponseHeader(ctx.channel());
-                    streamHandlerRef.set(streamHandler);
+                    ChannelHandler dataHandler = channelHandlerRef.get().onResponseHeader(ctx.channel(), response);
+                    channelHandlerRef.set(dataHandler);
                 } else {
-                    responseHandler.onError(new HttpResponseError(response));
-                    ctx.close();
+                    onError(ctx, new HttpResponseError(response));
                 }
                 
             } else  if (msg instanceof HttpContent) {
                 HttpContent content = (HttpContent) msg;
                 
-                streamHandlerRef.get().onContent(content.content().nioBuffers());
+                Optional<ChannelHandler> newDataHandler = channelHandlerRef.get().onContent(ctx.channel().hashCode(), content.content().nioBuffers());
+                newDataHandler.ifPresent(handler -> channelHandlerRef.set(handler));
+                
                 if (content instanceof LastHttpContent) {
                     ctx.close();
                 }
@@ -475,16 +470,26 @@ class NettyBasedChannelProvider implements ChannelProvider {
         }
         
         @Override
-        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-            responseHandler.onError(cause);
-            streamHandlerRef.get().onError(cause);
-            ctx.close();
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable error) throws Exception {
+            onError(ctx, error);
         }
         
         @Override
         public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
-            responseHandler.onError(new RuntimeException("channel is closed"));
-            streamHandlerRef.get().onCompleted();
+            StringBuilder builder = new StringBuilder("[" + id + "] - channel " + ctx.channel().hashCode() + " is closed (channelUnregistered event)");
+            if (!ctx.channel().config().isAutoRead()) {
+                builder.append(" - read is suspended - ");
+            }
+            builder.append(" age: " + Duration.between(start, Instant.now()).getSeconds() + " sec");
+            LOG.debug(builder.toString());
+            
+            onError(ctx, new RuntimeException("channel closed"));
         }
+        
+        
+        private void onError(ChannelHandlerContext ctx, Throwable error) {
+            channelHandlerRef.getAndSet(new ChannelProvider.ChannelHandler() { }).onError(ctx.channel().hashCode(), error);
+            ctx.close();
+        }   
     }
 }        

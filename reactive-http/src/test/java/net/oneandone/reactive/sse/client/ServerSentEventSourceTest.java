@@ -33,6 +33,11 @@ import org.junit.Test;
 public class ServerSentEventSourceTest extends TestServletbasedTest {
     
     
+    public ServerSentEventSourceTest() {
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
+    }
+    
+    
     @Test
     public void testSimple() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
@@ -240,6 +245,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         
         reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionServerDown3"));
         Assert.assertEquals("testInboundConnectionServerDown3", reactiveSource.read().getData().get());
+        
+        reactiveSink.write(ServerSentEvent.newEvent().event("knockout drops").data("1000"));
         
         
         reactiveSink.shutdown();

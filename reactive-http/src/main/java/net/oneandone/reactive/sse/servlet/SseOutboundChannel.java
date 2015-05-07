@@ -19,8 +19,9 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.io.IOException;
-
+import java.text.DecimalFormat;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -46,7 +47,7 @@ import com.google.common.collect.Lists;
 class SseOutboundChannel  {
     private static final Logger LOG = LoggerFactory.getLogger(SseOutboundChannel.class);
     
-    private final static int DEFAULT_KEEP_ALIVE_PERIOD_SEC = 30; 
+    private final static Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(40); 
 
     private final String id = "srv-out-" + UUID.randomUUID().toString();
     
@@ -57,7 +58,7 @@ class SseOutboundChannel  {
 
     
     public SseOutboundChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
-        this(out, errorConsumer, Duration.ofSeconds(DEFAULT_KEEP_ALIVE_PERIOD_SEC));
+        this(out, errorConsumer, DEFAULT_KEEP_ALIVE_PERIOD);
     }
 
     
@@ -66,13 +67,11 @@ class SseOutboundChannel  {
         this.out = out;
         out.setWriteListener(new ServletWriteListener());
         
-            // start the keep alive emitter 
-        new KeepAliveEmitter(this, keepAlivePeriod).start();
-
-        // write http header, implicitly 
-        requestWriteNotificationAsync().thenAccept(Void -> flush());
-        
+        // write http header, implicitly
         LOG.debug("[" + id + "] opened");
+        
+        // start the keep alive emitter 
+        new KeepAliveEmitter(this, keepAlivePeriod).start();
     }
 
     
@@ -85,7 +84,11 @@ class SseOutboundChannel  {
     
     
     private void writeToWrite(ServerSentEvent event, CompletableFuture<Integer> writtenSizeFuture) {
-        LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
+        if (event.isSystem()) {
+            LOG.debug("[" + id + "] writing system event " + event.toString().trim());
+        } else {
+            LOG.debug("[" + id + "] writing event " + event.getId().orElse(""));
+        }
         
         try {
             synchronized (out) {
@@ -135,19 +138,12 @@ class SseOutboundChannel  {
         }
     }
 
-    
-    private void flush() {
-        try {
-            out.flush();
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
-    }
-    
+ 
     
     public void close() {
         LOG.debug("[" + id + "] closing");
         try {
+            writeEventAsync(ServerSentEvent.newEvent().comment("stop streaming"));
             out.close();
         } catch (IOException ignore) { }
     }
@@ -178,6 +174,9 @@ class SseOutboundChannel  {
      * @author grro
      */
     private static final class KeepAliveEmitter {
+        private final DecimalFormat formatter = new DecimalFormat("#.#");
+        private final Instant start = Instant.now(); 
+        
         private final ScheduledExecutorService executor = ScheduledExceutor.common();
         private final SseOutboundChannel channel;
         private final Duration keepAlivePeriod;
@@ -189,12 +188,27 @@ class SseOutboundChannel  {
         }
         
         public void start() {
-            scheduleNextKeepAliveEvent();
+            writeAsync(ServerSentEvent.newEvent().comment("start server event streaming (keep alive period=" + keepAlivePeriod.getSeconds() + " sec)"));
+            executor.schedule(() -> scheduleNextKeepAliveEvent(), (int) (keepAlivePeriod.getSeconds() * 0.5), TimeUnit.SECONDS);
         }
         
         private void scheduleNextKeepAliveEvent() {
-            channel.writeEventAsync(ServerSentEvent.newEvent().comment("keep alive"))
-                   .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
-        }        
+            writeAsync(ServerSentEvent.newEvent().comment("keep alive from server (age " + format(Duration.between(start, Instant.now())) + ")"))
+                    .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
+        }     
+        
+        private CompletableFuture<Integer> writeAsync(ServerSentEvent event) {
+            return channel.writeEventAsync(event);
+        }
+        
+        private String format(Duration duration) {
+            if (duration.getSeconds() > (60 * 60)) {
+                return formatter.format(((float) duration.getSeconds() / (60 * 60))) + " hours";
+            } else if (duration.getSeconds() > 120) {
+                return formatter.format(((float) duration.getSeconds() / 60)) + " min";
+            } else {
+                return duration.getSeconds() + " sec";
+            }
+        }
     } 
 }

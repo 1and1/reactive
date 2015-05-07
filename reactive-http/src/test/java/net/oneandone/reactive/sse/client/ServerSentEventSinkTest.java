@@ -18,6 +18,7 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
@@ -33,7 +34,6 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
-        System.setProperty("log4j.logger.net.oneandone.reactive.LEVEL", "DEBUG");
     }
     
     @Test
@@ -42,17 +42,17 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).autoId(true).open();
-        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
+  
+
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple312123123123123"));
         
-        
+
         Assert.assertEquals("testeventSinkSimple1", reactiveSource.read().getData().get());
         Assert.assertEquals("testeventSinkSimple21212", reactiveSource.read().getData().get());
         Assert.assertEquals("testeventSinkSimple312123123123123", reactiveSource.read().getData().get());
-        
         
         reactiveSource.close();        
         reactiveSink.shutdown();

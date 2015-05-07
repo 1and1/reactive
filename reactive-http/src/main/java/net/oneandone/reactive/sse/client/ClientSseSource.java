@@ -19,6 +19,7 @@ package net.oneandone.reactive.sse.client;
 import io.netty.handler.codec.http.HttpHeaders;
 
 
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -27,13 +28,11 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ReactiveSource;
-import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 import net.oneandone.reactive.sse.client.ChannelProvider.Stream;
@@ -67,7 +66,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
     private boolean isFailOnConnectError;
     private final Optional<String> lastEventId;
     private final Optional<Duration> connectionTimeout;
-    private final Optional<Duration> socketTimeout;
     private final int numPrefetchedElements;
     private final int numFollowRedirects;
     
@@ -77,15 +75,13 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                             boolean isFailOnConnectError,
                             int numFollowRedirects,
                             int numPrefetchedElements,
-                            Optional<Duration> connectionTimeout,
-                            Optional<Duration> socketTimeout) {
+                            Optional<Duration> connectionTimeout) {
         this.uri = uri;
         this.lastEventId = lastEventId;
         this.isFailOnConnectError = isFailOnConnectError;
         this.numFollowRedirects = numFollowRedirects;
         this.numPrefetchedElements = numPrefetchedElements;
         this.connectionTimeout = connectionTimeout;
-        this.socketTimeout = socketTimeout;
     }
 
     
@@ -99,7 +95,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
              true, 
              DEFAULT_NUM_FOILLOW_REDIRECTS,
              DEFAULT_BUFFER_SIZE,
-             Optional.empty(),
              Optional.empty());
     }
     
@@ -114,23 +109,10 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                    this.isFailOnConnectError,
                                    this.numFollowRedirects,
                                    this.numPrefetchedElements,
-                                   Optional.of(connectionTimeout), 
-                                   this.socketTimeout);
+                                   Optional.of(connectionTimeout));
     }
 
-    /**
-     * @param socketTimeout the socket timeout
-     * @return a new instance with the updated behavior
-     */
-    public ClientSseSource socketTimeout(Duration socketTimeout) {
-        return new ClientSseSource(this.uri, 
-                                   this.lastEventId, 
-                                   this.isFailOnConnectError,
-                                   this.numFollowRedirects,
-                                   this.numPrefetchedElements,
-                                   this.connectionTimeout, 
-                                   Optional.of(socketTimeout));
-    }
+ 
 
     /**
      * @param lastEventId the last seen event id 
@@ -142,8 +124,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                    this.isFailOnConnectError,
                                    this.numFollowRedirects,
                                    this.numPrefetchedElements,
-                                   this.connectionTimeout, 
-                                   this.socketTimeout);
+                                   this.connectionTimeout);
     }
 
     
@@ -157,8 +138,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                    isFailOnConnectError,
                                    this.numFollowRedirects,
                                    this.numPrefetchedElements,
-                                   this.connectionTimeout, 
-                                   this.socketTimeout);
+                                   this.connectionTimeout);
     }
 
     
@@ -172,8 +152,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                    this.isFailOnConnectError,
                                    isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
                                    this.numPrefetchedElements,
-                                   this.connectionTimeout, 
-                                   this. socketTimeout);
+                                   this.connectionTimeout);
     }
 
 
@@ -187,8 +166,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                    this.isFailOnConnectError,
                                    this.numFollowRedirects,
                                    numPrefetchedElements,
-                                   this.connectionTimeout, 
-                                   this.socketTimeout);
+                                   this.connectionTimeout);
     }
 
     
@@ -230,7 +208,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                                                                                   numFollowRedirects,
                                                                                                   numPrefetchedElements,
                                                                                                   connectionTimeout,
-                                                                                                  socketTimeout, 
                                                                                                   subscriber);
         inboundStreamSubscription.init();
     }
@@ -251,7 +228,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         private final boolean isFailOnConnectError;
         private final int numPrefetchedElements;
         private final Optional<Duration> connectionTimeout;
-        private final Optional<Duration> socketTimeout;
         private final URI uri;
         private final int numFollowRedirects;
         private Optional<String> lastEventId;
@@ -264,7 +240,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
         // underlying stream
-        private final RetrySequence retrySequence = new RetrySequence(0, 50, 250, 500, 1000, 2000, 3000);
+        private final RetryProcessor retryProcessor = new RetryProcessor();
         private final ChannelProvider channelProvider = NettyBasedChannelProvider.newStreamProvider();
         private final AtomicReference<ChannelProvider.Stream> channelRef = new AtomicReference<>(new ChannelProvider.NullChannel());
         
@@ -276,7 +252,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                              int numFollowRedirects,
                                              int numPrefetchedElements,
                                              Optional<Duration> connectionTimeout, 
-                                             Optional<Duration> socketTimeout, 
                                              Subscriber<? super ServerSentEvent> subscriber) {
             this.uri = uri;
             this.lastEventId = lastEventId;
@@ -284,16 +259,16 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
             this.isFailOnConnectError = isFailOnConnectError;
             this.numPrefetchedElements = numPrefetchedElements;
             this.connectionTimeout = connectionTimeout;
-            this.socketTimeout = socketTimeout;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
         }
         
         
         public void init() {
-            newChannelAsync(Duration.ZERO)
+            newChannelAsync()
                         .whenComplete((stream, error) -> { 
                                                             // initial "connect" successfully
                                                             if (error == null) {
+                                                                LOG.debug("[" + id + "] channel initially connected");
                                                                 setUnderlyingChannel(stream); 
                                                                 subscriberNotifier.start();
                                                             
@@ -304,7 +279,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                                             // initial "connect" error will be reported    
                                                             } else {
                                                                 subscriberNotifier.start();
-                                                                resetUnderlyingChannel(Duration.ZERO);
+                                                                resetUnderlyingChannel();
                                                             }
                                                          });
         }
@@ -323,7 +298,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         
         
         private void closeUnderlyingChannel() {
-            if (!channelRef.get().isNullStream()) {
+            if (channelRef.get().isConnected()) {
                 LOG.debug("[" + id + "] close underlying channel");
             }
             setUnderlyingChannel(new ChannelProvider.NullChannel());
@@ -336,30 +311,36 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         }        
               
         
-        private void resetUnderlyingChannel(Duration delay) {
+        private void resetUnderlyingChannel() {
             closeUnderlyingChannel();
 
             if (isOpen.get()) {
-                LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
-                Runnable retryConnect = () -> newChannelAsync(retrySequence.nextDelay(delay))
-                                                    .whenComplete((stream, error) -> { 
-                                                                                        // re"connect" successfully
-                                                                                        if (error == null) {
-                                                                                            setUnderlyingChannel(stream);
+                Runnable retryConnect = () -> {
+                                                if (!channelRef.get().isConnected()) {
+                                                    newChannelAsync()
+                                                        .whenComplete((stream, error) -> { 
+                                                                                            // re"connect" successfully
+                                                                                            if (error == null) {
+                                                                                                LOG.debug("[" + id + "] channel reconnected");
+                                                                                                setUnderlyingChannel(stream);
                                                                                             
-                                                                                        // re"connect" failed
-                                                                                        } else {
-                                                                                            resetUnderlyingChannel(retrySequence.nextDelay(delay));
-                                                                                        }
-                                                                                     });
-                
-                ScheduledExceutor.common().schedule(retryConnect, delay.toMillis(), TimeUnit.MILLISECONDS);
+                                                                                                // re"connect" failed
+                                                                                            } else {
+                                                                                                LOG.debug("[" + id + "] channel reconnected failed");
+                                                                                                resetUnderlyingChannel();
+                                                                                            }
+                                                                                         });
+                                                    
+                                                }
+                                              };
+                Duration delay = retryProcessor.scheduleConnect(retryConnect);
+                LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
             }
         }
        
         
         
-        private CompletableFuture<ChannelProvider.Stream> newChannelAsync(Duration retryDelay) {
+        private CompletableFuture<ChannelProvider.Stream> newChannelAsync() {
             
             if (isOpen.get()) {
                 if (lastEventId.isPresent()) {
@@ -371,19 +352,15 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                 ChannelHandler handler = new ChannelHandler() {
                   
                     @Override
-                    public void onContent(ByteBuffer[] buffers) {
+                    public Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
                         processNetworkdata(buffers);
+                        return Optional.empty();
                     }
                     
                     @Override
-                    public void onError(Throwable error) {
-                        LOG.debug("error occured. reseting underlying channel", error);
-                        onCompleted();
-                    }
-                    
-                    @Override
-                    public void onCompleted() {
-                        resetUnderlyingChannel(retryDelay);
+                    public void onError(int channelId, Throwable error) {
+                        LOG.debug("[" + id + "] - " + channelId + " error occured. reseting underlying channel");
+                        resetUnderlyingChannel();
                     }
                 };
                 
@@ -395,8 +372,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                                                        isFailOnConnectError,
                                                        numFollowRedirects,
                                                        handler, 
-                                                       connectionTimeout, 
-                                                       socketTimeout);
+                                                       connectionTimeout);
             } else {
                 return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
             }
@@ -413,9 +389,14 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                 for (int i = 0; i < buffers.length; i++) {
                     ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
                     for (ServerSentEvent event : events) {
-                        LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
-                        eventBuffer.add(event);
-                        lastEventId = event.getId(); 
+                        
+                        if (event.isSystem()) {
+                            LOG.debug("[" + id + "] system event received " + event.toString().trim());
+                        } else  {
+                            LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
+                            eventBuffer.add(event);
+                            lastEventId = event.getId();
+                        }
                     }
                 }
                 
@@ -475,11 +456,11 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
             if (!isOpen.get()) {
                 sb.append("[closed] ");
                 
-            } else if (channelRef.get().isNullStream()) {
-                sb.append("[not connected] ");
+            } else if (channelRef.get().isConnected()) {
+                sb.append(channelRef.get().isReadSuspended() ? "[suspended] " : "");
                 
             } else {
-                sb.append(channelRef.get().isReadSuspended() ? "[suspended] " : "");
+                sb.append("[not connected] ");
             }
             
             return sb.append("buffered events: " + eventBuffer.size() + ", num requested: " + numRequested.get()).toString();

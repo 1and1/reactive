@@ -55,6 +55,10 @@ public interface ServerSentEvent {
      */
     Optional<Integer> getRetry();
     
+    
+    default boolean isSystem() {
+        return !(getData().isPresent() || getEvent().isPresent());
+    }
 
 
     /**

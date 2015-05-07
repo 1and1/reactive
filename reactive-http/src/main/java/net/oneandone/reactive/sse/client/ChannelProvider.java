@@ -17,6 +17,9 @@ package net.oneandone.reactive.sse.client;
 
 
 
+import io.netty.channel.Channel;
+import io.netty.handler.codec.http.HttpResponse;
+
 import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -36,8 +39,7 @@ interface ChannelProvider {
                                               boolean isFailOnConnectError,
                                               int numFollowRedirects,
                                               ChannelHandler handler,
-                                              Optional<Duration> connectTimeout, 
-                                              Optional<Duration> socketTimeout);
+                                              Optional<Duration> connectTimeout);
     
     
     CompletableFuture<Void> closeAsync();
@@ -46,7 +48,7 @@ interface ChannelProvider {
     
     static interface Stream extends Closeable {
         
-        CompletableFuture<Void> write(String data);
+        CompletableFuture<Void> writeAsync(String data);
         
         boolean isReadSuspended();
         
@@ -58,34 +60,24 @@ interface ChannelProvider {
         
         void close();
         
-        default boolean isNullStream() {
-            return false;
-        }
+        boolean isConnected();
     }
     
     
     static interface ChannelHandler {
         
-        void onContent(ByteBuffer[] buffers);
-        
-        void onError(Throwable error);
-         
-        void onCompleted();
-        
-        
-        public class Empty implements ChannelHandler {
-            
-            @Override
-            public void onCompleted() { }
-            
-            @Override
-            public void onContent(ByteBuffer[] buffers) { }
-            
-            @Override
-            public void onError(Throwable error) { }
+        default ChannelHandler onResponseHeader(Channel channel, HttpResponse response) {
+            onError(channel.hashCode(), new IllegalStateException("got unexpected response header"));
+            return new ChannelHandler() { };
         }
+            
+        default Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
+            return Optional.of(new ChannelHandler() { });
+        }
+        
+        default void onError(int channelId, Throwable error) {  }
      }
-    
+
     
     static class NullChannel implements Stream {
         
@@ -94,7 +86,7 @@ interface ChannelProvider {
         }
         
         @Override
-        public CompletableFuture<Void> write(String data) {
+        public CompletableFuture<Void> writeAsync(String data) {
             return CompletableFuture.completedFuture(null);
         }
         
@@ -116,8 +108,8 @@ interface ChannelProvider {
         }
         
         @Override
-        public boolean isNullStream() {
-           return true;
+        public boolean isConnected() {
+           return false;
         }
     }
 }        

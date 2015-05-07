@@ -31,10 +31,10 @@ import org.junit.Test;
 
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
-    
+    /*
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
-    }
+    }*/
     
     @Test
     public void testSimple() throws Exception {        

@@ -275,9 +275,10 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=11");
         
         try {
-            new ClientSseSource(redirectUri).open();    
+            new ClientSseSource(redirectUri).open();   
+            Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains("302 Found response received"));
+            Assert.assertTrue(expected.getMessage().contains("303 See Other response received"));
         }         
     }
     

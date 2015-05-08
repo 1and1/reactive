@@ -67,12 +67,12 @@ public class TestServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         
         if (req.getPathInfo().startsWith("/redirect")) {
-            System.out.println(req.getQueryString());
+            resp.setStatus(307);
             int num = Integer.parseInt(req.getParameter("num"));
             if (num > 0)  {
-                resp.sendRedirect(req.getRequestURL().toString() + "?num=" + (num  - 1));
+                resp.setHeader("location", req.getRequestURL().toString() + "?num=" + (num  - 1));
             } else {
-                resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+                resp.setHeader("location", req.getRequestURL().toString().replace("redirect", "channel"));
             }
 
         } else if (req.getPathInfo().startsWith("/notfound")) {
@@ -99,12 +99,12 @@ public class TestServlet extends HttpServlet {
             resp.getWriter().write(broker.toString());
             
         } else if (req.getPathInfo().startsWith("/redirect")) {
-            System.out.println(req.getQueryString());
+            resp.setStatus(303);
             int num = Integer.parseInt(req.getParameter("num"));
             if (num > 0)  {
-                resp.sendRedirect(req.getRequestURL().toString() + "?num=" + (num  - 1));
+                resp.setHeader("location", req.getRequestURL().toString() + "?num=" + (num  - 1));
             } else {
-                resp.sendRedirect(req.getRequestURL().toString().replace("redirect", "channel"));
+                resp.setHeader("location", req.getRequestURL().toString().replace("redirect", "channel"));
             }
 
         } else if (req.getPathInfo().startsWith("/notfound")) {

@@ -35,7 +35,7 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
-    */
+*/
     
     @Test
     public void testSimple() throws Exception {        
@@ -76,6 +76,54 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         Assert.assertTrue(reactiveSink.toString().contains("subscription: [closed]"));
     }
     
+
+    
+
+    @Test
+    public void testRedirected() throws Exception {
+        String id = UUID.randomUUID().toString();
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + id);
+        URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=3");
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(redirectUri).open();
+        
+        reactiveSink.write(ServerSentEvent.newEvent().data("test1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("test2"));
+        
+        Assert.assertEquals("test1", reactiveSource.read().getData().get());
+        Assert.assertEquals("test2", reactiveSource.read().getData().get());
+
+        reactiveSource.close();
+        reactiveSink.shutdown();        
+    }
+    
+
+
+
+    @Test
+    public void testMaxRedirectedExceeded() throws Exception {
+        String id = UUID.randomUUID().toString();
+        URI redirectUri = URI.create(getServer().getBaseUrl() + "/simpletest/redirect/" + id + "/?num=11");
+        
+        try {
+            new ClientSseSink(redirectUri).open();
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) {  }         
+    }
+    
+
+    @Test
+    public void testNotFoundError() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/notfound/");
+        
+        try {
+            new ClientSseSink(uri).open();
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) {  }
+    }
+
+    
     
 
     @Test
@@ -83,11 +131,9 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         URI uri = URI.create("http://145.43.42.4:7890/hostnotexist");
         
         try {
-            new ClientSseSource(uri).connectionTimeout(Duration.ofMillis(250)).open();    
+            new ClientSseSink(uri).connectionTimeout(Duration.ofMillis(250)).open();    
             Assert.fail("ConnectException expected");
-        } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains("connection timed out"));
-        }
+        } catch (ConnectException expected) {   }
     }
     
     @Test
@@ -99,6 +145,4 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) {  }
     }
-    
-
 }

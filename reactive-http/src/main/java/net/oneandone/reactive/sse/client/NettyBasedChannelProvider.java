@@ -66,6 +66,9 @@ import com.google.common.collect.ImmutableSet;
 
 class NettyBasedChannelProvider implements StreamProvider {
     private static final Logger LOG = LoggerFactory.getLogger(NettyBasedChannelProvider.class);
+
+    private static final ImmutableSet<Integer> REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 307);
+    private static final ImmutableSet<Integer> GET_REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 303, 307);
     
     private final EventLoopGroup eventLoopGroup;
     
@@ -105,7 +108,7 @@ class NettyBasedChannelProvider implements StreamProvider {
                                                      Optional<Duration> connectTimeout) {
         return connect(id, 
                        uri, 
-                       HttpMethod.valueOf(method), 
+                       method, 
                        headers, 
                        connectTimeout, 
                        numFollowRedirects,
@@ -117,7 +120,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     private CompletableFuture<Stream> connect(String id,
                                               URI uri,
-                                              HttpMethod method, 
+                                              String method, 
                                               ImmutableMap<String, String> headers,
                                               Optional<Duration> connectTimeout, 
                                               int numFollowRedirects,
@@ -131,23 +134,29 @@ class NettyBasedChannelProvider implements StreamProvider {
                                                 if (error == null) {
                                                     promise.complete(stream);
                                                 } else {
-                                                    if ((numFollowRedirects > 0) && (error instanceof HttpResponseError)) {
-                                                        Optional<URI> redirectURI = ((HttpResponseError) error).getRedirectLocation();
-                                                        if (redirectURI.isPresent()) {
-                                                            LOG.debug("[" + id + "] follow redirect " + redirectURI.get());
-                                                            connect(id, redirectURI.get(), method, headers, connectTimeout, numFollowRedirects - 1, streamHandler)
-                                                                    .whenComplete((stream2, error2) -> { 
-                                                                                                            if (error2 == null) {
-                                                                                                                promise.complete(stream2);
-                                                                                                            } else {
-                                                                                                                promise.completeExceptionally(error2); 
-                                                                                                            }
-                                                                                                       });
+                                                    try {
+                                                        if ((numFollowRedirects > 0) && (error instanceof HttpResponseError)) {
+                                                            HttpResponseError responseError = (HttpResponseError) error;
+                                                            Optional<URI> redirectURI = ((HttpResponseError) error).getRedirectLocation();
+                                                            
+                                                            if (redirectURI.isPresent() && isRedirectSupported(method, responseError)) {
+                                                                LOG.debug("[" + id + "] follow redirect " + redirectURI.get());
+                                                                connect(id, redirectURI.get(), method, headers, connectTimeout, numFollowRedirects - 1, streamHandler)
+                                                                        .whenComplete((stream2, error2) -> { 
+                                                                                                                if (error2 == null) {
+                                                                                                                    promise.complete(stream2);
+                                                                                                                } else {
+                                                                                                                    promise.completeExceptionally(error2); 
+                                                                                                                }
+                                                                                                           });
+                                                            } else {
+                                                                promise.completeExceptionally(error);
+                                                            }
                                                         } else {
                                                             promise.completeExceptionally(error);
                                                         }
-                                                    } else {
-                                                        promise.completeExceptionally(error);
+                                                    } catch (RuntimeException rt) {
+                                                        promise.completeExceptionally(rt);
                                                     }
                                                 }
                                              });
@@ -155,12 +164,17 @@ class NettyBasedChannelProvider implements StreamProvider {
     }
     
     
+    private boolean isRedirectSupported(String method, HttpResponseError responseError) {
+        return REDIRECT_STATUS_CODES.contains(responseError.getStatusCode()) || 
+               (method.equalsIgnoreCase("GET") && GET_REDIRECT_STATUS_CODES.contains(responseError.getStatusCode()));
+    }
+    
     
     
     
     private CompletableFuture<Stream> connect(String id,
                                               URI uri,
-                                              HttpMethod method, 
+                                              String method, 
                                               ImmutableMap<String, String> headers,
                                               Optional<Duration> connectTimeout, 
                                               StreamHandler streamHandler) {
@@ -207,9 +221,9 @@ class NettyBasedChannelProvider implements StreamProvider {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
-                        LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened. Sending GET request header " + uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
+                        LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened. Sending " + method + " request header " + uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
                         
-                        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, method, uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
+                        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.valueOf(method), uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
                         request.headers().set(HttpHeaders.Names.HOST, host + ":" + port);
                         request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
                         headers.forEach((name, value) -> request.headers().set(name, value));
@@ -395,8 +409,6 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     private static final class HttpResponseError extends RuntimeException {
         private static final long serialVersionUID = 5524737399197875355L;        
-        private static final ImmutableSet<Integer> REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 303, 307);
-
 
         private final HttpResponse response;
         
@@ -406,11 +418,12 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
 
         public Optional<URI> getRedirectLocation() {
-            if (REDIRECT_STATUS_CODES.contains(response.getStatus().code())) {
-                return Optional.ofNullable(URI.create(response.headers().get("Location")));
-            } else {
-                return Optional.empty();
-            }
+            return Optional.ofNullable(response.headers().get("Location")).map(location -> URI.create(location));
+        }
+        
+        
+        public int getStatusCode() {
+            return response.getStatus().code();
         }
     }
     

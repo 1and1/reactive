@@ -18,6 +18,7 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
@@ -295,6 +296,20 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         }
     }
 
+    
+
+    @Test
+    public void testNonexistingURI() throws Exception {
+        URI uri = URI.create("http://145.43.42.4:7890/hostnotexist");
+        
+        try {
+            new ClientSseSource(uri).connectionTimeout(Duration.ofMillis(250)).open();    
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) { 
+            Assert.assertTrue(expected.getMessage().contains("connection timed out"));
+        }
+    }
+    
 
     @Test
     public void testServerError() throws Exception {

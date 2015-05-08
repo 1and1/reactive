@@ -172,16 +172,20 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         }
     }
     
-    
+   
     
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
+        if (!isOpen.get()) {
+            builder.append("[closed] " );
+        }
         builder.append("pendingWrites=" + pendingWrites.size() + " pendingRequests=" + pendingRequests);
-        
+        builder.append("  (subscription: " + subscriberNotifier.toString() + ")");
+            
         return builder.toString();
     }
-   
+    
     private final class Write extends CompletableFuture<Void> {
  
         private final T element;

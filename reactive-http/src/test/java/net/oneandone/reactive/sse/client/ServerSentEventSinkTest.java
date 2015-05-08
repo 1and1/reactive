@@ -18,6 +18,7 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
@@ -25,16 +26,16 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
-    
+    /*
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
+    */
     
     @Test
     public void testSimple() throws Exception {        
@@ -60,7 +61,6 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
 
     
-    @Ignore
     @Test
     public void testIgnoreErrorOnConnect() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
@@ -74,6 +74,30 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         
         sleep(400);
         Assert.assertTrue(reactiveSink.toString().contains("subscription: [closed]"));
+    }
+    
+    
+
+    @Test
+    public void testNonexistingURI() throws Exception {
+        URI uri = URI.create("http://145.43.42.4:7890/hostnotexist");
+        
+        try {
+            new ClientSseSource(uri).connectionTimeout(Duration.ofMillis(250)).open();    
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) { 
+            Assert.assertTrue(expected.getMessage().contains("connection timed out"));
+        }
+    }
+    
+    @Test
+    public void testServerError() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
+        
+        try {
+            new ClientSseSink(uri).open();    
+            Assert.fail("ConnectException expected");
+        } catch (ConnectException expected) {  }
     }
     
 

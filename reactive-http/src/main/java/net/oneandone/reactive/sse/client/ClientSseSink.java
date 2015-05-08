@@ -16,6 +16,7 @@
 package net.oneandone.reactive.sse.client;
 
 
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -36,7 +37,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
+import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -52,7 +53,7 @@ import com.google.common.io.BaseEncoding;
 public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
-    private static final Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(40);
+    private static final Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(35);
     
     private final URI uri;
     private final boolean isAutoId;
@@ -172,15 +173,17 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription,
-                                                       uri,
-                                                       isAutoId,
-                                                       numFollowRedirects,
-                                                       isFailOnConnectError,
-                                                       connectionTimeout, 
-                                                       keepAlivePeriod));
-        
+        SseOutboundStream stream = new SseOutboundStream(subscription,
+                                                         uri,
+                                                         isAutoId,
+                                                         numFollowRedirects,
+                                                         isFailOnConnectError,
+                                                         connectionTimeout, 
+                                                         keepAlivePeriod);
+        sseOutboundStreamRef.set(stream);
+        stream.init();
     }
+
     
     @Override
     public void onNext(ServerSentEvent event) {
@@ -198,26 +201,31 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     }
     
     
+    @Override
+    public String toString() {
+        SseOutboundStream stream = sseOutboundStreamRef.get();
+        if (stream == null) {
+            return "<null>";
+        } else {
+            return stream.toString();
+        }
+    }
+    
     
     private static final class SseOutboundStream {
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final String id = "cl-out-" + UUID.randomUUID().toString();
+        
+        // properties
         private final boolean isAutoId;
         private final Subscription subscription;
-        
-        private final URI uri;
-        private final Optional<Duration> connectionTimeout;
-        private boolean isFailOnConnectError;
-        private final int numFollowRedirects;
 
-        
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
-        
+        // auto event id support
         private final String globalId = newGlobalId();
         private final AtomicLong nextLocalId = new AtomicLong(1);
         
-        private final ChannelProvider streamProvider = NettyBasedChannelProvider.newStreamProvider();
-        private final AtomicReference<ChannelProvider.Stream> outboundStreamRef = new AtomicReference<>(new ChannelProvider.NullChannel());
-
+        // underlying stream
+        private final ReconnectingStream sseConnection;
         
         
         public SseOutboundStream(Subscription subscription, 
@@ -230,66 +238,31 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             this.subscription = subscription;
             this.isAutoId = isAutoId;
-            this.uri = uri;
-            this.numFollowRedirects = numFollowRedirects;
-            this.isFailOnConnectError = isFailOnConnectError;
-            this.connectionTimeout = connectionTimeout;
             
-            
-            LOG.debug("[" + id + "] opening");
-            
-            
-            newChannelAsync(Duration.ZERO)
-                          .whenComplete((stream, error) ->  {
-                                                              if (error == null) {
-                                                                  LOG.debug("[" + id + "] opened");
-                                                                  outboundStreamRef.set(stream);
-                                                                  
-                                                                  // init message
-                                                                  new KeepAliveEmitter(keepAlivePeriod).start();
-                                                                  subscription.request(1);
-                                                              } else {
-                                                                  terminate(error);
-                                                              }
-                                                            });
+            sseConnection = new ReconnectingStream(id, 
+                                                   uri,
+                                                   "POST", 
+                                                   ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
+                                                   isFailOnConnectError, 
+                                                   numFollowRedirects, 
+                                                   connectionTimeout, 
+                                                   (stream) -> { new KeepAliveEmitter(keepAlivePeriod, stream).start(); },  // connect listener
+                                                   buffers -> { },                                                          // data handler
+                                                   (headers) -> headers);
         }
         
         
-        
-        
-        private CompletableFuture<ChannelProvider.Stream> newChannelAsync(Duration retryDelay) {
-            if (isOpen.get()) {
-                LOG.debug("[" + id + "] open underlying channel ");
-                
-                ChannelHandler handler = new ChannelHandler() {
-                  
-                    @Override
-                    public void onError(int chanelId, Throwable error) {
-                        LOG.debug("error occured. reset underlying channel", error);
-// TODO implement reset                        
-                    }
-                };
-                                
-
-                // [why not using Expect: 100-continue]
-                // Unfortunately Tomcat sends the 100 continue response before passing control to the servlet. 
-                // This means if the servlet sends a redirect, the 100-continue response will be alreday received
-                
-                return streamProvider.openChannelAsync(id, 
-                                                      uri,
-                                                      "POST",
-                                                      ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
-                                                      isFailOnConnectError,
-                                                      numFollowRedirects,
-                                                      handler,
-                                                      connectionTimeout);
-                
-            } else {
-                return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
-            }
+        public void init() {
+            sseConnection.init()
+                         .whenComplete((isConnected, errorOrNull) -> {
+                                                                         if (errorOrNull == null) {
+                                                                             subscription.request(1);
+                                                                         } else {
+                                                                             terminate(errorOrNull);
+                                                                         }
+                                                                     }); 
         }
         
-                
         
         public void write(ServerSentEvent event) {
             if (!event.getId().isPresent() && isAutoId) {
@@ -306,45 +279,48 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
 
         private void writeInternal(ServerSentEvent event) {
-            if (event.isSystem()) {
-                LOG.debug("[" + id + "] sending system event " + event.toString().trim());
-            } else  {
-                LOG.debug("[" + id + "] sending event " + event.getId().orElse(""));
-            }
             
-            outboundStreamRef.get().writeAsync(event.toWire())
-                                   .whenComplete((Void, error) -> { 
-                                                               if (error == null) {
-                                                                   subscription.request(1);
-                                                               } else {
-                                                                   LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                                   //terminateCurrentHttpStream();
-                                                                   subscription.cancel();
-                                                               }
-                           }); 
+            sseConnection.writeAsync(event.toWire())
+                         .whenComplete((Void, error) -> { 
+                                                             if (error == null) {
+                                                                 if (event.isSystem()) {
+                                                                     LOG.debug("[" + id + "] system event written " + event.toString().trim());
+                                                                 } else  {
+                                                                     LOG.debug("[" + id + "] event  written " + event.getId().orElse(""));
+                                                                 }
+                                                                 
+                                                                 subscription.request(1);
+                                                             } else {
+                                                                 LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
+                                                                 //terminateCurrentHttpStream();
+                                                                 subscription.cancel();
+                                                             }
+                                                         });  
         }     
             
        
 
         
         public void terminate(Throwable t) {
-            outboundStreamRef.get().terminate();
+            sseConnection.terminate();
+            close();
         }
-        
         
         
         public void close() {
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
-                synchronized (this) {
-                    outboundStreamRef.getAndSet(new ChannelProvider.NullChannel()).close();
-                }
-                streamProvider.closeAsync();
-                
+
+                sseConnection.close();
                 subscription.cancel();
             }
         }
         
+        
+        @Override
+        public String toString() {
+           return sseConnection.toString();
+        }
         
         
         private static String newGlobalId() {
@@ -370,15 +346,17 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
          * sents keep alive messages to keep the http connection alive in case of idling
          * @author grro
          */
-        private final class KeepAliveEmitter {
+        private static final class KeepAliveEmitter {
             private final DecimalFormat formatter = new DecimalFormat("#.#");
             private final Instant start = Instant.now(); 
             private final ScheduledExecutorService executor = ScheduledExceutor.common();
             private final Duration keepAlivePeriod;
+            private final Stream stream;
             
             
-            public KeepAliveEmitter(Duration keepAlivePeriod) {
+            public KeepAliveEmitter(Duration keepAlivePeriod, Stream stream) {
                 this.keepAlivePeriod = keepAlivePeriod;
+                this.stream = stream;
             }
             
             public void start() {
@@ -387,15 +365,24 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             }
             
             private void scheduleNextKeepAliveEvent() {
-                if (isOpen.get()) {
-                    writeAsync(ServerSentEvent.newEvent().comment("keep alive from client (age " + format(Duration.between(start, Instant.now())) + ")"))
-                        .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
-                }
+                writeAsync(ServerSentEvent.newEvent().comment("keep alive from client (age " + format(Duration.between(start, Instant.now())) + ")"))
+                    .thenAccept(numWritten -> executor.schedule(() -> scheduleNextKeepAliveEvent(), keepAlivePeriod.getSeconds(), TimeUnit.SECONDS));
             }       
             
             private CompletableFuture<Void> writeAsync(ServerSentEvent event) {
-                LOG.debug("[" + id + "] writing system event " + event.toString().trim());
-                return outboundStreamRef.get().writeAsync(event.toWire());
+                CompletableFuture<Void> promise = new CompletableFuture<>();
+                
+                stream.writeAsync(event.toWire())
+                      .whenComplete((Void, error) -> {
+                                                          if (error == null) {
+                                                              LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim());
+                                                              promise.complete(null);
+                                                          } else {
+                                                              promise.completeExceptionally(error);
+                                                          }
+                                                     });
+                
+                return promise;
             }
             
             private String format(Duration duration) {

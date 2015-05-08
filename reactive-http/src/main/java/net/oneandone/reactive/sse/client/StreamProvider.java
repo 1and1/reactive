@@ -23,6 +23,7 @@ import io.netty.handler.codec.http.HttpResponse;
 import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -30,15 +31,15 @@ import java.util.concurrent.CompletableFuture;
 import com.google.common.collect.ImmutableMap;
 
 
-interface ChannelProvider {
+interface StreamProvider {
     
-    CompletableFuture<Stream> openChannelAsync(String id,
+    CompletableFuture<Stream> openStreamAsync(String id,
                                               URI uri, 
                                               String method, 
                                               ImmutableMap<String, String> headers, 
                                               boolean isFailOnConnectError,
                                               int numFollowRedirects,
-                                              ChannelHandler handler,
+                                              StreamHandler handler,
                                               Optional<Duration> connectTimeout);
     
     
@@ -66,22 +67,22 @@ interface ChannelProvider {
     }
     
     
-    static interface ChannelHandler {
+    static interface StreamHandler {
         
-        default ChannelHandler onResponseHeader(Channel channel, HttpResponse response) {
+        default StreamHandler onResponseHeader(int channelId, Channel channel, HttpResponse response) {
             onError(channel.hashCode(), new IllegalStateException("got unexpected response header"));
-            return new ChannelHandler() { };
+            return new StreamHandler() { };
         }
             
-        default Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
-            return Optional.of(new ChannelHandler() { });
+        default Optional<StreamHandler> onContent(int channelId, ByteBuffer[] buffers) {
+            return Optional.of(new StreamHandler() { });
         }
         
         default void onError(int channelId, Throwable error) {  }
      }
 
     
-    static class NullChannel implements Stream {
+    static class NullStream implements Stream {
         
         @Override
         public void close() {
@@ -94,7 +95,9 @@ interface ChannelProvider {
         
         @Override
         public CompletableFuture<Void> writeAsync(String data) {
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<Void> promise = new CompletableFuture<Void>();
+            promise.completeExceptionally(new ClosedChannelException());
+            return promise;
         }
         
         @Override

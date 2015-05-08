@@ -201,16 +201,14 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         }
 
         
-        SseInboundStreamSubscription inboundStreamSubscription = new SseInboundStreamSubscription(uri,
-                                                                                                  lastEventId,
-                                                                                                  isFailOnConnectError,
-                                                                                                  numFollowRedirects,
-                                                                                                  numPrefetchedElements,
-                                                                                                  connectionTimeout,
-                                                                                                  subscriber);
-        inboundStreamSubscription.init();
+        new SseInboundStreamSubscription(uri,
+                                         lastEventId,
+                                         isFailOnConnectError,
+                                         numFollowRedirects,
+                                         numPrefetchedElements,
+                                         connectionTimeout,
+                                         subscriber);
     }
-
     
     
     
@@ -235,7 +233,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
         // underlying stream
-        private final SseConnection sseConnection;
+        private final ReconnectingStream sseConnection;
         
     
         private SseInboundStreamSubscription(URI uri, 
@@ -249,23 +247,18 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             this.numPrefetchedElements = numPrefetchedElements;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
             
-            sseConnection = new SseConnection(id, 
-                                              uri,
-                                              "GET", 
-                                              ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
-                                              isFailOnConnectError, 
-                                              numFollowRedirects, 
-                                              connectionTimeout, 
-                                              (Void) -> eventBuffer.refreshFlowControl(),
-                                              buffers -> processNetworkdata(buffers), 
-                                              (headers) -> lastEventId.isPresent() ? ImmutableMap.<String, String>builder().putAll(headers).put("Last-Event-ID", lastEventId.get()).build() : headers);
-        }
-        
-        
-        
-        public void init() {
-            sseConnection.init()
-                         .whenComplete((isConnected, errorOrNull) -> subscriberNotifier.start(errorOrNull)); 
+            sseConnection = new ReconnectingStream(id, 
+                                                   uri,
+                                                   "GET", 
+                                                   ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
+                                                   isFailOnConnectError, 
+                                                   numFollowRedirects, 
+                                                   connectionTimeout, 
+                                                   (stream) -> eventBuffer.refreshFlowControl(),    // connect listener
+                                                   buffers -> processNetworkdata(buffers),          // data handler
+                                                   (headers) -> lastEventId.isPresent() ? ImmutableMap.<String, String>builder().putAll(headers).put("Last-Event-ID", lastEventId.get()).build() : headers);
+            
+            sseConnection.init().whenComplete((isConnected, errorOrNull) -> subscriberNotifier.start(errorOrNull)); 
         }
  
         

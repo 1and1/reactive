@@ -30,8 +30,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 import net.oneandone.reactive.sse.ScheduledExceutor;
-import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
-import net.oneandone.reactive.sse.client.ChannelProvider.Stream;
+import net.oneandone.reactive.sse.client.StreamProvider.StreamHandler;
+import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,8 +43,8 @@ import com.google.common.collect.Maps;
 
 
 
-class SseConnection {
-    private static final Logger LOG = LoggerFactory.getLogger(SseConnection.class);
+class ReconnectingStream implements Stream {
+    private static final Logger LOG = LoggerFactory.getLogger(ReconnectingStream.class);
 
     private final String id;
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -61,27 +61,27 @@ class SseConnection {
     
     // handlers
     private final Consumer<ByteBuffer[]> dataConsumer;
-    private final Consumer<Void> onConnectedListener;
+    private final Consumer<Stream> onConnectedListener;
     private final Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor;
 
    
     // underlying stream
     private final RetryProcessor retryProcessor = new RetryProcessor();
-    private final ChannelProvider channelProvider = NettyBasedChannelProvider.newStreamProvider();
-    private final AtomicReference<ChannelProvider.Stream> channelRef = new AtomicReference<>(new ChannelProvider.NullChannel());
+    private final StreamProvider channelProvider;
+    private final AtomicReference<StreamProvider.Stream> streamRef;
     
     
     
    
     
-    public SseConnection(String id, 
+    public ReconnectingStream(String id, 
                              URI uri, 
                              String method,
                              ImmutableMap<String, String> headers,
                              boolean isFailOnConnectError,
                              int numFollowRedirects,
                              Optional<Duration> connectionTimeout,
-                             Consumer<Void> onConnectedListener,
+                             Consumer<Stream> onConnectedListener,
                              Consumer<ByteBuffer[]> dataConsumer,
                              Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor) {
         this.id = id;
@@ -94,40 +94,61 @@ class SseConnection {
         this.onConnectedListener = onConnectedListener;
         this.dataConsumer = dataConsumer;
         this.headerInterceptor = headerInterceptor;
+        
+        this.channelProvider = NettyBasedChannelProvider.newStreamProvider();
+        this. streamRef = new AtomicReference<>(new StreamProvider.NullStream());
     }
 
-    
     
     public CompletableFuture<Boolean> init() {
         CompletableFuture<Boolean> promise = new CompletableFuture<>();
         
-        newChannelAsync()
-                    .whenComplete((stream, error) -> { 
-                                                        // initial "connect" successfully
-                                                        if (error == null) {
-                                                            LOG.debug("[" + id + "] channel initially connected");
-                                                            setUnderlyingChannel(stream); 
-                                                            promise.complete(true); 
+        newStreamAsync().whenComplete((stream, error) -> { 
+                                                            // initial "connect" successfully
+                                                            if (error == null) {
+                                                                LOG.debug("[" + id + "] initially connected");
+                                                                setUnderlyingStream(stream); 
+                                                                promise.complete(true); 
                                                         
-                                                        // initial "connect" failed, however should be ignored    
-                                                        } else if (isFailOnConnectError) {
-                                                            LOG.debug("[" + id + "] initial connect failed", error);
-                                                            promise.completeExceptionally(error); 
+                                                            // initial "connect" failed    
+                                                            } else if (isFailOnConnectError) {
+                                                                LOG.debug("[" + id + "] initial connect failed", error);
+                                                                promise.completeExceptionally(error); 
                                                         
-                                                        // initial "connect" error will be reported    
-                                                        } else {
-                                                            LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
-                                                            resetUnderlyingChannel();
-                                                            promise.complete(false);  
-                                                        }
+                                                            // initial "connect" failed, however should be ignored    
+                                                            } else {
+                                                                LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
+                                                                resetUnderlyingStream();
+                                                                promise.complete(false);  
+                                                            }
                                                      });
         
         return promise;
     }
 
     
+ 
+    public CompletableFuture<Void> writeAsync(String data) {
+        return streamRef.get().writeAsync(data);
+    }
+    
+    @Override
+    public String getStreamId() {
+        return id + "/" + streamRef.get().getStreamId();
+    }
+    
+    @Override
+    public boolean isConnected() {
+        return streamRef.get().isConnected();
+    }
+    
+    public void terminate() {
+        streamRef.getAndSet(new StreamProvider.NullStream()).terminate();
+        close();
+    }
+    
     public void close() {
-        closeUnderlyingChannel();
+        closeUnderlyingStream();
         
         if (isOpen.getAndSet(false)) {
             LOG.debug("[" + id + "] close");
@@ -136,38 +157,39 @@ class SseConnection {
     } 
    
     
-    private void closeUnderlyingChannel() {
-        if (channelRef.get().isConnected()) {
-            LOG.debug("[" + id + "] close underlying channel");
+    private void closeUnderlyingStream() {
+        if (streamRef.get().isConnected()) {
+            LOG.debug("[" + id + "] close underlying stream");
         }
-        setUnderlyingChannel(new ChannelProvider.NullChannel());
+        setUnderlyingStream(new StreamProvider.NullStream());
     }
     
     
-    private void setUnderlyingChannel(Stream stream) {
-        channelRef.getAndSet(stream).close();
-        onConnectedListener.accept(null);
+    private void setUnderlyingStream(Stream stream) {
+        streamRef.getAndSet(stream).close();
+        onConnectedListener.accept(stream);
     }        
           
     
-    private void resetUnderlyingChannel() {
-        closeUnderlyingChannel();
+    private void resetUnderlyingStream() {
+        closeUnderlyingStream();
 
         if (isOpen.get()) {
             Runnable retryConnect = () -> {
-                                            if (!channelRef.get().isConnected()) {
-                                                newChannelAsync()
-                                                    .whenComplete((stream, error) -> { 
-                                                                                        // re"connect" successfully
-                                                                                        if (error == null) {
-                                                                                            LOG.debug("[" + id + "] channel reconnected");
-                                                                                            setUnderlyingChannel(stream);
+                                            if (!isConnected()) {
+                                                newStreamAsync().whenComplete((stream, error) -> { 
+                                                                                                    // re"connect" successfully
+                                                                                                    if (error == null) {
+                                                                                                        if (stream.isConnected()) {
+                                                                                                            LOG.debug("[" + id + "] stream reconnected");
+                                                                                                        }
+                                                                                                        setUnderlyingStream(stream);
                                                                                         
-                                                                                            // re"connect" failed
-                                                                                        } else {
-                                                                                            LOG.debug("[" + id + "] channel reconnected failed");
-                                                                                            resetUnderlyingChannel();
-                                                                                        }
+                                                                                                    // re"connect" failed
+                                                                                                    } else {
+                                                                                                        LOG.debug("[" + id + "] stream reconnected failed");
+                                                                                                        resetUnderlyingStream();
+                                                                                                    }
                                                                                      });
                                                 
                                             }
@@ -179,16 +201,16 @@ class SseConnection {
     
     
     public boolean isReadSuspended() {
-        return channelRef.get().isReadSuspended();
+        return streamRef.get().isReadSuspended();
     }
 
     
     public void resumeRead() {
-        channelRef.get().resumeRead();
+        streamRef.get().resumeRead();
     }
     
     public void suspendRead() {
-        channelRef.get().suspendRead();
+        streamRef.get().suspendRead();
     }
     
    
@@ -199,8 +221,8 @@ class SseConnection {
         if (!isOpen.get()) {
             return "[closed] " + id;
             
-        } else if (channelRef.get().isConnected()) {
-            return (channelRef.get().isReadSuspended() ? "[suspended] " : "") + id + "/" + channelRef.get().getStreamId();
+        } else if (streamRef.get().isConnected()) {
+            return (streamRef.get().isReadSuspended() ? "[suspended] " : "") + getStreamId();
                 
         } else {
             return "[not connected] " + id;
@@ -210,30 +232,30 @@ class SseConnection {
     
     
     
-    private CompletableFuture<ChannelProvider.Stream> newChannelAsync() {
+    private CompletableFuture<StreamProvider.Stream> newStreamAsync() {
         
         ImmutableMap<String, String> additionalHeaders = headerInterceptor.apply(headers);
         
         if (isOpen.get()) {
-            LOG.debug("[" + id + "] open underlying channel (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
+            LOG.debug("[" + id + "] open underlying stream (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
             
-            ChannelHandler handler = new ChannelHandler() {
+            StreamHandler handler = new StreamHandler() {
               
                 @Override
-                public Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
+                public Optional<StreamHandler> onContent(int channelId, ByteBuffer[] buffers) {
                     dataConsumer.accept(buffers); 
                     return Optional.empty();
                 }
                 
                 @Override
                 public void onError(int channelId, Throwable error) {
-                    LOG.debug("[" + id + "] - " + channelId + " error occured. reseting underlying channel");
-                    resetUnderlyingChannel();
+                    LOG.debug("[" + id + "] - " + channelId + " error occured. reseting underlying stream");
+                    resetUnderlyingStream();
                 }
             };
             
             
-            return channelProvider.openChannelAsync(id, 
+            return channelProvider.openStreamAsync(id, 
                                                    uri,
                                                    method, 
                                                    additionalHeaders,
@@ -242,7 +264,7 @@ class SseConnection {
                                                    handler, 
                                                    connectionTimeout);
         } else {
-            return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
+            return CompletableFuture.completedFuture(new StreamProvider.NullStream());
         }
     }
     
@@ -250,7 +272,7 @@ class SseConnection {
     
 
     private static final class RetryProcessor {
-        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 25, 250, 500, 1000, 2000, 3000);
+        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 25, 250, 500, 2000, 3000, 4000, 6000);
 
         private Instant lastSchedule = Instant.now();
         private Duration lastDelay = Duration.ZERO; 
@@ -260,7 +282,7 @@ class SseConnection {
             
             // last schedule a while ago?
             Duration delaySinceLastSchedule = Duration.between(lastSchedule, Instant.now());
-            if (RETRY_SEQUENCE.getMaxDelay().minus(delaySinceLastSchedule).isNegative()) {
+            if (RETRY_SEQUENCE.getMaxDelay().multipliedBy(2).minus(delaySinceLastSchedule).isNegative()) {
                 lastDelay = Duration.ZERO;
             } else {
                 lastDelay = RETRY_SEQUENCE.nextDelay(lastDelay);

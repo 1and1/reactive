@@ -16,7 +16,6 @@
 package net.oneandone.reactive.utils;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
-
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -117,6 +116,10 @@ public class SubscriberNotifier<T> {
     }
     
     
+    @Override
+    public String toString() {
+        return subscriber.toString();
+    }
 
     
     private final class Scheduler implements Runnable {

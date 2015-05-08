@@ -117,8 +117,8 @@ class SseConnection {
                                                         // initial "connect" error will be reported    
                                                         } else {
                                                             LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
-                                                            promise.complete(false);  
                                                             resetUnderlyingChannel();
+                                                            promise.complete(false);  
                                                         }
                                                      });
         

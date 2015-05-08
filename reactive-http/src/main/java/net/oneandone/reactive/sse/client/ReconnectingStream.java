@@ -103,25 +103,23 @@ class ReconnectingStream implements Stream {
     public CompletableFuture<Boolean> init() {
         CompletableFuture<Boolean> promise = new CompletableFuture<>();
         
-        newStreamAsync().whenComplete((stream, error) -> { 
-                                                            // initial "connect" successfully
-                                                            if (error == null) {
-                                                                LOG.debug("[" + id + "] initially connected");
-                                                                setUnderlyingStream(stream); 
-                                                                promise.complete(true); 
-                                                        
-                                                            // initial "connect" failed    
-                                                            } else if (isFailOnConnectError) {
-                                                                LOG.debug("[" + id + "] initial connect failed", error);
-                                                                promise.completeExceptionally(error); 
-                                                        
-                                                            // initial "connect" failed, however should be ignored    
-                                                            } else {
-                                                                LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
-                                                                resetUnderlyingStream();
-                                                                promise.complete(false);  
-                                                            }
-                                                     });
+        newStreamAsync().thenAccept(stream -> setUnderlyingStream(stream))
+                        .thenAccept(Void -> LOG.debug("[" + id + "] initially connected"))
+                        .thenAccept(Void -> promise.complete(true))
+                        .exceptionally(error -> { 
+                                                    // initial "connect" failed    
+                                                    if (isFailOnConnectError) {
+                                                        LOG.debug("[" + id + "] initial connect failed", error);
+                                                        promise.completeExceptionally(error); 
+                    
+                                                    // initial "connect" failed, however should be ignored    
+                                                    } else {
+                                                        LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
+                                                        resetUnderlyingStream();
+                                                        promise.complete(false);  
+                                                    }
+                                                    return null;
+                                                  });
         
         return promise;
     }
@@ -302,11 +300,9 @@ class ReconnectingStream implements Stream {
             
             public RetrySequence(int... delaysMillis) {
                 Map<Duration, Duration> map = Maps.newHashMap();
-                
                 for (int i = 0; i < delaysMillis.length; i++) {
                     map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis( (delaysMillis.length > (i+1)) ? delaysMillis[i+1] : delaysMillis[i]) );
                 }
-                
                 delayMap = ImmutableMap.copyOf(map);
                 
                 lastDelay = Duration.ofMillis(delaysMillis[delaysMillis.length - 1]);

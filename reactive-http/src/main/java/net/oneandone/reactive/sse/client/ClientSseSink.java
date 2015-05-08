@@ -204,11 +204,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     @Override
     public String toString() {
         SseOutboundStream stream = sseOutboundStreamRef.get();
-        if (stream == null) {
-            return "<null>";
-        } else {
-            return stream.toString();
-        }
+        return (stream == null) ? "<null>": stream.toString();
     }
     
     
@@ -255,8 +251,11 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         public void init() {
             sseConnection.init()
                          .thenAccept(isConnected -> subscription.request(1))
-                         .exceptionally(error -> terminate(error)); 
+                         .exceptionally(Utils.then(error -> terminate(error))); 
         }
+        
+        
+        
         
         
         public void write(ServerSentEvent event) {
@@ -274,23 +273,14 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
 
         private void writeInternal(ServerSentEvent event) {
-            
             sseConnection.writeAsync(event.toWire())
-                         .whenComplete((Void, error) -> { 
-                                                             if (error == null) {
-                                                                 if (event.isSystem()) {
-                                                                     LOG.debug("[" + id + "] system event written " + event.toString().trim());
-                                                                 } else  {
-                                                                     LOG.debug("[" + id + "] event  written " + event.getId().orElse(""));
-                                                                 }
-                                                                 
-                                                                 subscription.request(1);
-                                                             } else {
+                         .thenAccept(Void -> LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim()))
+                         .thenAccept(Void -> subscription.request(1))
+                         .exceptionally(Utils.then(error -> {
                                                                  LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                                 //terminateCurrentHttpStream();
+                                                                 //  terminateCurrentHttpStream();
                                                                  subscription.cancel();
-                                                             }
-                                                         });  
+                                                            }));
         }     
             
        
@@ -369,17 +359,13 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                 CompletableFuture<Void> promise = new CompletableFuture<>();
                 
                 stream.writeAsync(event.toWire())
-                      .whenComplete((Void, error) -> {
-                                                          if (error == null) {
-                                                              LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim());
-                                                              promise.complete(null);
-                                                          } else {
-                                                              promise.completeExceptionally(error);
-                                                          }
-                                                     });
+                      .thenAccept((Void) -> LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim()))
+                      .thenAccept((Void) -> promise.complete(null))
+                      .exceptionally(Utils.forwardTo(promise));
                 
                 return promise;
             }
+                                    
             
             private String format(Duration duration) {
                 if (duration.getSeconds() > (60 * 60)) {

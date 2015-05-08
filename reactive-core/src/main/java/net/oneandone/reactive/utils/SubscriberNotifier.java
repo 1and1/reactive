@@ -67,9 +67,11 @@ public class SubscriberNotifier<T> {
      * start notifying the subscriber with error
      * @param error the error
      */
-    public void startWithError(Throwable error) {
-        notifications.clear();
-        notifyOnError(error);
+    public void start(Throwable error) {
+        if (error != null) {
+            notifications.clear();
+            notifyOnError(error);
+        }
         start();
     }
 

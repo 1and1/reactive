@@ -104,7 +104,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         }
         
         sleep(500); 
-        Assert.assertTrue(reactiveSource.toString().contains("numPendingRequests=0 numBuffered=0  (subscription: [suspended] buffered events:"));
+        Assert.assertTrue(reactiveSource.toString().contains("numPendingRequests=0 numBuffered=0  (subscription: [suspended]"));
         
         Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
         Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());
@@ -131,7 +131,8 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
         }
         
         sleep(500); 
-        Assert.assertTrue(reactiveSource.toString().contains("numPendingRequests=0 numBuffered=0  (subscription: buffered events: 5"));
+        Assert.assertTrue(reactiveSource.toString().contains("numPendingRequests=0 numBuffered=0"));
+        Assert.assertTrue(reactiveSource.toString().contains("buffered events: 5"));
         
         Assert.assertEquals("testsimple0", reactiveSource.read().getData().get());
         Assert.assertEquals("testsimple1", reactiveSource.read().getData().get());

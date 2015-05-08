@@ -49,12 +49,10 @@ import com.google.common.io.BaseEncoding;
 
 
 
-public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentEvent> {
+public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
-    
-    private final static Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(40);
-    
-    private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
+    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
+    private static final Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(40);
     
     private final URI uri;
     private final boolean isAutoId;
@@ -62,6 +60,10 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
     private final Optional<Duration> connectionTimeout;
     private final int numFollowRedirects;
     private final Duration keepAlivePeriod;
+
+
+    private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
+    
 
     
     public ClientSseSink(URI uri) {
@@ -164,7 +166,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
      * @return the new source instance future
      */
     public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
-        return ReactiveSink.subscribeAsync(this);
+        return ReactiveSink.publishAsync(this);
     }
     
 

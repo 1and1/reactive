@@ -273,6 +273,11 @@ class NettyBasedChannelProvider implements ChannelProvider {
         
         
         @Override
+        public String getStreamId() {
+            return Integer.toString(channel.hashCode());
+        }
+        
+        @Override
         public CompletableFuture<Void> writeAsync(String msg) {
             CompletableFuture<Void> promise = new CompletableFuture<>();
 
@@ -302,13 +307,13 @@ class NettyBasedChannelProvider implements ChannelProvider {
         
         @Override
         public void suspendRead() {
-            LOG.debug("[" + id + "] - channel " + channel.hashCode() + " suspended");
+            LOG.debug("[" + id + "] - channel " + getStreamId() + " suspended");
             channel.config().setAutoRead(false);
         }
         
         @Override
         public void resumeRead() {
-            LOG.debug("[" + id + "] - channel " + channel.hashCode() + " resumed");
+            LOG.debug("[" + id + "] - channel " + getStreamId() + " resumed");
             channel.config().setAutoRead(true);
         }
         

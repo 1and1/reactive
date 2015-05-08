@@ -20,6 +20,8 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
+
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -30,13 +32,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
-import net.oneandone.reactive.sse.client.ChannelProvider.Stream;
-import net.oneandone.reactive.sse.client.ChannelProvider.ChannelHandler;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
@@ -57,10 +56,10 @@ import com.google.common.collect.Lists;
  *  
  * @author grro
  */
-public class ClientSseSource extends SseEndpoint implements Publisher<ServerSentEvent> {
+public class ClientSseSource implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
-    
-    private final static int DEFAULT_BUFFER_SIZE = 50;
+    private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
+    private static final int DEFAULT_BUFFER_SIZE = 50;
     
     private final URI uri;
     private boolean isFailOnConnectError;
@@ -225,11 +224,7 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         private final String id = "cl-in-" + UUID.randomUUID().toString();
      
         // properties
-        private final boolean isFailOnConnectError;
         private final int numPrefetchedElements;
-        private final Optional<Duration> connectionTimeout;
-        private final URI uri;
-        private final int numFollowRedirects;
         private Optional<String> lastEventId;
         
         // incoming event handling
@@ -240,144 +235,45 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
         // underlying stream
-        private final RetryProcessor retryProcessor = new RetryProcessor();
-        private final ChannelProvider channelProvider = NettyBasedChannelProvider.newStreamProvider();
-        private final AtomicReference<ChannelProvider.Stream> channelRef = new AtomicReference<>(new ChannelProvider.NullChannel());
-        
+        private final SseConnection sseConnection;
         
     
         private SseInboundStreamSubscription(URI uri, 
-                                             Optional<String> lastEventId,
+                                             Optional<String> lastId,
                                              boolean isFailOnConnectError,
                                              int numFollowRedirects,
                                              int numPrefetchedElements,
                                              Optional<Duration> connectionTimeout, 
                                              Subscriber<? super ServerSentEvent> subscriber) {
-            this.uri = uri;
-            this.lastEventId = lastEventId;
-            this.numFollowRedirects = numFollowRedirects;
-            this.isFailOnConnectError = isFailOnConnectError;
+            this.lastEventId = lastId;
             this.numPrefetchedElements = numPrefetchedElements;
-            this.connectionTimeout = connectionTimeout;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
+            
+            sseConnection = new SseConnection(id, 
+                                              uri,
+                                              "GET", 
+                                              ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
+                                              isFailOnConnectError, 
+                                              numFollowRedirects, 
+                                              connectionTimeout, 
+                                              (Void) -> eventBuffer.refreshFlowControl(),
+                                              buffers -> processNetworkdata(buffers), 
+                                              (headers) -> lastEventId.isPresent() ? ImmutableMap.<String, String>builder().putAll(headers).put("Last-Event-ID", lastEventId.get()).build() : headers);
         }
         
         
+        
         public void init() {
-            newChannelAsync()
-                        .whenComplete((stream, error) -> { 
-                                                            // initial "connect" successfully
-                                                            if (error == null) {
-                                                                LOG.debug("[" + id + "] channel initially connected");
-                                                                setUnderlyingChannel(stream); 
-                                                                subscriberNotifier.start();
-                                                            
-                                                            // initial "connect" failed, however should be ignored    
-                                                            } else if (isFailOnConnectError) {
-                                                                subscriberNotifier.startWithError(error);
-                                                            
-                                                            // initial "connect" error will be reported    
-                                                            } else {
-                                                                subscriberNotifier.start();
-                                                                resetUnderlyingChannel();
-                                                            }
-                                                         });
+            sseConnection.init()
+                         .whenComplete((isConnected, errorOrNull) -> subscriberNotifier.start(errorOrNull)); 
         }
  
         
         @Override
         public void cancel() {
-            closeUnderlyingChannel();
-            
-            if (isOpen.getAndSet(false)) {
-                LOG.debug("[" + id + "] close");
-                channelProvider.closeAsync();
-            }
+            sseConnection.close();
         } 
        
-        
-        
-        private void closeUnderlyingChannel() {
-            if (channelRef.get().isConnected()) {
-                LOG.debug("[" + id + "] close underlying channel");
-            }
-            setUnderlyingChannel(new ChannelProvider.NullChannel());
-        }
-        
-        
-        private void setUnderlyingChannel(Stream stream) {
-            channelRef.getAndSet(stream).close();
-            eventBuffer.refreshFlowControl();
-        }        
-              
-        
-        private void resetUnderlyingChannel() {
-            closeUnderlyingChannel();
-
-            if (isOpen.get()) {
-                Runnable retryConnect = () -> {
-                                                if (!channelRef.get().isConnected()) {
-                                                    newChannelAsync()
-                                                        .whenComplete((stream, error) -> { 
-                                                                                            // re"connect" successfully
-                                                                                            if (error == null) {
-                                                                                                LOG.debug("[" + id + "] channel reconnected");
-                                                                                                setUnderlyingChannel(stream);
-                                                                                            
-                                                                                                // re"connect" failed
-                                                                                            } else {
-                                                                                                LOG.debug("[" + id + "] channel reconnected failed");
-                                                                                                resetUnderlyingChannel();
-                                                                                            }
-                                                                                         });
-                                                    
-                                                }
-                                              };
-                Duration delay = retryProcessor.scheduleConnect(retryConnect);
-                LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
-            }
-        }
-       
-        
-        
-        private CompletableFuture<ChannelProvider.Stream> newChannelAsync() {
-            
-            if (isOpen.get()) {
-                if (lastEventId.isPresent()) {
-                    LOG.debug("[" + id + "] open underlying channel with last event id " + lastEventId.get());
-                } else {
-                    LOG.debug("[" + id + "] open underlying channel");
-                }
-                
-                ChannelHandler handler = new ChannelHandler() {
-                  
-                    @Override
-                    public Optional<ChannelHandler> onContent(int channelId, ByteBuffer[] buffers) {
-                        processNetworkdata(buffers);
-                        return Optional.empty();
-                    }
-                    
-                    @Override
-                    public void onError(int channelId, Throwable error) {
-                        LOG.debug("[" + id + "] - " + channelId + " error occured. reseting underlying channel");
-                        resetUnderlyingChannel();
-                    }
-                };
-                
-                
-                return channelProvider.openChannelAsync(id, 
-                                                       uri,
-                                                       "GET", 
-                                                       lastEventId.isPresent() ? ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream", "Last-Event-ID", lastEventId.get()) : ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
-                                                       isFailOnConnectError,
-                                                       numFollowRedirects,
-                                                       handler, 
-                                                       connectionTimeout);
-            } else {
-                return CompletableFuture.completedFuture(new ChannelProvider.NullChannel());
-            }
-        }
-        
         
         
         private void processNetworkdata(ByteBuffer[] buffers) {
@@ -402,7 +298,6 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
                 
                 process();
             }
-            
         }
         
 
@@ -446,24 +341,10 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
         }
 
 
-    
-   
-        
+         
         @Override
         public String toString() {
-            StringBuilder sb = new StringBuilder();
-            
-            if (!isOpen.get()) {
-                sb.append("[closed] ");
-                
-            } else if (channelRef.get().isConnected()) {
-                sb.append(channelRef.get().isReadSuspended() ? "[suspended] " : "");
-                
-            } else {
-                sb.append("[not connected] ");
-            }
-            
-            return sb.append("buffered events: " + eventBuffer.size() + ", num requested: " + numRequested.get()).toString();
+           return sseConnection.toString() + "  buffered events: " + eventBuffer.size() + ", num requested: " + numRequested.get();
         }
         
         
@@ -499,15 +380,15 @@ public class ClientSseSource extends SseEndpoint implements Publisher<ServerSent
             
             private void suspendIfBuffersizeToHigh() {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
-                if ((bufferedEvents.size() > getMaxBuffersize()) && !channelRef.get().isReadSuspended()) {
-                    channelRef.get().suspendRead();
+                if ((bufferedEvents.size() > getMaxBuffersize()) && !sseConnection.isReadSuspended()) {
+                    sseConnection.suspendRead();
                 }
             }
         
             private void resumeIfBuffersizeTooLow() {
                 // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
-                if (channelRef.get().isReadSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
-                   channelRef.get().resumeRead();
+                if (sseConnection.isReadSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
+                    sseConnection.resumeRead();
                 }
             }
 

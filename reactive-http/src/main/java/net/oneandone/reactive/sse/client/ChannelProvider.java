@@ -48,6 +48,8 @@ interface ChannelProvider {
     
     static interface Stream extends Closeable {
         
+        String getStreamId();
+        
         CompletableFuture<Void> writeAsync(String data);
         
         boolean isReadSuspended();
@@ -83,6 +85,11 @@ interface ChannelProvider {
         
         @Override
         public void close() {
+        }
+        
+        @Override
+        public String getStreamId() {
+            return "<null>";
         }
         
         @Override

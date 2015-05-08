@@ -25,25 +25,29 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
+import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
 
 
-public class ServerSentEventSinkTest extends TestServletbasedTest  {
+public class ReactiveStreamsTest extends TestServletbasedTest  {
     
-    
-    public ServerSentEventSinkTest() {
-        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
-    }
+ 
     
     @Test
     public void testSimple() throws Exception {        
     
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
-        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
+        
+        
+        Publisher<ServerSentEvent> eventPublisher = new ClientSseSource(uri);   
+        ReactiveSource<ServerSentEvent> reactiveSource = ReactiveSource.subscribe(eventPublisher);
+        
+        Subscriber<ServerSentEvent> eventSubscriber = new ClientSseSink(uri);
+        ReactiveSink<ServerSentEvent> reactiveSink = ReactiveSink.publish(eventSubscriber);
   
+        
 
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple1"));
         reactiveSink.write(ServerSentEvent.newEvent().data("testeventSinkSimple21212"));
@@ -57,24 +61,4 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         reactiveSource.close();        
         reactiveSink.shutdown();
     }
-    
-
-    
-    @Ignore
-    @Test
-    public void testIgnoreErrorOnConnect() throws Exception {
-        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
-        
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).failOnConnectError(false).open();
-
-        sleep(400);
-        Assert.assertTrue(reactiveSink.toString().contains("(subscription: [not connected]"));
-        
-        reactiveSink.close();
-        
-        sleep(400);
-        Assert.assertTrue(reactiveSink.toString().contains("subscription: [closed]"));
-    }
-    
-
-}
+ }

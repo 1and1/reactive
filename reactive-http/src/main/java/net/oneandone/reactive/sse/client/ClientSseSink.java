@@ -254,13 +254,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
         public void init() {
             sseConnection.init()
-                         .whenComplete((isConnected, errorOrNull) -> {
-                                                                         if (errorOrNull == null) {
-                                                                             subscription.request(1);
-                                                                         } else {
-                                                                             terminate(errorOrNull);
-                                                                         }
-                                                                     }); 
+                         .thenAccept(isConnected -> subscription.request(1))
+                         .exceptionally(error -> terminate(error)); 
         }
         
         
@@ -301,9 +296,10 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
        
 
         
-        public void terminate(Throwable t) {
+        public Void terminate(Throwable t) {
             sseConnection.terminate();
             close();
+            return null;
         }
         
         

@@ -164,7 +164,7 @@ public class ClientSseSink extends SseEndpoint implements Subscriber<ServerSentE
      * @return the new source instance future
      */
     public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
-        return ReactiveSink.subscribe(this);
+        return ReactiveSink.subscribeAsync(this);
     }
     
 

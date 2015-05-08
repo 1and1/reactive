@@ -26,15 +26,16 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
-    /*
+    
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
-    }*/
+    }
     
     @Test
     public void testSimple() throws Exception {        
@@ -57,4 +58,24 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         reactiveSource.close();        
         reactiveSink.shutdown();
     }
+    
+
+    
+    @Ignore
+    @Test
+    public void testIgnoreErrorOnConnect() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/servererror/");
+        
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).failOnConnectError(false).open();
+
+        sleep(400);
+        Assert.assertTrue(reactiveSink.toString().contains("(subscription: [not connected]"));
+        
+        reactiveSink.close();
+        
+        sleep(400);
+        Assert.assertTrue(reactiveSink.toString().contains("subscription: [closed]"));
+    }
+    
+
 }

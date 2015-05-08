@@ -454,7 +454,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
                     ChannelHandler dataHandler = channelHandlerRef.get().onResponseHeader(ctx.channel(), response);
                     channelHandlerRef.set(dataHandler);
                 } else {
-                    onError(ctx, new HttpResponseError(response));
+                    notifyError(ctx, new HttpResponseError(response));
                 }
                 
             } else  if (msg instanceof HttpContent) {
@@ -471,7 +471,7 @@ class NettyBasedChannelProvider implements ChannelProvider {
         
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable error) throws Exception {
-            onError(ctx, error);
+            notifyError(ctx, error);
         }
         
         @Override
@@ -483,11 +483,11 @@ class NettyBasedChannelProvider implements ChannelProvider {
             builder.append(" age: " + Duration.between(start, Instant.now()).getSeconds() + " sec");
             LOG.debug(builder.toString());
             
-            onError(ctx, new RuntimeException("channel closed"));
+            notifyError(ctx, new RuntimeException("channel closed"));
         }
         
         
-        private void onError(ChannelHandlerContext ctx, Throwable error) {
+        private void notifyError(ChannelHandlerContext ctx, Throwable error) {
             channelHandlerRef.getAndSet(new ChannelProvider.ChannelHandler() { }).onError(ctx.channel().hashCode(), error);
             ctx.close();
         }   

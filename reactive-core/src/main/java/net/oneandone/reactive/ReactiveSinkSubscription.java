@@ -48,27 +48,37 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private final LinkedList<Write> pendingWrites = Lists.newLinkedList();
     
     private final AtomicBoolean isStarted = new AtomicBoolean(false);
-    private final CompletableFuture<ReactiveSink<T>> startPromise; 
-
+    private final CompletableFuture<ReactiveSink<T>> startPromise = new CompletableFuture<>(); 
 
     
-    public ReactiveSinkSubscription(Subscriber<T> subscriber, CompletableFuture<ReactiveSink<T>> startPromise) {
+    
+    static <T> CompletableFuture<ReactiveSink<T>> newSubscriptionAsync(Subscriber<T> subscriber) {
+        return new ReactiveSinkSubscription<>(subscriber).init();
+    }
+
+    
+    private ReactiveSinkSubscription(Subscriber<T> subscriber) {
         // https://github.com/reactive-streams/reactive-streams-jvm#1.9
         if (subscriber == null) {  
             throw new NullPointerException("subscriber is null");
         }
 
-        this.startPromise = startPromise;
         this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
-        this.subscriberNotifier.start();
     }
+    
+    
+    private CompletableFuture<ReactiveSink<T>> init() {
+        this.subscriberNotifier.start();
+        return startPromise;
+    }
+    
+    
 
     
     @Override
     public void cancel() {
         if (isOpen.getAndSet(false)) {
-            if (!isStarted.get()) {
-                isStarted.set(true);
+            if (!isStarted.getAndSet(true)) {
                 startPromise.completeExceptionally(new RuntimeException("closed"));
             }
             
@@ -80,8 +90,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     public void request(long n) {
         if (isOpen.get()) {
             synchronized (processingLock) {
-                if (!isStarted.get()) {
-                    isStarted.set(true);
+                if (!isStarted.getAndSet(true)) {
                     startPromise.complete(this);
                 }
                 

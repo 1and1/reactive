@@ -31,7 +31,7 @@ public interface ReactiveSink<T> extends Closeable {
     
     /**
      * @param element  the element to write
-     * @return the write future
+     * @return the write future  
      */
     CompletableFuture<Void> writeAsync(T element);
 
@@ -62,11 +62,7 @@ public interface ReactiveSink<T> extends Closeable {
     
     
     
-    @SuppressWarnings("resource")
-    static <T> CompletableFuture<ReactiveSink<T>> subscribe(Subscriber<T> subscriber) {
-        CompletableFuture<ReactiveSink<T>> promise = new CompletableFuture<>();
-        new ReactiveSinkSubscription<>(subscriber, promise);
-
-        return promise; 
+    static <T> CompletableFuture<ReactiveSink<T>> subscribeAsync(Subscriber<T> subscriber) {
+        return ReactiveSinkSubscription.newSubscriptionAsync(subscriber);
     }
 }

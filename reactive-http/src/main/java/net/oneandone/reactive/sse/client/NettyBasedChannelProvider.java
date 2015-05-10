@@ -81,22 +81,11 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     @Override
     public CompletableFuture<Void> closeAsync() {
-        CompletableFuture<Void> promise = new CompletableFuture<>();
-        
-        eventLoopGroup.shutdownGracefully().addListener(new FutureListener<Object>() {
-         
-            @Override
-            public void operationComplete(Future<Object> future) throws Exception {
-                 if (future.isSuccess()) {
-                     promise.complete(null);
-                 } else {
-                     promise.completeExceptionally(future.cause());
-                 }
-            }
-        });
-        
-        return promise;
+        FutureListenerPromiseAdapter<Object> promise = new FutureListenerPromiseAdapter<>();
+        eventLoopGroup.shutdownGracefully().addListener(promise);        
+        return promise.thenApply(obj -> null);
     }
+    
     
     
     @Override
@@ -405,8 +394,19 @@ class NettyBasedChannelProvider implements StreamProvider {
     }
     
     
-      
-   
+    
+    private static final class FutureListenerPromiseAdapter<T> extends CompletableFuture<T> implements FutureListener<T> {
+    
+        @Override
+        public void operationComplete(Future<T> future) throws Exception {
+            if (future.isSuccess()) {
+                complete(future.get());
+            } else {
+                completeExceptionally(future.cause());
+            }
+        }
+    }
+
     
     
     private static final class HttpResponseError extends RuntimeException {

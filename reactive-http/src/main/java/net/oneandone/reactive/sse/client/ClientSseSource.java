@@ -225,7 +225,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         // incoming event handling
         private final FlowControl flowControl = new FlowControl();
-        private final EventManager eventManager;
+        private final EventBuffer eventBuffer;
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
     
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -243,10 +243,10 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             this.numPrefetchedElements = numPrefetchedElements;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
-            this.eventManager = new EventManager(id, 
-                                                 flowControl,
-                                                 (event) -> subscriberNotifier.notifyOnNext(event), 
-                                                 lastId);
+            this.eventBuffer = new EventBuffer(id, 
+                                               flowControl,
+                                               (event) -> subscriberNotifier.notifyOnNext(event), 
+                                               lastId);
 
             
             sseConnection = new ReconnectingStream(id, 
@@ -256,9 +256,9 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                                    isFailOnConnectError, 
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
-                                                   (stream) -> flowControl.reset(),      // connect listener
-                                                   buffers -> eventManager.onData(buffers),   // data handler
-                                                   (headers) -> Immutables.join(headers, eventManager.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
+                                                   (stream) -> flowControl.reset(eventBuffer.getNumBuffered(), eventBuffer.getNumPendingRequests()),      // connect listener
+                                                   buffers -> eventBuffer.onData(buffers),   // data handler
+                                                   (headers) -> Immutables.join(headers, eventBuffer.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
             
             sseConnection.init()
                          .thenAccept(isConnected -> subscriberNotifier.start())
@@ -281,7 +281,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     // https://github.com/reactive-streams/reactive-streams#3.9
                     subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
                 } else {
-                    eventManager.onRequested((int)  n);
+                    eventBuffer.onRequested((int) n);
                 }
             } else {
                 subscriberNotifier.notifyOnError((new IllegalArgumentException("source is closed")));
@@ -292,29 +292,27 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
          
         @Override
         public String toString() {
-           return sseConnection.toString() + "  buffered events: " + eventManager.getNumBuffered() + ", num requested: " + eventManager.getNumPendingRequests();
+           return sseConnection.toString() + "  buffered events: " + eventBuffer.getNumBuffered() + ", num requested: " + eventBuffer.getNumPendingRequests();
         }
         
         
         
         
-        private final class FlowControl {
+        private final class FlowControl implements EventBufferListener {
             
-            void reset() {
-                int numBuffered = eventManager.getNumBuffered();
-                int numPendingRequests = eventManager.getNumPendingRequests();
-                onElementConsumed(numBuffered, numPendingRequests);
-                onElementReceived(numBuffered, numPendingRequests);
+            void reset(int numBuffered, int numPendingRequests) {
+                onElementRemoved(numBuffered, numPendingRequests);
+                onElementAdded(numBuffered, numPendingRequests);
             }
         
-            private void onElementReceived(int numBuffered, int numPendingRequest) {
+            public void onElementAdded(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
                 if ((numBuffered > getMaxBuffersize(numPendingRequest)) && !sseConnection.isReadSuspended()) {
                     sseConnection.suspendRead();
                 }
             }
 
-            private void onElementConsumed(int numBuffered, int numPendingRequest) {
+            public void onElementRemoved(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
                 if (sseConnection.isReadSuspended() && ( (numBuffered < 1) || (numBuffered < getMaxBuffersize(numPendingRequest) * 0.25)) ) {
                     sseConnection.resumeRead();
@@ -328,13 +326,23 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
+
+
+        private static interface EventBufferListener {
+            
+            void onElementAdded(int numBuffered, int numPendingRequest);
+
+            void onElementRemoved(int numBuffered, int numPendingRequest);
+        }
+
         
-        private static class EventManager {
+        
+        private static class EventBuffer {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             
             private final String id;
-            private final FlowControl flowControl;
+            private final EventBufferListener elementListener;
             private final Consumer<ServerSentEvent> eventConsumer;
 
             private Optional<String> lastEventId;
@@ -342,9 +350,9 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
             
             
-            public EventManager(String id, FlowControl flowControl, Consumer<ServerSentEvent> eventConsumer, Optional<String> lastEventId) {
+            public EventBuffer(String id, EventBufferListener elementListener, Consumer<ServerSentEvent> eventConsumer, Optional<String> lastEventId) {
                 this.id = id;
-                this.flowControl = flowControl;
+                this.elementListener = elementListener;
                 this.eventConsumer = eventConsumer;
                 this.lastEventId = lastEventId;
             }
@@ -371,7 +379,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                             bufferedEvents.add(event);
                             lastEventId = event.getId();
 
-                            flowControl.onElementReceived(bufferedEvents.size(), numPendingRequested);
+                            elementListener.onElementAdded(bufferedEvents.size(), numPendingRequested);
                         }
                     }
                 }
@@ -385,7 +393,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     ServerSentEvent event = bufferedEvents.poll();
                     eventConsumer.accept(event);
                     numPendingRequested--;
-                    flowControl.onElementConsumed(bufferedEvents.size(), numPendingRequested);
+                    elementListener.onElementRemoved(bufferedEvents.size(), numPendingRequested);
                 }
             }
             

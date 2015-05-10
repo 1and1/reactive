@@ -29,12 +29,19 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+
+
+import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.client.StreamProvider.StreamHandler;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
@@ -101,27 +108,24 @@ class ReconnectingStream implements Stream {
 
     
     public CompletableFuture<Boolean> init() {
-        CompletableFuture<Boolean> promise = new CompletableFuture<>();
         
-        newStreamAsync().thenAccept(stream -> setUnderlyingStream(stream))
-                        .thenAccept(Void -> LOG.debug("[" + id + "] initially connected"))
-                        .thenAccept(Void -> promise.complete(true))
-                        .exceptionally(error -> { 
-                                                    // initial "connect" failed    
-                                                    if (isFailOnConnectError) {
-                                                        LOG.debug("[" + id + "] initial connect failed", error);
-                                                        promise.completeExceptionally(error); 
-                    
-                                                    // initial "connect" failed, however should be ignored    
-                                                    } else {
-                                                        LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
-                                                        resetUnderlyingStream();
-                                                        promise.complete(false);  
-                                                    }
-                                                    return null;
-                                                  });
-        
-        return promise;
+        return newStreamAsync()
+                    .thenApply(stream -> { 
+                                            setUnderlyingStream(stream); 
+                                            LOG.debug("[" + id + "] initially connected");
+                                            return true;
+                                         })
+                                                    
+                    .exceptionally(error -> { 
+                                                 if (isFailOnConnectError) {  // initial "connect" failed
+                                                     LOG.debug("[" + id + "] initial connect failed", error);
+                                                     throw new ConnectException(error);
+                                                 } else { // initial "connect" failed, however should be ignored
+                                                     LOG.debug("[" + id + "] initial connect failed. Trying to reconnect", error);
+                                                     resetUnderlyingStream();
+                                                     return false;
+                                                 }
+                                            });
     }
 
     
@@ -175,21 +179,18 @@ class ReconnectingStream implements Stream {
         if (isOpen.get()) {
             Runnable retryConnect = () -> {
                                             if (!isConnected()) {
-                                                newStreamAsync().whenComplete((stream, error) -> { 
-                                                                                                    // re"connect" successfully
-                                                                                                    if (error == null) {
-                                                                                                        if (stream.isConnected()) {
-                                                                                                            LOG.debug("[" + id + "] stream reconnected");
-                                                                                                        }
-                                                                                                        setUnderlyingStream(stream);
-                                                                                        
-                                                                                                    // re"connect" failed
-                                                                                                    } else {
-                                                                                                        LOG.debug("[" + id + "] stream reconnected failed");
-                                                                                                        resetUnderlyingStream();
-                                                                                                    }
-                                                                                     });
-                                                
+                                                newStreamAsync()
+                                                    .thenAccept((stream) -> {
+                                                                                if (stream.isConnected()) {
+                                                                                    LOG.debug("[" + id + "] stream reconnected");
+                                                                                }
+                                                                                setUnderlyingStream(stream);
+                                                                            })
+                                                    .exceptionally((error) -> { 
+                                                                                LOG.debug("[" + id + "] stream reconnected failed");
+                                                                                resetUnderlyingStream();
+                                                                                return null;
+                                                                              });
                                             }
                                           };
             Duration delay = retryProcessor.scheduleConnect(retryConnect);
@@ -281,8 +282,10 @@ class ReconnectingStream implements Stream {
             // last schedule a while ago?
             Duration delaySinceLastSchedule = Duration.between(lastSchedule, Instant.now());
             if (RETRY_SEQUENCE.getMaxDelay().multipliedBy(2).minus(delaySinceLastSchedule).isNegative()) {
+                // yes
                 lastDelay = Duration.ZERO;
             } else {
+                // no
                 lastDelay = RETRY_SEQUENCE.nextDelay(lastDelay);
             }
             

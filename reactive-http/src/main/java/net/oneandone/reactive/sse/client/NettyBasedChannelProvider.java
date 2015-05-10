@@ -56,6 +56,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.net.ssl.SSLException;
 
+import net.oneandone.reactive.ConnectException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

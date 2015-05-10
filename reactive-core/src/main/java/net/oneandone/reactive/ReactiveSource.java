@@ -18,12 +18,9 @@ package net.oneandone.reactive;
 
 import java.io.Closeable;
 import java.util.concurrent.CompletableFuture;
-
-
-
-import java.util.concurrent.ExecutionException;
-
 import org.reactivestreams.Publisher;
+
+
 
 public interface ReactiveSource<T> extends Closeable {
     
@@ -33,16 +30,9 @@ public interface ReactiveSource<T> extends Closeable {
     T read();
     
     
-
     
     static <T> ReactiveSource<T> subscribe(Publisher<T> publisher) {
-        try {
-            return subscribeAsync(publisher).get();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } catch (ExecutionException e) {
-            throw new RuntimeException(e.getCause());
-        }
+        return Reactives.get(subscribeAsync(publisher), (error) -> new ConnectException(error));
     }
     
     

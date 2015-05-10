@@ -21,7 +21,6 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
-
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -29,13 +28,15 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
+import net.oneandone.reactive.ConnectException;
+import net.oneandone.reactive.Reactives;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
+import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
@@ -57,10 +58,12 @@ import com.google.common.collect.Lists;
  * @author grro
  */
 public class ClientSseSource implements Publisher<ServerSentEvent> {
+    
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSource.class);
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
     private static final int DEFAULT_BUFFER_SIZE = 50;
-    
+
+    // properties
     private final URI uri;
     private boolean isFailOnConnectError;
     private final Optional<String> lastEventId;
@@ -174,13 +177,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
      * @throws ConnectException if an connect error occurs
      */
     public ReactiveSource<ServerSentEvent> open() throws ConnectException {
-        try {
-            return openAsync().get();
-        } catch (InterruptedException e) {
-            throw new ConnectException(e);
-        } catch (ExecutionException e) {
-            throw new ConnectException(e.getCause());
-        }
+        return Reactives.get(openAsync(), (error) -> new ConnectException(error));
     }
 
     
@@ -218,22 +215,21 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
      * @author grro
      */
     private static class SseInboundStreamSubscription implements Subscription {
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final String id = "cl-in-" + UUID.randomUUID().toString();
      
         // properties
         private final int numPrefetchedElements;
-        private Optional<String> lastEventId;
-        
-        // incoming event handling
-        private final EventBuffer eventBuffer = new EventBuffer();
-        private final Object consumesLock = new Object();
-        private final AtomicInteger numRequested = new AtomicInteger(0);
-        private final ServerSentEventParser parser = new ServerSentEventParser();
-        private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
         
         // underlying stream
         private final ReconnectingStream sseConnection;
+
+        // incoming event handling
+        private final FlowControl flowControl = new FlowControl();
+        private final EventManager eventManager;
+        private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
+    
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+
         
     
         private SseInboundStreamSubscription(URI uri, 
@@ -243,9 +239,15 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                              int numPrefetchedElements,
                                              Optional<Duration> connectionTimeout, 
                                              Subscriber<? super ServerSentEvent> subscriber) {
-            this.lastEventId = lastId;
+
             this.numPrefetchedElements = numPrefetchedElements;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
+
+            this.eventManager = new EventManager(id, 
+                                                 flowControl,
+                                                 (event) -> subscriberNotifier.notifyOnNext(event), 
+                                                 lastId);
+
             
             sseConnection = new ReconnectingStream(id, 
                                                    uri,
@@ -254,11 +256,13 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                                    isFailOnConnectError, 
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
-                                                   (stream) -> eventBuffer.refreshFlowControl(),    // connect listener
-                                                   buffers -> processNetworkdata(buffers),          // data handler
-                                                   (headers) -> lastEventId.isPresent() ? ImmutableMap.<String, String>builder().putAll(headers).put("Last-Event-ID", lastEventId.get()).build() : headers);
+                                                   (stream) -> flowControl.reset(),      // connect listener
+                                                   buffers -> eventManager.onData(buffers),   // data handler
+                                                   (headers) -> Immutables.join(headers, eventManager.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
             
-            sseConnection.init().whenComplete((isConnected, errorOrNull) -> subscriberNotifier.start(errorOrNull)); 
+            sseConnection.init()
+                         .thenAccept(isConnected -> subscriberNotifier.start())
+                         .exceptionally(error -> { subscriberNotifier.start(error); return null; });
         }
  
         
@@ -269,52 +273,6 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
        
         
         
-        private void processNetworkdata(ByteBuffer[] buffers) {
-            if (isEmpty(buffers)) {
-                return;
-            }
-            
-            synchronized (consumesLock) {
-                for (int i = 0; i < buffers.length; i++) {
-                    ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
-                    for (ServerSentEvent event : events) {
-                        
-                        if (event.isSystem()) {
-                            LOG.debug("[" + id + "] system event received " + event.toString().trim());
-                        } else  {
-                            LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
-                            eventBuffer.add(event);
-                            lastEventId = event.getId();
-                        }
-                    }
-                }
-                
-                process();
-            }
-        }
-        
-
-        private boolean isEmpty(ByteBuffer[] buffers) {
-            if (buffers.length > 0) {
-                for (int i = 0; i < buffers.length; i++) {
-                    if (buffers[i].remaining() > 0) {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        
-        private void process() {
-            while ((numRequested.get() > 0) && !eventBuffer.isEmpty()) {
-                eventBuffer.poll().ifPresent(event ->  {
-                                                            numRequested.decrementAndGet();
-                                                            subscriberNotifier.notifyOnNext(event);
-                                                       });
-            }
-        }
-        
         
         @Override
         public void request(long n) {
@@ -323,10 +281,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     // https://github.com/reactive-streams/reactive-streams#3.9
                     subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
                 } else {
-                    synchronized (consumesLock) {
-                        numRequested.addAndGet((int) n);
-                        process();
-                    }
+                    eventManager.onRequested((int)  n);
                 }
             } else {
                 subscriberNotifier.notifyOnError((new IllegalArgumentException("source is closed")));
@@ -337,56 +292,113 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
          
         @Override
         public String toString() {
-           return sseConnection.toString() + "  buffered events: " + eventBuffer.size() + ", num requested: " + numRequested.get();
+           return sseConnection.toString() + "  buffered events: " + eventManager.getNumBuffered() + ", num requested: " + eventManager.getNumPendingRequests();
         }
         
         
         
-        private final class EventBuffer {
-            private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
-
+        
+        private final class FlowControl {
             
-            synchronized boolean isEmpty() {
-                return bufferedEvents.isEmpty();
+            void reset() {
+                int numBuffered = eventManager.getNumBuffered();
+                int numPendingRequests = eventManager.getNumPendingRequests();
+                onElementConsumed(numBuffered, numPendingRequests);
+                onElementReceived(numBuffered, numPendingRequests);
             }
-
-            synchronized int size() {
-                return bufferedEvents.size();
-            }
-            
-            synchronized void add(ServerSentEvent event) {
-                bufferedEvents.add(event);
-                suspendIfBuffersizeToHigh();
-            }
-            
-            synchronized Optional<ServerSentEvent> poll() {
-                Optional<ServerSentEvent> optionalEvent = Optional.ofNullable(bufferedEvents.poll());
-                resumeIfBuffersizeTooLow();
-                
-                return optionalEvent;
-            }
-
-            synchronized void refreshFlowControl() {
-                resumeIfBuffersizeTooLow();
-            }
-
-            
-            private void suspendIfBuffersizeToHigh() {
+        
+            private void onElementReceived(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
-                if ((bufferedEvents.size() > getMaxBuffersize()) && !sseConnection.isReadSuspended()) {
+                if ((numBuffered > getMaxBuffersize(numPendingRequest)) && !sseConnection.isReadSuspended()) {
                     sseConnection.suspendRead();
                 }
             }
-        
-            private void resumeIfBuffersizeTooLow() {
+
+            private void onElementConsumed(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
-                if (sseConnection.isReadSuspended() && ( (bufferedEvents.size() < 1) || (bufferedEvents.size() < getMaxBuffersize() * 0.25)) ) {
+                if (sseConnection.isReadSuspended() && ( (numBuffered < 1) || (numBuffered < getMaxBuffersize(numPendingRequest) * 0.25)) ) {
                     sseConnection.resumeRead();
                 }
             }
 
-            private int getMaxBuffersize() {
-                return numRequested.get() + numPrefetchedElements;
+            private int getMaxBuffersize(int numPendingRequest) {
+                return numPendingRequest + numPrefetchedElements;
+            }
+        }
+
+        
+        
+        
+        private static class EventManager {
+            private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
+            private final ServerSentEventParser parser = new ServerSentEventParser();
+            
+            private final String id;
+            private final FlowControl flowControl;
+            private final Consumer<ServerSentEvent> eventConsumer;
+
+            private Optional<String> lastEventId;
+            private int numPendingRequested = 0;
+
+            
+            
+            public EventManager(String id, FlowControl flowControl, Consumer<ServerSentEvent> eventConsumer, Optional<String> lastEventId) {
+                this.id = id;
+                this.flowControl = flowControl;
+                this.eventConsumer = eventConsumer;
+                this.lastEventId = lastEventId;
+            }
+            
+
+
+            public synchronized void onRequested(int num) {
+                numPendingRequested += num;
+                process();
+            }
+
+
+            public synchronized void onData(ByteBuffer[] buffers) {
+
+                for (int i = 0; i < buffers.length; i++) {
+                
+                    ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
+                    for (ServerSentEvent event : events) {
+                        
+                        if (event.isSystem()) {
+                            LOG.debug("[" + id + "] system event received " + event.toString().trim());
+                        } else  {
+                            LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
+                            bufferedEvents.add(event);
+                            lastEventId = event.getId();
+
+                            flowControl.onElementReceived(bufferedEvents.size(), numPendingRequested);
+                        }
+                    }
+                }
+                
+                process();
+            }
+
+            
+            private void process() {
+                while ((numPendingRequested > 0) && !bufferedEvents.isEmpty()) {
+                    ServerSentEvent event = bufferedEvents.poll();
+                    eventConsumer.accept(event);
+                    numPendingRequested--;
+                    flowControl.onElementConsumed(bufferedEvents.size(), numPendingRequested);
+                }
+            }
+            
+            public synchronized Optional<String> getLastEventId() {
+                return lastEventId;
+            }
+            
+            public synchronized int getNumPendingRequests() {
+                return numPendingRequested;
+            }
+            
+            public synchronized int getNumBuffered() {
+                return bufferedEvents.size();
             }
         }
     }

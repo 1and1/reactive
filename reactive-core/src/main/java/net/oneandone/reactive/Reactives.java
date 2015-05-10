@@ -16,21 +16,23 @@
 package net.oneandone.reactive;
 
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.function.Function;
 
 
-public class ConnectException extends RuntimeException {
+
+public class Reactives {
     
-    private static final long serialVersionUID = 4790384678606033160L;
-
-    public ConnectException(String reason) {
-        super(reason);
-    }
+    private Reactives() { }
     
-    public ConnectException(Throwable cause) {
-        super(cause);
+    public static <T, E extends RuntimeException> T get(Future<T> future, Function<Throwable, E> exceptionFactory) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            throw exceptionFactory.apply(e);
+        } catch (ExecutionException e) {
+            throw exceptionFactory.apply(e.getCause());
+        }
     }
-     
-    public ConnectException(String reason, Throwable cause) {
-        super(reason, cause);
-    }
-}  
+}

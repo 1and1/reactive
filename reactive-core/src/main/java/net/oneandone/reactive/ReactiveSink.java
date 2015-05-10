@@ -18,7 +18,6 @@ package net.oneandone.reactive;
 
 import java.io.Closeable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 
 import org.reactivestreams.Subscriber;
 
@@ -65,13 +64,7 @@ public interface ReactiveSink<T> extends Closeable {
 
 
     static <T> ReactiveSink<T> publish(Subscriber<T> subscriber) {
-        try {
-            return publishAsync(subscriber).get();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } catch (ExecutionException e) {
-            throw new RuntimeException(e.getCause());
-        }
+        return Reactives.get(publishAsync(subscriber), (error) -> new ConnectException(error));
     }
     
     

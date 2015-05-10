@@ -27,17 +27,19 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSink;
+import net.oneandone.reactive.Reactives;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
+
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -55,6 +57,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
     private static final Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(35);
     
+    // properties
     private final URI uri;
     private final boolean isAutoId;
     private boolean isFailOnConnectError;
@@ -62,7 +65,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private final int numFollowRedirects;
     private final Duration keepAlivePeriod;
 
-
+    // stream
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
 
@@ -153,13 +156,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     
     public ReactiveSink<ServerSentEvent> open() {
-        try {
-            return openAsync().get();
-        } catch (InterruptedException e) {
-            throw new ConnectException(e);
-        } catch (ExecutionException e) {
-            throw new ConnectException(e.getCause());
-        }
+        return Reactives.get(openAsync(), (error) -> new ConnectException(error));
     }
     
     
@@ -173,15 +170,13 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        SseOutboundStream stream = new SseOutboundStream(subscription,
-                                                         uri,
-                                                         isAutoId,
-                                                         numFollowRedirects,
-                                                         isFailOnConnectError,
-                                                         connectionTimeout, 
-                                                         keepAlivePeriod);
-        sseOutboundStreamRef.set(stream);
-        stream.init();
+        sseOutboundStreamRef.set(new SseOutboundStream(subscription,
+                                                       uri,
+                                                       isAutoId,
+                                                       numFollowRedirects,
+                                                       isFailOnConnectError,
+                                                       connectionTimeout, 
+                                                       keepAlivePeriod));
     }
 
     
@@ -209,20 +204,22 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     
     
     private static final class SseOutboundStream {
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final String id = "cl-out-" + UUID.randomUUID().toString();
         
         // properties
         private final boolean isAutoId;
         private final Subscription subscription;
 
-        // auto event id support
-        private final String globalId = newGlobalId();
-        private final AtomicLong nextLocalId = new AtomicLong(1);
-        
         // underlying stream
         private final ReconnectingStream sseConnection;
         
+        // auto event id support
+        private final String globalId = UID.newId();
+        private final AtomicLong nextLocalId = new AtomicLong(1);
+
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+
+
         
         public SseOutboundStream(Subscription subscription, 
                                  URI uri, 
@@ -245,13 +242,10 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                    (stream) -> { new KeepAliveEmitter(keepAlivePeriod, stream).start(); },  // connect listener
                                                    buffers -> { },                                                          // data handler
                                                    (headers) -> headers);
-        }
-        
-        
-        public void init() {
+
             sseConnection.init()
                          .thenAccept(isConnected -> subscription.request(1))
-                         .exceptionally(Utils.then(error -> terminate(error))); 
+                         .exceptionally((error) -> terminate(error)); 
         }
         
         
@@ -274,13 +268,13 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
         private void writeInternal(ServerSentEvent event) {
             sseConnection.writeAsync(event.toWire())
-                         .thenAccept(Void -> LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim()))
-                         .thenAccept(Void -> subscription.request(1))
-                         .exceptionally(Utils.then(error -> {
-                                                                 LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                                 //  terminateCurrentHttpStream();
-                                                                 subscription.cancel();
-                                                            }));
+                         .thenAccept((Void) -> { LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim());  subscription.request(1); })
+                         .exceptionally((error -> {
+                                                     LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
+                                                     //  terminateCurrentHttpStream();
+                                                     subscription.cancel();
+                                                     return null;
+                                                  }));
         }     
             
        
@@ -308,26 +302,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
            return sseConnection.toString();
         }
         
-        
-        private static String newGlobalId() {
-            try {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                DataOutputStream dos = new DataOutputStream(baos);
-                
-                UUID uuid = UUID.randomUUID();
-                dos.writeLong(uuid.getMostSignificantBits());
-                dos.writeLong(uuid.getLeastSignificantBits());
-                dos.flush();
-                
-                return BaseEncoding.base64Url().omitPadding().encode(baos.toByteArray());
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
-            }
-        }
-        
-        
-        
-        
+             
         /**
          * sents keep alive messages to keep the http connection alive in case of idling
          * @author grro
@@ -356,14 +331,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             }       
             
             private CompletableFuture<Void> writeAsync(ServerSentEvent event) {
-                CompletableFuture<Void> promise = new CompletableFuture<>();
-                
-                stream.writeAsync(event.toWire())
-                      .thenAccept((Void) -> LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim()))
-                      .thenAccept((Void) -> promise.complete(null))
-                      .exceptionally(Utils.forwardTo(promise));
-                
-                return promise;
+                return stream.writeAsync(event.toWire())
+                             .thenAccept((Void) -> LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim()));
             }
                                     
             
@@ -377,5 +346,26 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                 }
             }
         } 
+    }
+    
+    
+    
+    private static class UID {
+        
+        public static String newId() {
+            try {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                DataOutputStream dos = new DataOutputStream(baos);
+                
+                UUID uuid = UUID.randomUUID();
+                dos.writeLong(uuid.getMostSignificantBits());
+                dos.writeLong(uuid.getLeastSignificantBits());
+                dos.flush();
+                
+                return BaseEncoding.base64Url().omitPadding().encode(baos.toByteArray());
+            } catch (IOException ioe) {
+                throw new RuntimeException(ioe);
+            }
+        }
     }
 }

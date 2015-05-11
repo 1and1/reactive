@@ -76,7 +76,7 @@ class ReconnectingStream implements Stream {
 
    
     // underlying stream
-    private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
+    private final ReconnectManager reconnectManager = new ReconnectManager();
     private final RetryProcessor retryProcessor = new RetryProcessor();
     private final StreamProvider channelProvider;
     private final AtomicReference<StreamProvider.Stream> streamRef;
@@ -106,7 +106,7 @@ class ReconnectingStream implements Stream {
         this.headerInterceptor = headerInterceptor;
         
         this.channelProvider = NettyBasedChannelProvider.newStreamProvider();
-        this. streamRef = new AtomicReference<>(new StreamProvider.NullStream());
+        this.streamRef = new AtomicReference<>(new StreamProvider.NullStream());
     }
 
     
@@ -182,38 +182,51 @@ class ReconnectingStream implements Stream {
         closeUnderlyingStream();
 
         if (isOpen.get()) {
+            reconnectManager.reconnect();
+        }
+    }
+    
+    
+    
+    private final class ReconnectManager {
+        private final Object lock = new Object();
+        private boolean isAlreadyRunning = false;
+    
+        
+        public void reconnect() {
             
-            synchronized (isReconnecting) {
-                if (!isReconnecting.getAndSet(true)) {
+            synchronized (lock) {
+                if (!isAlreadyRunning) {
+                    isAlreadyRunning = true;
                     
                     Runnable retryConnect = () -> {
-                                                if (!isConnected()) {
                                                     newStreamAsync()
                                                         .thenAccept((stream) -> {
                                                                                     if (stream.isConnected()) {
                                                                                         LOG.debug("[" + id + "] stream reconnected");
                                                                                     }
                                                                                     setUnderlyingStream(stream);
-                                                                                    synchronized (isReconnecting) {
-                                                                                        isReconnecting.set(false);
+                                                                                    synchronized (lock) {
+                                                                                        isAlreadyRunning = false;
                                                                                     }
                                                                                 })
                                                         .exceptionally((error) -> { 
                                                                                     LOG.debug("[" + id + "] stream reconnected failed");
-                                                                                    synchronized (isReconnecting) {
-                                                                                        isReconnecting.set(false);
+                                                                                    synchronized (lock) {
+                                                                                        isAlreadyRunning = false;
                                                                                     }
                                                                                     resetUnderlyingStream();
                                                                                     return null;
                                                                                   });
-                                            }
-                                          };
+                                                 };
+                                                 
                     Duration delay = retryProcessor.scheduleConnect(retryConnect);
                     LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
                 }
             }
         }
     }
+    
     
     
     public boolean isReadSuspended() {

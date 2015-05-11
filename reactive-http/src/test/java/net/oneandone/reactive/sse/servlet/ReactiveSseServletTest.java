@@ -87,7 +87,7 @@ public class ReactiveSseServletTest {
 
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(url).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).open();
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(url).buffer(Integer.MAX_VALUE).open();
                 
         
         System.out.println("sending small number of events");

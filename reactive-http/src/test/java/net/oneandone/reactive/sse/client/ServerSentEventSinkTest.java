@@ -44,11 +44,11 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
                                              "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg";
 
     
-    
+   /* 
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
-
+*/
     
     @Test
     public void testSimple() throws Exception {        
@@ -73,16 +73,16 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     }
     
 
-    @Ignore 
+    @Ignore
     @Test
     public void testWriteBufferOverflow() throws Exception {        
     
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).buffer(Integer.MAX_VALUE).open();
   
-        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("50000"));
+        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("500"));
         
         
         int numLoops = 5000;
@@ -90,6 +90,8 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         for (int i = 0; i < numLoops; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));
         }
+        
+        sleep(1000);
         
        
         for (int i = 0; i < numLoops; i++) {

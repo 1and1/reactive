@@ -18,13 +18,13 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
-
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedList;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
@@ -50,6 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
 import com.google.common.io.BaseEncoding;
 
@@ -71,6 +72,9 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private final int numFollowRedirects;
     private final Duration keepAlivePeriod;
     private final int numBufferedElements;
+    private final boolean isAutoRetry;
+    
+    
 
     // stream
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
@@ -84,7 +88,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
              true,
              Optional.empty(), 
              DEFAULT_KEEP_ALIVE_PERIOD,
-             DEFAULT_BUFFER_SIZE);
+             DEFAULT_BUFFER_SIZE,
+             true);
     }
 
     private ClientSseSink(URI uri, 
@@ -93,7 +98,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                           boolean isFailOnConnectError,
                           Optional<Duration> connectionTimeout, 
                           Duration keepAlivePeriod,
-                          int numBufferedElements) {
+                          int numBufferedElements,
+                          boolean isAutoRetry) {
         this.uri = uri;
         this.isAutoId = isAutoId;
         this.numFollowRedirects = numFollowRedirects;
@@ -101,6 +107,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         this.connectionTimeout = connectionTimeout;
         this.keepAlivePeriod = keepAlivePeriod;
         this.numBufferedElements = numBufferedElements;
+        this.isAutoRetry = isAutoRetry;
     }
     
     public ClientSseSink autoId(boolean isAutoId) {
@@ -110,7 +117,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
                                  this.keepAlivePeriod,
-                                 this.numBufferedElements);
+                                 this.numBufferedElements,
+                                 this.isAutoRetry);
     }
 
 
@@ -121,7 +129,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.isFailOnConnectError,
                                  Optional.of(connectionTimeout), 
                                  this.keepAlivePeriod,
-                                 this.numBufferedElements);
+                                 this.numBufferedElements,
+                                 this.isAutoRetry);
     }
 
     /**
@@ -135,7 +144,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
                                  keepAlivePeriod,
-                                 this.numBufferedElements);
+                                 this.numBufferedElements,
+                                 this.isAutoRetry);
     }
 
     
@@ -150,7 +160,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  isFailOnConnectError,
                                  this.connectionTimeout,
                                  this.keepAlivePeriod,
-                                 this.numBufferedElements);
+                                 this.numBufferedElements,
+                                 this.isAutoRetry);
     }
 
     
@@ -165,7 +176,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
                                  this.keepAlivePeriod,
-                                 this.numBufferedElements);
+                                 this.numBufferedElements,
+                                 this.isAutoRetry);
     }
     
     
@@ -180,7 +192,25 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
                                  this.keepAlivePeriod,
-                                 numBufferedElements);
+                                 numBufferedElements,
+                                 this.isAutoRetry);
+    }
+
+    
+    
+    /**
+     * @param isAutoRetry if failed send activity should be retried
+     * @return a new instance with the updated behavior
+     */
+    public ClientSseSink autoRetry(boolean isAutoRetry) {
+        return new ClientSseSink(this.uri, 
+                                 this.isAutoId,
+                                 this.numFollowRedirects,
+                                 this.isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 this.keepAlivePeriod,
+                                 this.numBufferedElements,
+                                 isAutoRetry);
     }
 
     
@@ -206,7 +236,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                        isFailOnConnectError,
                                                        connectionTimeout, 
                                                        keepAlivePeriod,
-                                                       this.numBufferedElements));
+                                                       numBufferedElements,
+                                                       isAutoRetry));
     }
 
     
@@ -232,12 +263,14 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         return (stream == null) ? "<null>": stream.toString();
     }
     
+  
     
     private static final class SseOutboundStream {
         private final String id = "cl-out-" + UUID.randomUUID().toString();
         
         // properties
         private final boolean isAutoId;
+        private final boolean isAutoRetry;
         private final Subscription subscription;
 
         // underlying buffer/stream
@@ -260,10 +293,12 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
                                  Duration keepAlivePeriod,
-                                 int numBufferSize) {
+                                 int numBufferSize,
+                                 boolean isAutoRetry) {
             
             this.subscription = subscription;
             this.isAutoId = isAutoId;
+            this.isAutoRetry = isAutoRetry;
             this.eventBuffer = new EventBuffer(numBufferSize); 
             
             sseConnection = new ReconnectingStream(id, 
@@ -273,8 +308,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                    isFailOnConnectError, 
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
-                                                   (stream) -> { new KeepAliveEmitter(keepAlivePeriod, stream).start(); },  // connect listener
-                                                   buffers -> { },                                                          // data handler
+                                                   (stream) -> { new KeepAliveEmitter(id, keepAlivePeriod, stream).start(); eventBuffer.refresh(); },  // connect listener
+                                                   buffers -> { },                                                                                     // data handler
                                                    (headers) -> headers);
 
             sseConnection.init()
@@ -324,17 +359,40 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         }
         
         
+        private static void logEventWritten(String id, ServerSentEvent event) {
+            if (LOG.isDebugEnabled()) {
+                String eventStr = event.toString().trim().replace("\r\n", "\\r\\n");
+                eventStr = (eventStr.length() > 100) ? (eventStr.substring(0, 100) + "...") : eventStr;
+                
+                if (event.isSystem()) {
+                    LOG.debug("[" + id + "] system event written " + eventStr);
+                } else {
+                    LOG.debug("[" + id + "] event written " + eventStr);
+                }
+            }
+        }
+        
         
         
         private final class EventBuffer {
-            private final Queue<ServerSentEvent> bufferedEvents; 
+            private final LinkedList<ServerSentEvent> bufferedEvents; 
+            private final int maxBufferSize;
 
-            public EventBuffer(int numBufferSize) {
-                this.bufferedEvents = Queues.newLinkedBlockingQueue(numBufferSize); 
+            public EventBuffer(int maxBufferSize) {
+                this.maxBufferSize = maxBufferSize;
+                this.bufferedEvents = Lists.newLinkedList(); 
             }
             
+            
+            public void refresh() {
+                process();
+            }
     
             public synchronized void onData(ServerSentEvent event) {
+                if (bufferedEvents.size() > maxBufferSize) {
+                    throw new IllegalStateException("buffer limit " + maxBufferSize + " exceeded");
+                }
+                
                 bufferedEvents.add(event);
                 process();
             }
@@ -342,15 +400,22 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             private void process() {
                 
-                while (!bufferedEvents.isEmpty()) {
+                while (sseConnection.isConnected() && !bufferedEvents.isEmpty()) {
                     ServerSentEvent event = bufferedEvents.poll();
 
                     sseConnection.writeAsync(event.toWire())
-                                 .thenAccept((Void) -> { LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim()); subscription.request(1); })
+                                 .thenAccept((Void) -> { logEventWritten(id, event); subscription.request(1); })
                                  .exceptionally((error -> {
-                                                             LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                             //  terminateCurrentHttpStream();
-                                                             subscription.cancel();
+                                                             if (isAutoRetry) {
+                                                                 LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse("") + " retrying to send it", error);
+                                                                 synchronized (EventBuffer.this) {
+                                                                     bufferedEvents.addFirst(event);
+                                                                 }
+                                                                 
+                                                             } else { 
+                                                                 LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse("") + " terminating sink", error);
+                                                                 subscription.cancel();
+                                                             }
                                                              return null;
                                                           }));                
 
@@ -367,11 +432,14 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             private final DecimalFormat formatter = new DecimalFormat("#.#");
             private final Instant start = Instant.now(); 
             private final ScheduledExecutorService executor = ScheduledExceutor.common();
+            
+            private final String id;
             private final Duration keepAlivePeriod;
             private final Stream stream;
             
             
-            public KeepAliveEmitter(Duration keepAlivePeriod, Stream stream) {
+            public KeepAliveEmitter(String id, Duration keepAlivePeriod, Stream stream) {
+                this.id = id;
                 this.keepAlivePeriod = keepAlivePeriod;
                 this.stream = stream;
             }
@@ -388,7 +456,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             private CompletableFuture<Void> writeAsync(ServerSentEvent event) {
                 return stream.writeAsync(event.toWire())
-                             .thenAccept((Void) -> LOG.debug("[" + stream.getStreamId() + "] system event written " + event.toString().trim()));
+                             .thenAccept((Void) -> logEventWritten(id, event));
             }
                                     
             

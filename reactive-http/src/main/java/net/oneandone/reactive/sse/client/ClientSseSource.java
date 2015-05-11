@@ -22,6 +22,9 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
+
+
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -295,8 +298,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         public String toString() {
            return sseConnection.toString() + "  buffered events: " + eventBuffer.getNumBuffered() + ", num requested: " + eventBuffer.getNumPendingRequests();
         }
-        
-        
+     
         
         
         private final class FlowControl implements EventBufferListener {
@@ -373,10 +375,8 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
                     for (ServerSentEvent event : events) {
                         
-                        if (event.isSystem()) {
-                            LOG.debug("[" + id + "] system event received " + event.toString().trim());
-                        } else  {
-                            LOG.debug("[" + id + "] event " + event.getId().orElse("") + " received");
+                        logEventReceived(event);
+                        if (!event.isSystem()) {
                             bufferedEvents.add(event);
                             lastEventId = event.getId();
 
@@ -409,6 +409,22 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             public synchronized int getNumBuffered() {
                 return bufferedEvents.size();
             }
+            
+            
+            
+            private void logEventReceived(ServerSentEvent event) {
+                if (LOG.isDebugEnabled()) {
+                    String eventStr = event.toString().trim().replace("\r\n", "\\r\\n");
+                    eventStr = (eventStr.length() > 100) ? (eventStr.substring(0, 100) + "...") : eventStr;
+                    
+                    if (event.isSystem()) {
+                        LOG.debug("[" + id + "] system event received " + eventStr);
+                    } else {
+                        LOG.debug("[" + id + "] event received " + eventStr);
+                    }
+                }
+            }
+            
         }
     }
 }  

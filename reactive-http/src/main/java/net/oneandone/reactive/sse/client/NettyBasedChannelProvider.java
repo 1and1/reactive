@@ -295,11 +295,12 @@ class NettyBasedChannelProvider implements StreamProvider {
         @Override
         public CompletableFuture<Void> writeAsync(String msg) {
             FutureListenerPromiseAdapter<Void> promise = new FutureListenerPromiseAdapter<>();
-        /*    
-            if (!channel.isWritable()) {
-System.out.println("write not possible for " + msg);                
-            }*/
-            channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8))).addListener(promise);
+        
+            if (channel.isWritable()) {
+                channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8))).addListener(promise);
+            } else {
+                promise.completeExceptionally(new IllegalStateException("channel is not writeable"));
+            }
             
             return promise;
         }

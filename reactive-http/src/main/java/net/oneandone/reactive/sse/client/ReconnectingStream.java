@@ -174,7 +174,9 @@ class ReconnectingStream implements Stream {
     
     private void setUnderlyingStream(Stream stream) {
         streamRef.getAndSet(stream).close();
-        onConnectedListener.accept(stream);
+        if (stream.isConnected()) {
+            onConnectedListener.accept(stream);
+        }
     }        
           
     
@@ -211,7 +213,7 @@ class ReconnectingStream implements Stream {
                                                                                     }
                                                                                 })
                                                         .exceptionally((error) -> { 
-                                                                                    LOG.debug("[" + id + "] stream reconnected failed");
+                                                                                    LOG.debug("[" + id + "] stream reconnect failed");
                                                                                     synchronized (lock) {
                                                                                         isAlreadyRunning = false;
                                                                                     }

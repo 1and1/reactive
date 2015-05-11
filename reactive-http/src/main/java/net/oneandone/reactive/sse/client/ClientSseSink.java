@@ -18,6 +18,7 @@ package net.oneandone.reactive.sse.client;
 
 
 import java.io.ByteArrayOutputStream;
+
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -25,6 +26,7 @@ import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -35,11 +37,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSink;
-import net.oneandone.reactive.Reactives;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
+
+import net.oneandone.reactive.utils.Reactives;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -47,6 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Queues;
 import com.google.common.io.BaseEncoding;
 
 
@@ -56,6 +60,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
     private static final Duration DEFAULT_KEEP_ALIVE_PERIOD = Duration.ofSeconds(35);
+    private static final int DEFAULT_BUFFER_SIZE = 50;
+    
     
     // properties
     private final URI uri;
@@ -64,6 +70,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private final Optional<Duration> connectionTimeout;
     private final int numFollowRedirects;
     private final Duration keepAlivePeriod;
+    private final int numBufferedElements;
 
     // stream
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
@@ -76,7 +83,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
              DEFAULT_NUM_FOILLOW_REDIRECTS,
              true,
              Optional.empty(), 
-             DEFAULT_KEEP_ALIVE_PERIOD);
+             DEFAULT_KEEP_ALIVE_PERIOD,
+             DEFAULT_BUFFER_SIZE);
     }
 
     private ClientSseSink(URI uri, 
@@ -84,13 +92,15 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                           int numFollowRedirects,
                           boolean isFailOnConnectError,
                           Optional<Duration> connectionTimeout, 
-                          Duration keepAlivePeriod) {
+                          Duration keepAlivePeriod,
+                          int numBufferedElements) {
         this.uri = uri;
         this.isAutoId = isAutoId;
         this.numFollowRedirects = numFollowRedirects;
         this.isFailOnConnectError = isFailOnConnectError;
         this.connectionTimeout = connectionTimeout;
         this.keepAlivePeriod = keepAlivePeriod;
+        this.numBufferedElements = numBufferedElements;
     }
     
     public ClientSseSink autoId(boolean isAutoId) {
@@ -99,7 +109,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
-                                 this.keepAlivePeriod);
+                                 this.keepAlivePeriod,
+                                 this.numBufferedElements);
     }
 
 
@@ -109,7 +120,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  Optional.of(connectionTimeout), 
-                                 this.keepAlivePeriod);
+                                 this.keepAlivePeriod,
+                                 this.numBufferedElements);
     }
 
     /**
@@ -122,7 +134,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.numFollowRedirects,
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
-                                 keepAlivePeriod);
+                                 keepAlivePeriod,
+                                 this.numBufferedElements);
     }
 
     
@@ -136,7 +149,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  this.numFollowRedirects,
                                  isFailOnConnectError,
                                  this.connectionTimeout,
-                                 this.keepAlivePeriod);
+                                 this.keepAlivePeriod,
+                                 this.numBufferedElements);
     }
 
     
@@ -150,9 +164,24 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  isFollowRedirects ? DEFAULT_NUM_FOILLOW_REDIRECTS : 0,
                                  this.isFailOnConnectError,
                                  this.connectionTimeout,
-                                 this.keepAlivePeriod);
+                                 this.keepAlivePeriod,
+                                 this.numBufferedElements);
     }
     
+    
+    /**
+     * @param numBufferedElements the outgoing buffer size
+     * @return a new instance with the updated behavior
+     */
+    public ClientSseSink buffer(int numBufferedElements) {
+        return new ClientSseSink(this.uri, 
+                                 this.isAutoId,
+                                 this.numFollowRedirects,
+                                 this.isFailOnConnectError,
+                                 this.connectionTimeout,
+                                 this.keepAlivePeriod,
+                                 numBufferedElements);
+    }
 
     
     public ReactiveSink<ServerSentEvent> open() {
@@ -176,7 +205,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                        numFollowRedirects,
                                                        isFailOnConnectError,
                                                        connectionTimeout, 
-                                                       keepAlivePeriod));
+                                                       keepAlivePeriod,
+                                                       this.numBufferedElements));
     }
 
     
@@ -210,7 +240,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         private final boolean isAutoId;
         private final Subscription subscription;
 
-        // underlying stream
+        // underlying buffer/stream
+        private final EventBuffer eventBuffer;
         private final ReconnectingStream sseConnection;
         
         // auto event id support
@@ -219,6 +250,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
 
+        
 
         
         public SseOutboundStream(Subscription subscription, 
@@ -227,10 +259,12 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  int numFollowRedirects,
                                  boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
-                                 Duration keepAlivePeriod) {
+                                 Duration keepAlivePeriod,
+                                 int numBufferSize) {
             
             this.subscription = subscription;
             this.isAutoId = isAutoId;
+            this.eventBuffer = new EventBuffer(numBufferSize); 
             
             sseConnection = new ReconnectingStream(id, 
                                                    uri,
@@ -262,22 +296,9 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                        .comment(event.getComment().orElse(null));
             }
             
-            writeInternal(event);
+            eventBuffer.onData(event);
         }
         
-
-        private void writeInternal(ServerSentEvent event) {
-            sseConnection.writeAsync(event.toWire())
-                         .thenAccept((Void) -> { LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim());  subscription.request(1); })
-                         .exceptionally((error -> {
-                                                     LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
-                                                     //  terminateCurrentHttpStream();
-                                                     subscription.cancel();
-                                                     return null;
-                                                  }));
-        }     
-            
-       
 
         
         public Void terminate(Throwable t) {
@@ -300,6 +321,41 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         @Override
         public String toString() {
            return sseConnection.toString();
+        }
+        
+        
+        
+        
+        private final class EventBuffer {
+            private final Queue<ServerSentEvent> bufferedEvents; 
+
+            public EventBuffer(int numBufferSize) {
+                this.bufferedEvents = Queues.newLinkedBlockingQueue(numBufferSize); 
+            }
+            
+    
+            public synchronized void onData(ServerSentEvent event) {
+                bufferedEvents.add(event);
+                process();
+            }
+
+            
+            private void process() {
+                
+                while (!bufferedEvents.isEmpty()) {
+                    ServerSentEvent event = bufferedEvents.poll();
+
+                    sseConnection.writeAsync(event.toWire())
+                                 .thenAccept((Void) -> { LOG.debug("[" + id + "] " + (event.isSystem() ? "system" : "") + " event written " + event.toString().trim()); subscription.request(1); })
+                                 .exceptionally((error -> {
+                                                             LOG.debug("[" + id + "] error occured by writing event " + event.getId().orElse(""), error);
+                                                             //  terminateCurrentHttpStream();
+                                                             subscription.cancel();
+                                                             return null;
+                                                          }));                
+
+                }
+            }
         }
         
              

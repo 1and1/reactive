@@ -19,10 +19,11 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.io.IOException;
+
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -51,7 +52,7 @@ class SseOutboundChannel  {
 
     private final String id = "srv-out-" + UUID.randomUUID().toString();
     
-    private final List<CompletableFuture<Boolean>> whenWritePossibles = Lists.newArrayList();
+    private final Queue<Write> pendingWrites = Lists.newLinkedList();
     private final ServletOutputStream out;
     private final Consumer<Throwable> errorConsumer;
 
@@ -76,14 +77,29 @@ class SseOutboundChannel  {
 
     
     public CompletableFuture<Integer> writeEventAsync(ServerSentEvent event) {       
-        CompletableFuture<Integer> writtenFuture = new CompletableFuture<>();
-        requestWriteNotificationAsync().thenAccept(Void -> writeToWrite(event, writtenFuture));
+        Write write = new Write(event);
         
-        return writtenFuture;
+        synchronized (pendingWrites) {
+            pendingWrites.add(write);
+        }
+        process();
+        
+        return write;
     }   
     
     
-    private void writeToWrite(ServerSentEvent event, CompletableFuture<Integer> writtenSizeFuture) {
+    private void process() {
+        
+        synchronized (pendingWrites) {
+            while(isWritePossible() && !pendingWrites.isEmpty()) {
+                Write write = pendingWrites.poll();
+                write.perform();
+            }
+        }
+    }
+    
+    
+    private int writeToStream(ServerSentEvent event) {
         if (event.isSystem()) {
             LOG.debug("[" + id + "] writing system event " + event.toString().trim());
         } else {
@@ -96,31 +112,16 @@ class SseOutboundChannel  {
                 out.write(data);
                 out.flush();
                 
-                writtenSizeFuture.complete(data.length);
+                return data.length;
             }
         } catch (IOException | RuntimeException t) {
             errorConsumer.accept(t);
-            writtenSizeFuture.completeExceptionally(t);
             close();
+            throw new RuntimeException(t);
         }
     }   
     
 
-    private CompletableFuture<Boolean> requestWriteNotificationAsync() {
-        CompletableFuture<Boolean> whenWritePossible = new CompletableFuture<>();
-
-        synchronized (whenWritePossibles) {
-            if (isWritePossible()) {
-                whenWritePossible.complete(true);
-            } else {
-                // if not the WriteListener#onWritePossible will be called by the servlet container later
-                whenWritePossibles.add(whenWritePossible);
-            }
-        }
-        
-        return whenWritePossible;
-    }
-    
     
     private boolean isWritePossible() {
         
@@ -155,10 +156,7 @@ class SseOutboundChannel  {
 
         @Override
         public void onWritePossible() throws IOException {    
-            synchronized (whenWritePossibles) {
-                whenWritePossibles.forEach(whenWritePossible -> whenWritePossible.complete(null));
-                whenWritePossibles.clear();
-            }
+            process();
         }
 
         @Override
@@ -167,6 +165,46 @@ class SseOutboundChannel  {
         }
     }  
     
+    
+    
+    private final class Write extends CompletableFuture<Integer> {
+        
+        private final ServerSentEvent event;
+        
+        public Write(ServerSentEvent event) {
+            this.event = event;
+        }
+        
+        public void perform() {
+            try {
+                int written = writeToStream(event);
+                complete(written);
+            } catch (RuntimeException rt) {
+                completeExceptionally(rt);
+            }
+        }
+    }
+    
+    
+    /*
+     * 
+    private CompletableFuture<Boolean> requestWriteNotificationAsync() {
+        CompletableFuture<Boolean> whenWritePossiblePromise = new CompletableFuture<>();
+
+        synchronized (writePossibleLock) {
+            if (isWritePossible()) {
+                whenWritePossiblePromise.complete(true);
+            } else {
+                // if not the WriteListener#onWritePossible will be called by the servlet container later
+                whenWritePossibles.add(whenWritePossiblePromise);
+            }
+        }
+        
+        return whenWritePossiblePromise;
+    }
+    
+     */
+
     
     
     /**

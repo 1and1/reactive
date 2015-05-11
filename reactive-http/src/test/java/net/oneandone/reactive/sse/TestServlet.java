@@ -19,7 +19,6 @@ package net.oneandone.reactive.sse;
 
 
 import java.io.IOException;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -28,6 +27,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -61,7 +62,12 @@ public class TestServlet extends HttpServlet {
     private static final long serialVersionUID = -7372081048856966492L;
 
     private final Broker broker = new Broker();
+
     
+    @Override
+    public void destroy() {
+        broker.close();
+    }
     
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -145,6 +151,8 @@ public class TestServlet extends HttpServlet {
         private final Map<String, ImmutableSet<BrokerSubscription>> subscriptions = Maps.newHashMap();
         private final Map<String, Instant> deepSleepTime = Maps.newHashMap();
 
+        private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(0);
+        
         private final Map<String, ServerSentEvent> eventHistoryCache = Collections.synchronizedMap(new LinkedHashMap<String, ServerSentEvent>() {
             private static final long serialVersionUID = -1640442197943481724L;
 
@@ -199,6 +207,11 @@ public class TestServlet extends HttpServlet {
                     return subs;
                 }
             }
+        }
+        
+        
+        public void close() {
+            executor.shutdown();
         }
         
         @Override
@@ -278,7 +291,8 @@ public class TestServlet extends HttpServlet {
 
             private final String id; 
             private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-          
+            private final AtomicReference<FlowControl> flowControlRef = new AtomicReference<>(new Awake());
+            
             
             public InboundHandler(String id) {
                 this.id = id;
@@ -318,20 +332,59 @@ public class TestServlet extends HttpServlet {
                     subscriptionRef.get().cancel();
                     getSubscriptions(id).forEach(subscription -> subscription.cancel());
                     
+                } else if (event.getEvent().orElse("").equalsIgnoreCase("soporific")) {
+                    String millis = event.getData().orElse("100");
+                    flowControlRef.set(new Napping(Duration.ofMillis(Long.parseLong(millis))));
                     
                 } else {
                     publish(event);
                     String eventId = event.getId().orElse(UUID.randomUUID().toString());
                     eventHistoryCache.put(eventId, event);
-                    subscriptionRef.get().request(1);
                 }
+                
+                flowControlRef.get().onEvent();
             }
             
             
             private void publish(ServerSentEvent event) {
                 getSubscriptions(id).forEach(subscription ->  subscription.publish(event));
             }
-        }   
+            
+            
+            private final class Awake implements FlowControl {
+
+                @Override
+                public void onEvent() {
+                    subscriptionRef.get().request(1);
+                }
+            }
+        
+            private final class Napping implements  FlowControl {
+                private final AtomicLong numPendingRequests = new AtomicLong();
+                
+                public Napping(Duration delay) {
+                    executor.schedule(() -> wakeUp(), delay.toMillis(), TimeUnit.MILLISECONDS);
+                }
+                
+                public synchronized void onEvent() {
+                    numPendingRequests.incrementAndGet();
+                }
+
+                
+                public synchronized void wakeUp() {
+                    subscriptionRef.get().request(numPendingRequests.get());
+                    numPendingRequests.set(0);
+                    
+                    flowControlRef.set(new Awake());
+                }
+            }
+        } 
+        
+        
+        private static interface FlowControl {
+            
+            void onEvent();
+        }
     }
 
 }

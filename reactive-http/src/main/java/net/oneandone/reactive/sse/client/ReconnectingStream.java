@@ -78,7 +78,6 @@ class ReconnectingStream implements Stream {
     private final AtomicReference<StreamProvider.Stream> streamRef;
     
     
-    
    
     
     public ReconnectingStream(String id, 

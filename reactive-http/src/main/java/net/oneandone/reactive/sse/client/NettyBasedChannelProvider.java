@@ -279,6 +279,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         private final String streamId;
         private final Channel channel; 
         
+        
         public Http11Stream(String id, Channel channel) {
             this.id = id;
             this.streamId = Integer.toString(computeStreamId(channel));
@@ -293,22 +294,12 @@ class NettyBasedChannelProvider implements StreamProvider {
         
         @Override
         public CompletableFuture<Void> writeAsync(String msg) {
-            CompletableFuture<Void> promise = new CompletableFuture<>();
-
-            ChannelFuture future = channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8)));
-
-            ChannelFutureListener listener = new ChannelFutureListener() {
-                @Override
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    if (future.isSuccess()) {
-                        promise.complete(null);
-                    } else {
-                        promise.completeExceptionally(future.cause());
-                    }
-                }
-            };
-            future.addListener(listener);
-    
+            FutureListenerPromiseAdapter<Void> promise = new FutureListenerPromiseAdapter<>();
+        /*    
+            if (!channel.isWritable()) {
+System.out.println("write not possible for " + msg);                
+            }*/
+            channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8))).addListener(promise);
             
             return promise;
         }

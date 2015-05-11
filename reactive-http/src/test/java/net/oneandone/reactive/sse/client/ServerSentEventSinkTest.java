@@ -27,16 +27,28 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
-    /*
+    private static final String LARGE_TEXT = "DSDGSRHEDHGSFDFADFWSFSADFQEWRTSFDGASFDFSADFASTFRWAERTWSGSDFSDFSDGFSRGTWRTWERGSFGSDFsdfaser" +
+                                             "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
+                                             "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg" +
+                                             "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
+                                             "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg" +
+                                             "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
+                                             "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg" +
+                                             "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
+                                             "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg";
+
+    
+    
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
-*/
+
     
     @Test
     public void testSimple() throws Exception {        
@@ -61,6 +73,69 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     }
     
 
+    @Ignore
+    @Test
+    public void testWriteBufferOverflow() throws Exception {        
+    
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
+  
+        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("500"));
+        
+        
+        int numLoops = 50;
+        
+        for (int i = 0; i < numLoops; i++) {
+            reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));
+        }
+        
+       
+        for (int i = 0; i < numLoops; i++) {
+            Assert.assertEquals("test" + i + LARGE_TEXT, reactiveSource.read().getData().get());
+        }
+
+
+        
+        reactiveSource.close();        
+        reactiveSink.shutdown();
+    }
+    
+
+
+
+
+    @Test
+    public void testConnectionTerminated() throws Exception {
+        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
+        
+        
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
+        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
+        
+        
+        // sendig data 
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated1"));
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated2"));
+        
+        Assert.assertEquals("testInboundConnectionTerminated1", reactiveSource.read().getData().get());
+        Assert.assertEquals("testInboundConnectionTerminated2", reactiveSource.read().getData().get());
+
+        
+        // invalidate the connection
+        reactiveSink.write(ServerSentEvent.newEvent().event("posion pill"));
+        
+        sleep(500);
+        
+        reactiveSink.write(ServerSentEvent.newEvent().data("testInboundConnectionTerminated3"));
+        Assert.assertEquals("testInboundConnectionTerminated3", reactiveSource.read().getData().get());
+        
+        
+        reactiveSink.shutdown();
+    }
+
+    
     
     @Test
     public void testIgnoreErrorOnConnect() throws Exception {

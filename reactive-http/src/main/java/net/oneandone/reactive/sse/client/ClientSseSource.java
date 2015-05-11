@@ -21,6 +21,7 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -32,11 +33,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import net.oneandone.reactive.ConnectException;
-import net.oneandone.reactive.Reactives;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 import net.oneandone.reactive.utils.Immutables;
+import net.oneandone.reactive.utils.Reactives;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;

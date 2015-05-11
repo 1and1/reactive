@@ -17,6 +17,7 @@ package net.oneandone.reactive;
 
 
 import java.util.LinkedList;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -44,7 +45,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
     
     private final Object processingLock = new Object();
-    private final AtomicLong pendingRequests = new AtomicLong();
+    private final AtomicLong numRequested = new AtomicLong();
     private final LinkedList<Write> pendingWrites = Lists.newLinkedList();
     
     private final AtomicBoolean isStarted = new AtomicBoolean(false);
@@ -94,7 +95,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
                     startPromise.complete(this);
                 }
                 
-                pendingRequests.addAndGet(n);                
+                numRequested.addAndGet(n);                
                 process();
             }
         } else {
@@ -106,7 +107,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     
     private void process() {
         synchronized (processingLock) {
-            while ((pendingRequests.get() > 0) && !pendingWrites.isEmpty()) {
+            while ((numRequested.get() > 0) && !pendingWrites.isEmpty()) {
                 Write write = pendingWrites.removeFirst();
                 write.perform();
             }
@@ -180,7 +181,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         if (!isOpen.get()) {
             builder.append("[closed] " );
         }
-        builder.append("pendingWrites=" + pendingWrites.size() + " pendingRequests=" + pendingRequests);
+        builder.append("running writes=" + pendingWrites.size() + " numRequested=" + numRequested);
         builder.append("  (subscription: " + subscriberNotifier.toString() + ")");
             
         return builder.toString();

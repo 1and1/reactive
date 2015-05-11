@@ -73,7 +73,7 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     }
     
 
-    @Ignore
+    @Ignore 
     @Test
     public void testWriteBufferOverflow() throws Exception {        
     
@@ -82,10 +82,10 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).open();
   
-        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("500"));
+        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("50000"));
         
         
-        int numLoops = 50;
+        int numLoops = 5000;
         
         for (int i = 0; i < numLoops; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));

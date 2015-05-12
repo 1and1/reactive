@@ -312,10 +312,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                    (headers) -> headers);
 
             sseConnection.init()
-                         .thenAccept(isConnected -> subscription.request(1))
+                         .thenAccept(isConnected -> { new KeepAliveEmitter(id, keepAlivePeriod, sseConnection).start(); subscription.request(1); })
                          .exceptionally((error) -> terminate(error)); 
-            
-            new KeepAliveEmitter(id, keepAlivePeriod, sseConnection).start(); 
         }
         
         

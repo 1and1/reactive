@@ -185,26 +185,7 @@ class SseOutboundChannel  {
         }
     }
     
-    
-    /*
-     * 
-    private CompletableFuture<Boolean> requestWriteNotificationAsync() {
-        CompletableFuture<Boolean> whenWritePossiblePromise = new CompletableFuture<>();
-
-        synchronized (writePossibleLock) {
-            if (isWritePossible()) {
-                whenWritePossiblePromise.complete(true);
-            } else {
-                // if not the WriteListener#onWritePossible will be called by the servlet container later
-                whenWritePossibles.add(whenWritePossiblePromise);
-            }
-        }
-        
-        return whenWritePossiblePromise;
-    }
-    
-     */
-
+  
     
     
     /**

@@ -25,6 +25,7 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -39,6 +40,7 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
+import net.oneandone.reactive.sse.client.StreamProvider.DataConsumer;
 import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Reactives;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -69,7 +71,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
     // properties
     private final URI uri;
-    private boolean isFailOnConnectError;
+    private final boolean isFailOnConnectError;
     private final Optional<String> lastEventId;
     private final Optional<Duration> connectionTimeout;
     private final int numPrefetchedElements;
@@ -260,8 +262,8 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                                    isFailOnConnectError, 
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
-                                                   (stream) -> flowControl.reset(eventBuffer.getNumBuffered(), eventBuffer.getNumPendingRequests()),      // connect listener
-                                                   buffers -> eventBuffer.onData(buffers),   // data handler
+                                                   (stream) -> { },                          // connect listener
+                                                   eventBuffer,                              // data consumer
                                                    (headers) -> Immutables.join(headers, eventBuffer.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
             
             sseConnection.init()
@@ -269,6 +271,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                          .exceptionally(error -> { subscriberNotifier.start(error); return null; });
         }
  
+     
         
         @Override
         public void cancel() {
@@ -302,12 +305,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         
         
         private final class FlowControl implements EventBufferListener {
-            
-            void reset(int numBuffered, int numPendingRequests) {
-                onElementRemoved(numBuffered, numPendingRequests);
-                onElementAdded(numBuffered, numPendingRequests);
-            }
-        
+   
             public void onElementAdded(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
                 if ((numBuffered > getMaxBuffersize(numPendingRequest)) && !sseConnection.isReadSuspended()) {
@@ -340,7 +338,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer {
+        private static class EventBuffer implements DataConsumer {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             
@@ -366,8 +364,15 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                 numPendingRequested += num;
                 process();
             }
-
-
+            
+            
+            @Override
+            public synchronized void onReset() {
+                parser.reset();
+            }
+            
+            
+            @Override
             public synchronized void onData(ByteBuffer[] buffers) {
 
                 for (int i = 0; i < buffers.length; i++) {

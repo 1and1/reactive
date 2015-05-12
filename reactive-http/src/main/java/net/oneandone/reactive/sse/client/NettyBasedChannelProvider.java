@@ -296,10 +296,12 @@ class NettyBasedChannelProvider implements StreamProvider {
         public CompletableFuture<Void> writeAsync(String msg) {
             FutureListenerPromiseAdapter<Void> promise = new FutureListenerPromiseAdapter<>();
         
-            if (channel.isWritable()) {
-                channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8))).addListener(promise);
-            } else {
-                promise.completeExceptionally(new IllegalStateException("channel is not writeable"));
+            synchronized (channel) {
+                if (channel.isWritable()) {
+                    channel.writeAndFlush(new DefaultHttpContent(Unpooled.copiedBuffer(msg, StandardCharsets.UTF_8))).addListener(promise);
+                } else {
+                    promise.completeExceptionally(new IllegalStateException("channel is not writeable (no space left in socket send buffer?)"));
+                }
             }
             
             return promise;

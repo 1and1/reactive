@@ -23,10 +23,10 @@ import io.netty.handler.codec.http.HttpResponse;
 import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -65,6 +65,23 @@ interface StreamProvider {
         
         boolean isConnected();
     }
+ 
+    
+    static interface DataConsumer {
+        
+        void onReset();
+        
+        void onData(ByteBuffer[] data);
+    }
+    
+    static class NullDataConsumer implements DataConsumer {
+        
+        @Override
+        public void onData(ByteBuffer[] data) { }
+        
+        @Override
+        public void onReset() {  }
+    }
     
     
     static interface StreamHandler {
@@ -84,6 +101,13 @@ interface StreamProvider {
     
     static class NullStream implements Stream {
         
+        private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
+        
+        public NullStream(boolean suspended) {
+            isReadSuspended.set(suspended);
+        }
+        
+        
         @Override
         public void close() {
         }
@@ -96,21 +120,23 @@ interface StreamProvider {
         @Override
         public CompletableFuture<Void> writeAsync(String data) {
             CompletableFuture<Void> promise = new CompletableFuture<Void>();
-            promise.completeExceptionally(new ClosedChannelException());
+            promise.completeExceptionally(new IllegalStateException("stream is disconnected"));
             return promise;
         }
         
         @Override
         public boolean isReadSuspended() {
-            return false;
+            return isReadSuspended.get();
         }
         
         @Override
         public void resumeRead() {
+            isReadSuspended.set(false);
         }
         
         @Override
         public void suspendRead() {
+            isReadSuspended.set(true);
         }
         
         @Override

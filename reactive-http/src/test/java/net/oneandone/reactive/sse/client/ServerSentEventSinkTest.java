@@ -19,6 +19,7 @@ package net.oneandone.reactive.sse.client;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 
 import net.oneandone.reactive.ConnectException;
@@ -29,6 +30,8 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
+
+import com.google.common.collect.Maps;
 
 
 public class ServerSentEventSinkTest extends TestServletbasedTest  {
@@ -43,11 +46,10 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
                                              "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
                                              "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg";
 
-  /*  
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
-*/
+  
     
     @Test
     public void testSimple() throws Exception {        
@@ -72,7 +74,6 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     }
     
 
-
     @Ignore
     @Test
     public void testWriteBufferOverflow() throws Exception {        
@@ -85,17 +86,18 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("500"));
         
         
-        int numLoops = 5000;
+        int numLoops = 1000;
         
         for (int i = 0; i < numLoops; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));
         }
         
-        sleep(1000);
-        
-       
+
+        Map<String, ServerSentEvent> result = Maps.newHashMap();
         for (int i = 0; i < numLoops; i++) {
-            Assert.assertEquals("test" + i + LARGE_TEXT, reactiveSource.read().getData().get());
+            ServerSentEvent event = reactiveSource.read();
+            System.out.println(event.getId().get());
+            result.put(event.getId().get(), event);
         }
 
 

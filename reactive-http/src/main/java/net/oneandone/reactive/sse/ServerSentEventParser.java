@@ -44,7 +44,7 @@ public class ServerSentEventParser {
     private String field = ""; 
     private String value = "";
     
-        
+    
  
     /**
      * parse the events 
@@ -149,6 +149,7 @@ public class ServerSentEventParser {
         event = null;
         data = null;
         comment = null;
+        retry = null;
         
         resetFieldValueParsingData();
     }
@@ -158,6 +159,14 @@ public class ServerSentEventParser {
         value = "";
     }
 
+    
+    public void reset() {
+        lineParser.reset();
+        lines.clear();
+        
+        resetEventParsingData();
+        resetFieldValueParsingData();
+    }
     
     
     
@@ -170,11 +179,15 @@ public class ServerSentEventParser {
         private static final byte CR = 0x0D;
         private static final byte LF = 0x0A;
         
-
-        private byte[] lineBuffer = new byte[BUFFER_SIZE];
-        private int pos = 0;
         private boolean isIgnoreLF = false;
+        private byte[] lineBuffer = new byte[BUFFER_SIZE];
 
+        private int pos = 0;
+
+        
+        void reset() {
+            pos = 0;
+        }
         
         
         void parse(ByteBuffer buf, List<String> lines) {
@@ -190,14 +203,14 @@ public class ServerSentEventParser {
     
                         // new line
                         lines.add(new String(lineBuffer, 0, pos, "UTF-8"));
-                        pos = 0;
+                        reset();
                         
                     } else if (i == LF) {
                         
                         if (!isIgnoreLF) {
                             // new line
                             lines.add(new String(lineBuffer, 0, pos, "UTF-8"));
-                            pos = 0;
+                            reset();
                         }
                         
                         isIgnoreLF = false;

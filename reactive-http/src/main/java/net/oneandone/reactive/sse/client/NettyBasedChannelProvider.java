@@ -221,7 +221,7 @@ class NettyBasedChannelProvider implements StreamProvider {
                         
                         future.channel().writeAndFlush(request);
                     } else {
-                        connectedPromise.onError(future.channel().hashCode(), future.cause());
+                        connectedPromise.onError(computeStreamId(future.channel()), future.cause());
                     }
                 }
             };
@@ -229,7 +229,7 @@ class NettyBasedChannelProvider implements StreamProvider {
             
             
         } catch (SSLException | RuntimeException e) {
-            connectedPromise.onError(-1, new ConnectException("could not connect to " + uri, e));
+            connectedPromise.onError("-1", new ConnectException("could not connect to " + uri, e));
         }
         
         return connectedPromise;
@@ -246,7 +246,7 @@ class NettyBasedChannelProvider implements StreamProvider {
             this.dataHandler = dataHandler;
         }
         
-        public StreamHandler onResponseHeader(int channelId, Channel channel, HttpResponse response) {
+        public StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
             LOG.debug("[" + id + "] - channel " + channelId + " got response " + response.getStatus().code());
             complete(new Http11Stream(id, channel));
             
@@ -254,13 +254,13 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
         
         @Override
-        public void onError(int channelId, Throwable error) {
+        public void onError(String channelId, Throwable error) {
             LOG.debug("[" + id + "] - channel " + channelId + " error occured " + error.getMessage());
             completeExceptionally(error);
         }
         
         @Override
-        public Optional<StreamHandler> onContent(int channelId, ByteBuffer[] buffers) {
+        public Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
             return Optional.empty();
         }
     }
@@ -268,8 +268,8 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     
     
-    private static int computeStreamId(Channel channel) {
-        return Math.abs(channel.hashCode());
+    private static String computeStreamId(Channel channel) {
+        return Integer.toString(Math.abs(channel.hashCode()));
     }
 
     
@@ -282,7 +282,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         
         public Http11Stream(String id, Channel channel) {
             this.id = id;
-            this.streamId = Integer.toString(computeStreamId(channel));
+            this.streamId = computeStreamId(channel);
             this.channel = channel;
         }
         
@@ -467,7 +467,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-
+            
             if (msg instanceof HttpResponse) {
                 HttpResponse response = (HttpResponse) msg;
                 int status = response.getStatus().code();
@@ -483,7 +483,7 @@ class NettyBasedChannelProvider implements StreamProvider {
             } else  if (msg instanceof HttpContent) {
                 HttpContent content = (HttpContent) msg;
                 
-                Optional<StreamHandler> newDataHandler = channelHandlerRef.get().onContent(ctx.channel().hashCode(), content.content().nioBuffers());
+                Optional<StreamHandler> newDataHandler = channelHandlerRef.get().onContent(computeStreamId(ctx.channel()), content.content().nioBuffers());
                 newDataHandler.ifPresent(handler -> channelHandlerRef.set(handler));
                 
                 if (content instanceof LastHttpContent) {

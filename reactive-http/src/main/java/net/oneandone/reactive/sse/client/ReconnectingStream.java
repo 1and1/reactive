@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
 
 
 
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -324,13 +325,13 @@ class ReconnectingStream implements Stream {
             StreamHandler handler = new StreamHandler() {
               
                 @Override
-                public Optional<StreamHandler> onContent(int channelId, ByteBuffer[] buffers) {
-                    dataConsumer.onData(buffers); 
+                public Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
+                    dataConsumer.onContent(id, buffers); 
                     return Optional.empty();
                 }
                 
                 @Override
-                public void onError(int channelId, Throwable error) {
+                public void onError(String channelId, Throwable error) {
                     LOG.debug("[" + id + "] - " + channelId + " error " + error.getMessage() + " occured. Trying to reconnect");
                     streamManager.reconnect();
                 }

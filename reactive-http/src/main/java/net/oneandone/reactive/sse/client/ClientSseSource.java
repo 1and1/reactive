@@ -373,7 +373,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             
             
             @Override
-            public synchronized void onData(ByteBuffer[] buffers) {
+            public synchronized void onContent(String channelId, ByteBuffer[] buffers) {
 
                 for (int i = 0; i < buffers.length; i++) {
                 

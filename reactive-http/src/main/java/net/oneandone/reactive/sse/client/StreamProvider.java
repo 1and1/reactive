@@ -67,35 +67,29 @@ interface StreamProvider {
     }
  
     
+    static final DataConsumer NULL_DATACONSUMER = new DataConsumer() { };
+    
+    
     static interface DataConsumer {
         
-        void onReset();
+        default void onReset() { };
         
-        void onData(ByteBuffer[] data);
-    }
-    
-    static class NullDataConsumer implements DataConsumer {
-        
-        @Override
-        public void onData(ByteBuffer[] data) { }
-        
-        @Override
-        public void onReset() {  }
+        default void onContent(String channelId, ByteBuffer[] data) { }
     }
     
     
     static interface StreamHandler {
         
-        default StreamHandler onResponseHeader(int channelId, Channel channel, HttpResponse response) {
-            onError(channel.hashCode(), new IllegalStateException("got unexpected response header"));
+        default StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
+            onError(channelId, new IllegalStateException("got unexpected response header"));
             return new StreamHandler() { };
         }
             
-        default Optional<StreamHandler> onContent(int channelId, ByteBuffer[] buffers) {
+        default Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
             return Optional.of(new StreamHandler() { });
         }
         
-        default void onError(int channelId, Throwable error) {  }
+        default void onError(String channelId, Throwable error) {  }
      }
 
     

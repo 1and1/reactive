@@ -338,7 +338,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer implements DataConsumer {
+        private static class EventBuffer implements DataConsumer<EventBuffer> {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             
@@ -367,14 +367,13 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             
             
             @Override
-            public synchronized void onReset() {
+            public void onError(String channelId, Throwable error) {
                 parser.reset();
             }
             
             
             @Override
-            public synchronized void onContent(String channelId, ByteBuffer[] buffers) {
-
+            public Optional<EventBuffer> onContent(String channelId, ByteBuffer[] buffers) {
                 for (int i = 0; i < buffers.length; i++) {
                 
                     ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
@@ -391,6 +390,8 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                 }
                 
                 process();
+                
+                return Optional.of(this);
             }
 
             

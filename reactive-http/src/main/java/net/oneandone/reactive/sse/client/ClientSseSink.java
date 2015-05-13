@@ -38,6 +38,7 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.sse.client.StreamProvider.DataConsumer;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
 
@@ -306,8 +307,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                    isFailOnConnectError, 
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
-                                                   (isWriteable) -> sendBuffer.refresh(),  // writeable changed listener
-                                                   StreamProvider.NULL_DATACONSUMER,       // data consumer
+                                                   (isWriteable) -> sendBuffer.refresh(),                                   // writeable changed listener
+                                                   new StreamProvider.DataConsumer<DataConsumer<DataConsumer<?>>>() { },    // data consumer
                                                    (headers) -> headers);
 
             sseConnection.init()

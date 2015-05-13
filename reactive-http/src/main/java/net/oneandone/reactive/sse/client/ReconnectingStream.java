@@ -18,6 +18,7 @@ package net.oneandone.reactive.sse.client;
 
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -37,6 +38,7 @@ import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 
 
@@ -70,7 +72,7 @@ class ReconnectingStream implements Stream {
     
     
     // handlers
-    private final DataConsumer dataConsumer;
+    private final DataConsumer<?> dataConsumer;
     private final Consumer<Boolean> isWriteableStateChangedListener;
     private final Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor;
 
@@ -90,7 +92,7 @@ class ReconnectingStream implements Stream {
                              int numFollowRedirects,
                              Optional<Duration> connectionTimeout,
                              Consumer<Boolean> isWriteableStateChangedListener,
-                             DataConsumer dataConsumer,
+                             DataConsumer<?> dataConsumer,
                              Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor) {
         this.id = id;
         this.uri = uri;
@@ -224,7 +226,7 @@ class ReconnectingStream implements Stream {
         
         public void terminate() {
             synchronized (reconnectLock) {
-                dataConsumer.onReset();
+                dataConsumer.onError(id, new ClosedChannelException());
                 streamRef.getAndSet(new StreamProvider.NullStream(true)).terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
             }
         }
@@ -244,9 +246,7 @@ class ReconnectingStream implements Stream {
                 // close old stream
                 Stream oldStream = streamRef.get();
                 oldStream.close();
-
-                // reset data consumer
-                dataConsumer.onReset();
+                dataConsumer.onError(id, new ClosedChannelException());
                 
                 // restore suspend state for new stream
                 if (oldStream.isReadSuspended()) {

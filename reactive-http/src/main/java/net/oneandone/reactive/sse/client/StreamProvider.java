@@ -67,18 +67,19 @@ interface StreamProvider {
     }
  
     
-    static final DataConsumer NULL_DATACONSUMER = new DataConsumer() { };
     
-    
-    static interface DataConsumer {
+    static interface DataConsumer<T extends DataConsumer<?>> {
         
-        default void onReset() { };
+        default void onError(String channelId, Throwable error) { };
         
-        default void onContent(String channelId, ByteBuffer[] data) { }
+        @SuppressWarnings("unchecked")
+        default Optional<T> onContent(String channelId, ByteBuffer[] data) { 
+            return Optional.of((T) this);
+        }
     }
     
     
-    static interface StreamHandler {
+    static interface StreamHandler extends DataConsumer<StreamHandler> {
         
         default StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
             onError(channelId, new IllegalStateException("got unexpected response header"));

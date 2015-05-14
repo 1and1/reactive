@@ -106,6 +106,8 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     private void openStreamAsync(ConnectionParams params, HttpChannelHandler channelHandler) {
         try {
+            
+            // set bootstrap
             SslContext sslCtx= ("https".equalsIgnoreCase(URIUtils.getScheme(params.getUri()))) ? SslContext.newClientContext() : null;
             
             Bootstrap bootstrap = new Bootstrap();
@@ -119,7 +121,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
             
             
-            
+            // open connection
             LOG.debug("[" + params.getId() + "] - opening channel with "  + bootstrap.toString());
             
             ChannelFutureListener listener = new ChannelFutureListener() {
@@ -212,12 +214,12 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     
 
-    private static abstract class HandlerState implements HttpChannelHandler, StateContext {
+    private static abstract class AbstractHandlerState implements HttpChannelHandler, StateContext {
         private final ConnectionParams params;
         private final StateContext context;
 
         
-        public HandlerState(ConnectionParams params, StateContext context) {
+        public AbstractHandlerState(ConnectionParams params, StateContext context) {
             this.params = params;
             this.context = context;
         }
@@ -235,6 +237,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
         
         public void onError(Channel channel, Throwable error) {
+            setNullState();
             log(channel, "error occured " + error.toString());
         }
         
@@ -288,7 +291,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
 
     
-    private class ConnectStateHandler extends HandlerState {
+    private class ConnectStateHandler extends AbstractHandlerState {
         private final CompletableFuture<Stream> connectPromise;
         
         public ConnectStateHandler(StateContext context, ConnectionParams params, CompletableFuture<Stream> connectPromise) {
@@ -314,7 +317,6 @@ class NettyBasedChannelProvider implements StreamProvider {
         @Override
         public void onError(Channel channel, Throwable error) {
             super.onError(channel, error);
-            setNullState();
             connectPromise.completeExceptionally(error);
         }
     }
@@ -322,7 +324,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     
     
-    private class ResponseMessageStateHandler extends HandlerState {
+    private class ResponseMessageStateHandler extends AbstractHandlerState {
         private final CompletableFuture<Stream> connectPromise;
 
         
@@ -375,7 +377,6 @@ class NettyBasedChannelProvider implements StreamProvider {
         @Override
         public void onError(Channel channel, Throwable error) {
             super.onError(channel, error);
-            setNullState();
             connectPromise.completeExceptionally(error);
         }
         
@@ -389,7 +390,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     
     
-    private static class DataStateHandler extends HandlerState {
+    private static class DataStateHandler extends AbstractHandlerState {
         private final Http11Stream stream;
         
         DataStateHandler(StateContext context, ConnectionParams params, Http11Stream stream) {
@@ -405,7 +406,6 @@ class NettyBasedChannelProvider implements StreamProvider {
         @Override
         public void onError(Channel channel, Throwable error) {
             super.onError(channel, error);
-            setNullState();
             getParams().getDataHandler().onError(getId(channel), error);
         }
         

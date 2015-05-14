@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.rest.container;
+package net.oneandone.reactive.utils;
 
 
 
@@ -26,10 +26,34 @@ import java.util.concurrent.CompletionException;
  * Throwables utility class
  *
  */
-class Throwables {
+public class Exceptions {
     
-    private Throwables() {  }
+    private Exceptions() {  }
 
+    
+    
+    /**
+     * unwraps an exception 
+     *  
+     * @param ex         the exception to unwrap
+     * @return the unwrapped exception
+     */
+    public static RuntimeException propagate(Throwable ex)  {
+        Throwable t = unwrap(ex);
+        return (t instanceof RuntimeException) ? (RuntimeException) t : new RuntimeException(t);
+    }
+    
+    
+    /**
+     * unwraps an exception 
+     *  
+     * @param ex         the exception to unwrap
+     * @return the unwrapped exception
+     */
+    public static Throwable unwrap(Throwable ex)  {
+        return unwrap(ex, 9);
+    }
+    
     
     /**
      * unwraps an exception 
@@ -38,12 +62,12 @@ class Throwables {
      * @param maxDepth   the max depth
      * @return the unwrapped exception
      */
-    public static Throwable unwrapIfNecessary(Throwable ex, int maxDepth)  {
+    private static Throwable unwrap(Throwable ex, int maxDepth)  {
         if (isCompletionException(ex)) {
             Throwable e = ex.getCause();
             if (e != null) {
                 if (maxDepth > 1) {
-                    return unwrapIfNecessary(e, maxDepth - 1);
+                    return unwrap(e, maxDepth - 1);
                 } else {
                     return e;
                 }

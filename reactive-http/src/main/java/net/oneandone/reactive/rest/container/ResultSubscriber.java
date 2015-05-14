@@ -22,9 +22,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.ws.rs.ClientErrorException;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.container.AsyncResponse;
-
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
+
+import net.oneandone.reactive.utils.Exceptions;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -68,7 +69,7 @@ public class ResultSubscriber {
         
         @Override
         public void onError(Throwable error) {
-            error = Throwables.unwrapIfNecessary(error, 10);
+            error = Exceptions.unwrap(error);
             asyncResponse.resume(error);
         }
         
@@ -119,7 +120,7 @@ public class ResultSubscriber {
         
         @Override
         public void onError(Throwable error) {
-            error = Throwables.unwrapIfNecessary(error, 10);
+            error = Exceptions.unwrap(error);
             asyncResponse.resume(error);
         }
         

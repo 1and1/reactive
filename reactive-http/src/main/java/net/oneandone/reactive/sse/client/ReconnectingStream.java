@@ -30,26 +30,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 import net.oneandone.reactive.sse.client.StreamProvider.ConnectionParams;
+import net.oneandone.reactive.utils.Exceptions;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
-
-
-
-
-
-
-
-
 import com.google.common.base.Joiner;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
@@ -123,7 +113,7 @@ class ReconnectingStream implements Stream {
                                                  // initial "connect" failed
                                                  if (isFailOnConnectError) {
                                                      LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
-                                                     throw new ConnectException(error);
+                                                     throw Exceptions.propagate(error);
                                                      
                                                  // initial "connect" failed, however should be ignored
                                                  } else { 
@@ -141,7 +131,7 @@ class ReconnectingStream implements Stream {
                             .writeAsync(data)
                             .exceptionally(error -> { 
                                                         streamManager.reconnect(); 
-                                                        throw Throwables.propagate(error); 
+                                                        throw Exceptions.propagate(error); 
                                                     });
     }
     

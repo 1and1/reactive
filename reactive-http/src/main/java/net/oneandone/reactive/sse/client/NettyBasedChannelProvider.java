@@ -105,27 +105,13 @@ class NettyBasedChannelProvider implements StreamProvider {
  
     
     private void openStreamAsync(ConnectionParams params, HttpChannelHandler channelHandler) {
+
         try {
-            
-            // set bootstrap
-            SslContext sslCtx= ("https".equalsIgnoreCase(URIUtils.getScheme(params.getUri()))) ? SslContext.newClientContext() : null;
-            
-            Bootstrap bootstrap = new Bootstrap();
-            bootstrap.group(eventLoopGroup)
-                     .channel(NioSocketChannel.class)
-                     .handler(new HttpChannelInitializer(sslCtx, channelHandler));
-            
-            if (params.getConnectTimeout().isPresent()) {
-                bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) params.getConnectTimeout().get().toMillis());
-            }
-    
-            
-            
-            // open connection
+            Bootstrap bootstrap = newConnectionBootstrap(params, channelHandler);
             LOG.debug("[" + params.getId() + "] - opening channel with "  + bootstrap.toString());
+
             
             ChannelFutureListener listener = new ChannelFutureListener() {
-    
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
@@ -143,10 +129,26 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
     }
 
-    
-    
 
 
+    private Bootstrap newConnectionBootstrap(ConnectionParams params, HttpChannelHandler channelHandler) throws SSLException {
+        SslContext sslCtx= ("https".equalsIgnoreCase(URIUtils.getScheme(params.getUri()))) ? SslContext.newClientContext() : null;
+            
+        Bootstrap bootstrap = new Bootstrap();
+        bootstrap.group(eventLoopGroup)
+                 .channel(NioSocketChannel.class)
+                 .handler(new HttpChannelInitializer(sslCtx, channelHandler));
+            
+        if (params.getConnectTimeout().isPresent()) {
+            bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) params.getConnectTimeout().get().toMillis());
+        }
+
+        return bootstrap;
+    }
+
+
+    
+    
     
     private static interface HttpChannelHandler  {
         
@@ -165,7 +167,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     private static interface StateContext {
         
-        void setState(HttpChannelHandler state);
+        void changeState(HttpChannelHandler state);
     }
     
     
@@ -177,7 +179,7 @@ class NettyBasedChannelProvider implements StreamProvider {
             this.stateRef = new AtomicReference<>(new ConnectStateHandler(this, params, connectPromise));
         }
         
-        public void setState(HttpChannelHandler state) {
+        public void changeState(HttpChannelHandler state) {
             stateRef.set(state); 
         }
         
@@ -241,29 +243,28 @@ class NettyBasedChannelProvider implements StreamProvider {
             log(channel, "error occured " + error.toString());
             setNullState(channel);
         }
+    
+        @Override
+        public void changeState(HttpChannelHandler state) {
+            context.changeState(state);
+        }
+
+        protected void setNullState(Channel channel) {
+            context.changeState(new NullState());
+            channel.close();
+        }
         
-        
+        protected void log(Channel channel, String msg) {
+            LOG.debug("[" + getId(channel) + "] " + msg);            
+        }
+
         protected ConnectionParams getParams() {
             return params;
         }
 
-        @Override
-        public void setState(HttpChannelHandler state) {
-            context.setState(state);
-        }
-
-        protected void log(Channel channel, String msg) {
-            LOG.debug("[" + getId(channel) + "] " + msg);            
-        }
-        
         protected String getId(Channel channel) {
             String channelId = (channel == null) ? "-1" : Integer.toString(Math.abs(channel.hashCode()));
             return params.getId() + "#" + channelId;
-        }
-        
-        protected void setNullState(Channel channel) {
-            context.setState(new NullState());
-            channel.close();
         }
     }
 
@@ -308,7 +309,7 @@ class NettyBasedChannelProvider implements StreamProvider {
             request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
             getParams().getHeaders().forEach((name, value) -> request.headers().set(name, value));
             
-            setState(new ResponseMessageStateHandler(this, getParams(), connectPromise));
+            changeState(new ResponseMessageStateHandler(this, getParams(), connectPromise));
             channel.writeAndFlush(request);
         }
         
@@ -344,7 +345,7 @@ class NettyBasedChannelProvider implements StreamProvider {
                 log(channel, " got " + status + " response. start stream handling");
                 
                 Http11Stream stream = new Http11Stream(getId(channel), channel);
-                setState(new  DataStateHandler(this, getParams(), stream));
+                changeState(new  DataStateHandler(this, getParams(), stream));
                 connectPromise.complete(stream);
 
             // no success
@@ -380,7 +381,6 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
         
         
-
         private boolean isRedirectSupported(String method, HttpResponse response) {
             return REDIRECT_STATUS_CODES.contains(response.getStatus().code()) ||
                    (method.equalsIgnoreCase("GET") && GET_REDIRECT_STATUS_CODES.contains(response.getStatus().code()));
@@ -406,6 +406,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         public void onError(Channel channel, Throwable error) {
             super.onError(channel, error);
             getParams().getDataHandler().onError(getId(channel), error);
+            stream.close();
         }
         
         @Override
@@ -542,18 +543,14 @@ class NettyBasedChannelProvider implements StreamProvider {
             
             @Override
             public void exceptionCaught(ChannelHandlerContext ctx, Throwable error) throws Exception {
-                notifyError(ctx, error);
+                channelHandler.onError(ctx.channel(), error);
+                ctx.close();
             }
             
             @Override
             public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
                 channelHandler.onClosed(ctx.channel());
             }
-            
-            private void notifyError(ChannelHandlerContext ctx, Throwable error) {
-                channelHandler.onError(ctx.channel(), error);
-                ctx.close();
-            }   
         }
     }
 }        

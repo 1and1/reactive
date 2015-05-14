@@ -162,15 +162,11 @@ class NettyBasedChannelProvider implements StreamProvider {
     }
     
 
-
     
     private static interface StateContext {
         
         void setState(HttpChannelHandler state);
     }
-    
-
-
     
     
     private class StatefulHttpChannelHandler implements HttpChannelHandler, StateContext {
@@ -237,8 +233,8 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
         
         public void onError(Channel channel, Throwable error) {
-            setNullState();
             log(channel, "error occured " + error.toString());
+            setNullState(channel);
         }
         
         public void onData(Channel channel, ByteBuffer[] data) {
@@ -263,8 +259,9 @@ class NettyBasedChannelProvider implements StreamProvider {
             return params.getId() + "#" + channelId;
         }
         
-        protected void setNullState() {
+        protected void setNullState(Channel channel) {
             context.setState(new NullState());
+            channel.close();
         }
     }
 
@@ -350,7 +347,7 @@ class NettyBasedChannelProvider implements StreamProvider {
 
             // no success
             } else {
-                setNullState();
+                setNullState(channel);
                 channel.close();
 
                 // redirect

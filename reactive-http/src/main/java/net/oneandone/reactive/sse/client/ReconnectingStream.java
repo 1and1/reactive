@@ -32,12 +32,13 @@ import java.util.function.Function;
 
 import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.sse.ScheduledExceutor;
-import net.oneandone.reactive.sse.client.StreamProvider.DataConsumer;
-import net.oneandone.reactive.sse.client.StreamProvider.StreamHandler;
+import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
+import net.oneandone.reactive.sse.client.StreamProvider.ConnectionParams;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 
 
@@ -64,7 +65,7 @@ class ReconnectingStream implements Stream {
     
     // properties
     private final boolean isFailOnConnectError;
-    private final Optional<Duration> connectionTimeout;
+    private final Optional<Duration> connectTimeout;
     private final URI uri;
     private final String method;
     private final ImmutableMap<String, String> headers;
@@ -72,7 +73,7 @@ class ReconnectingStream implements Stream {
     
     
     // handlers
-    private final DataConsumer<?> dataConsumer;
+    private final DataHandler dataHandler;
     private final Consumer<Boolean> isWriteableStateChangedListener;
     private final Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor;
 
@@ -90,9 +91,9 @@ class ReconnectingStream implements Stream {
                              ImmutableMap<String, String> headers,
                              boolean isFailOnConnectError,
                              int numFollowRedirects,
-                             Optional<Duration> connectionTimeout,
+                             Optional<Duration> connectTimeout,
                              Consumer<Boolean> isWriteableStateChangedListener,
-                             DataConsumer<?> dataConsumer,
+                             DataHandler dataHandler,
                              Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor) {
         this.id = id;
         this.uri = uri;
@@ -100,12 +101,12 @@ class ReconnectingStream implements Stream {
         this.headers = headers;
         this.numFollowRedirects = numFollowRedirects;
         this.isFailOnConnectError = isFailOnConnectError;
-        this.connectionTimeout = connectionTimeout;
+        this.connectTimeout = connectTimeout;
         this.isWriteableStateChangedListener = isWriteableStateChangedListener;
-        this.dataConsumer = dataConsumer;
+        this.dataHandler = dataHandler;
         this.headerInterceptor = headerInterceptor;
         
-        this.channelProvider = NettyBasedChannelProvider.newStreamProvider();
+        this.channelProvider = NettyBasedChannelProviderFactory.newStreamProvider();
     }
 
     
@@ -146,8 +147,8 @@ class ReconnectingStream implements Stream {
     
     
     @Override
-    public String getStreamId() {
-        return id + "/" + streamManager.getStream().getStreamId();
+    public String getId() {
+        return streamManager.getStream().getId();
     }
     
     
@@ -166,11 +167,10 @@ class ReconnectingStream implements Stream {
     
     @Override
     public void close() {
-        streamManager.closeStream();
-            
         if (isOpen.getAndSet(false)) {
-            LOG.debug("[" + id + "] close");
+            streamManager.closeStream();
             channelProvider.closeAsync();
+            LOG.debug("[" + id + "] closed");
         }
     } 
    
@@ -199,7 +199,7 @@ class ReconnectingStream implements Stream {
             return "[closed] " + id;
             
         } else if (streamManager.getStream().isConnected()) {
-            return (streamManager.getStream().isReadSuspended() ? "[suspended] " : "") + getStreamId();
+            return (streamManager.getStream().isReadSuspended() ? "[suspended] " : "") + getId();
                 
         } else {
             return "[not connected] " + id;
@@ -226,7 +226,7 @@ class ReconnectingStream implements Stream {
         
         public void terminate() {
             synchronized (reconnectLock) {
-                dataConsumer.onError(id, new ClosedChannelException());
+                dataHandler.onError(id, new ClosedChannelException());
                 streamRef.getAndSet(new StreamProvider.NullStream(true)).terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
             }
         }
@@ -234,7 +234,7 @@ class ReconnectingStream implements Stream {
         public void closeStream() {
             synchronized (reconnectLock) {
                 if (streamRef.get().isConnected()) {
-                    LOG.debug("[" + id + "] close underlying stream");
+                    LOG.debug("[" + id + "] closing underlying stream");
                 }
                 onConnected(new StreamProvider.NullStream(true));
             }
@@ -246,7 +246,7 @@ class ReconnectingStream implements Stream {
                 // close old stream
                 Stream oldStream = streamRef.get();
                 oldStream.close();
-                dataConsumer.onError(id, new ClosedChannelException());
+                dataHandler.onError(id, new ClosedChannelException());
                 
                 // restore suspend state for new stream
                 if (oldStream.isReadSuspended()) {
@@ -296,8 +296,10 @@ class ReconnectingStream implements Stream {
                                                                         onConnected(stream);
                                                                         
                                                                     } else {
-                                                                        LOG.debug("[" + id + "] stream reconnect failed. Trying again");
-                                                                        performReconnect();
+                                                                        if (isOpen.get()) {
+                                                                            LOG.debug("[" + id + "] stream reconnect failed. Trying again");
+                                                                            performReconnect();
+                                                                        }
                                                                     }
                                                                 }
                                                              });
@@ -322,30 +324,31 @@ class ReconnectingStream implements Stream {
             
             LOG.debug("[" + id + "] open underlying stream (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
             
-            StreamHandler handler = new StreamHandler() {
+            DataHandler handler = new DataHandler() {
               
-                @Override
-                public Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
-                    dataConsumer.onContent(id, buffers); 
-                    return Optional.empty();
+                public void onContent(String id, ByteBuffer[] data) {
+                    dataHandler.onContent(id, data); 
                 }
                 
                 @Override
-                public void onError(String channelId, Throwable error) {
-                    LOG.debug("[" + id + "] - " + channelId + " error " + error.getMessage() + " occured. Trying to reconnect");
-                    streamManager.reconnect();
+                public void onError(String id, Throwable error) {
+                    if (isOpen.get()) {
+                        LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");
+                        streamManager.reconnect();
+                    }
                 }
             };
             
             
-            return channelProvider.openStreamAsync(id, 
-                                                   uri,
-                                                   method, 
-                                                   additionalHeaders,
-                                                   isFailOnConnectError,
-                                                   numFollowRedirects,
-                                                   handler, 
-                                                   connectionTimeout);
+            
+            return channelProvider.newStreamAsync(new ConnectionParams(id, 
+                                                                       uri, 
+                                                                       method, 
+                                                                       additionalHeaders, 
+                                                                       isFailOnConnectError,
+                                                                       numFollowRedirects, 
+                                                                       handler, 
+                                                                       connectTimeout));
         } else {
             return CompletableFuture.completedFuture(new StreamProvider.NullStream(true));
         }
@@ -355,7 +358,7 @@ class ReconnectingStream implements Stream {
     
 
     private static final class RetryScheduler {
-        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 25, 250, 500, 2000, 3000, 4000, 6000);
+        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 5, 25, 250, 500, 2000, 3000, 4000, 6000);
 
         private Instant lastSchedule = Instant.now();
         private Duration lastDelay = Duration.ZERO; 

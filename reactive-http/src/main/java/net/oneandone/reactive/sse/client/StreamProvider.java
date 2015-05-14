@@ -33,15 +33,71 @@ import com.google.common.collect.ImmutableMap;
 
 interface StreamProvider {
     
-    CompletableFuture<Stream> openStreamAsync(String id,
-                                              URI uri, 
-                                              String method, 
-                                              ImmutableMap<String, String> headers, 
-                                              boolean isFailOnConnectError,
-                                              int numFollowRedirects,
-                                              StreamHandler handler,
-                                              Optional<Duration> connectTimeout);
+    CompletableFuture<Stream> newStreamAsync(ConnectionParams params);
     
+    
+    static final class ConnectionParams {
+        private final String id;
+        private final URI uri;
+        private final String method;
+        private final ImmutableMap<String, String> headers; 
+        private final boolean isFailOnConnectError;
+        private final int numFollowRedirects;
+        private final DataHandler dataHandler;
+        private final Optional<Duration> connectTimeout;
+        
+        public ConnectionParams(String id,
+                                URI uri, 
+                                String method, 
+                                ImmutableMap<String, String> headers, 
+                                boolean isFailOnConnectError,
+                                int numFollowRedirects,
+                                DataHandler dataHandler,
+                                Optional<Duration> connectTimeout) {
+            this.id = id;
+            this.uri = uri;
+            this.method = method;
+            this.headers = headers;
+            this.isFailOnConnectError = isFailOnConnectError;
+            this.numFollowRedirects = numFollowRedirects;
+            this.dataHandler = dataHandler;
+            this.connectTimeout = connectTimeout;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public URI getUri() {
+            return uri;
+        }
+
+        public String getMethod() {
+            return method;
+        }
+
+        public ImmutableMap<String, String> getHeaders() {
+            return headers;
+        }
+
+        public boolean isFailOnConnectError() {
+            return isFailOnConnectError;
+        }
+
+        public int getNumFollowRedirects() {
+            return numFollowRedirects;
+        }
+
+        public DataHandler getDataHandler() {
+            return dataHandler;
+        }
+
+        public Optional<Duration> getConnectTimeout() {
+            return connectTimeout;
+        }
+    }
+    
+
     
     CompletableFuture<Void> closeAsync();
     
@@ -49,7 +105,7 @@ interface StreamProvider {
     
     static interface Stream extends Closeable {
         
-        String getStreamId();
+        String getId();
         
         CompletableFuture<Void> writeAsync(String data);
         
@@ -68,6 +124,7 @@ interface StreamProvider {
  
     
     
+    @Deprecated
     static interface DataConsumer<T extends DataConsumer<?>> {
         
         default void onError(String channelId, Throwable error) { };
@@ -79,6 +136,7 @@ interface StreamProvider {
     }
     
     
+    @Deprecated
     static interface StreamHandler extends DataConsumer<StreamHandler> {
         
         default StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
@@ -93,6 +151,19 @@ interface StreamProvider {
         default void onError(String channelId, Throwable error) {  }
      }
 
+
+    
+
+    
+    static interface DataHandler {
+        
+        default void onError(String id, Throwable error) { };
+        
+        default void onContent(String id, ByteBuffer[] data) { }
+    }
+    
+    
+  
     
     static class NullStream implements Stream {
         
@@ -108,7 +179,7 @@ interface StreamProvider {
         }
         
         @Override
-        public String getStreamId() {
+        public String getId() {
             return "<null>";
         }
         

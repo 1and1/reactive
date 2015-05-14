@@ -34,6 +34,10 @@ import org.junit.Test;
 
 public class ServerSentEventSourceTest extends TestServletbasedTest {
     
+    public ServerSentEventSourceTest() {
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
+    }
+    
     @Test
     public void testSimple() throws Exception {
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
@@ -279,7 +283,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             new ClientSseSource(redirectUri).open();   
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains("303 See Other response received"));
+            Assert.assertTrue(expected.getMessage().contains("got unexpected 303 response"));
         }         
     }
     
@@ -294,7 +298,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             new ClientSseSource(uri).open();
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains("404 Not Found response received"));
+            Assert.assertTrue(expected.getMessage().contains(" got unexpected 404 response"));
         }
     }
 
@@ -321,7 +325,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             new ClientSseSource(uri).open();    
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains("500 Internal Server Error response received"));
+            Assert.assertTrue(expected.getMessage().contains(" got unexpected 500 response"));
         }
     }
     

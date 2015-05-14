@@ -42,15 +42,12 @@ import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslContext;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -61,240 +58,388 @@ import net.oneandone.reactive.ConnectException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+
+
 
 
 
 class NettyBasedChannelProvider implements StreamProvider {
     private static final Logger LOG = LoggerFactory.getLogger(NettyBasedChannelProvider.class);
-
+    
     private static final ImmutableSet<Integer> REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 307);
     private static final ImmutableSet<Integer> GET_REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 303, 307);
     
     private final EventLoopGroup eventLoopGroup;
     
-    private NettyBasedChannelProvider() {
+    
+    
+    
+    NettyBasedChannelProvider() {
         eventLoopGroup = new NioEventLoopGroup();
     }
     
     
     @Override
     public CompletableFuture<Void> closeAsync() {
-        FutureListenerPromiseAdapter<Object> promise = new FutureListenerPromiseAdapter<>();
+        NettyFutureListenerPromiseAdapter<Object> promise = new NettyFutureListenerPromiseAdapter<>();
         eventLoopGroup.shutdownGracefully().addListener(promise);        
         return promise.thenApply(obj -> null);
     }
     
     
     
-    @Override
-    public CompletableFuture<Stream> openStreamAsync(String id,
-                                                     URI uri, 
-                                                     String method, 
-                                                     ImmutableMap<String, String> headers, 
-                                                     boolean isFailOnConnectError,
-                                                     int numFollowRedirects,
-                                                     StreamHandler handler,
-                                                     Optional<Duration> connectTimeout) {
-        return connect(id, 
-                       uri, 
-                       method, 
-                       headers, 
-                       connectTimeout, 
-                       numFollowRedirects,
-                       handler);
-    }
-    
     
 
-    
-    private CompletableFuture<Stream> connect(String id,
-                                              URI uri,
-                                              String method, 
-                                              ImmutableMap<String, String> headers,
-                                              Optional<Duration> connectTimeout, 
-                                              int numFollowRedirects,
-                                              StreamHandler streamHandler) {
-    
-        CompletableFuture<Stream> promise = new CompletableFuture<>();
-        
-        
-        connect(id, uri, method, headers, connectTimeout, streamHandler)
-            .whenComplete((stream, error) -> { 
-                                                if (error == null) {
-                                                    promise.complete(stream);
-                                                } else {
-                                                    try {
-                                                        if ((numFollowRedirects > 0) && (error instanceof HttpResponseError)) {
-                                                            HttpResponseError responseError = (HttpResponseError) error;
-                                                            Optional<URI> redirectURI = ((HttpResponseError) error).getRedirectLocation();
-                                                            
-                                                            if (redirectURI.isPresent() && isRedirectSupported(method, responseError)) {
-                                                                LOG.debug("[" + id + "] follow redirect " + redirectURI.get());
-                                                                connect(id, redirectURI.get(), method, headers, connectTimeout, numFollowRedirects - 1, streamHandler)
-                                                                        .whenComplete((stream2, error2) -> { 
-                                                                                                                if (error2 == null) {
-                                                                                                                    promise.complete(stream2);
-                                                                                                                } else {
-                                                                                                                    promise.completeExceptionally(error2); 
-                                                                                                                }
-                                                                                                           });
-                                                            } else {
-                                                                promise.completeExceptionally(error);
-                                                            }
-                                                        } else {
-                                                            promise.completeExceptionally(error);
-                                                        }
-                                                    } catch (RuntimeException rt) {
-                                                        promise.completeExceptionally(rt);
-                                                    }
-                                                }
-                                             });
-        return promise;
+    @Override
+    public CompletableFuture<Stream> newStreamAsync(ConnectionParams params) {
+        CompletableFuture<Stream> connectPromise = new CompletableFuture<>();
+        openStreamAsync(params, connectPromise);
+        return connectPromise;
     }
     
-    
-    private boolean isRedirectSupported(String method, HttpResponseError responseError) {
-        return REDIRECT_STATUS_CODES.contains(responseError.getStatusCode()) || 
-               (method.equalsIgnoreCase("GET") && GET_REDIRECT_STATUS_CODES.contains(responseError.getStatusCode()));
+ 
+    private void openStreamAsync(ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+        openStreamAsync(params, new StatefulHttpChannelHandler(params, connectPromise));
     }
+ 
     
-    
-    
-    
-    private CompletableFuture<Stream> connect(String id,
-                                              URI uri,
-                                              String method, 
-                                              ImmutableMap<String, String> headers,
-                                              Optional<Duration> connectTimeout, 
-                                              StreamHandler streamHandler) {
-        
-        ConnectedPromise connectedPromise = new ConnectedPromise(id, streamHandler);
-        
+    private void openStreamAsync(ConnectionParams params, HttpChannelHandler channelHandler) {
         try {
-            String scheme = (uri.getScheme() == null) ? "http" : uri.getScheme();
-            boolean ssl = "https".equalsIgnoreCase(scheme);
-            SslContext sslCtx;
-            if (ssl) {
-                sslCtx = SslContext.newClientContext();
-            } else {
-                sslCtx = null;
-            }
-    
+            SslContext sslCtx= ("https".equalsIgnoreCase(URIUtils.getScheme(params.getUri()))) ? SslContext.newClientContext() : null;
             
             Bootstrap bootstrap = new Bootstrap();
             bootstrap.group(eventLoopGroup)
                      .channel(NioSocketChannel.class)
-                     .handler(new HttpChannelInitializer(id, sslCtx, connectedPromise));
+                     .handler(new HttpChannelInitializer(sslCtx, channelHandler));
             
-            if (connectTimeout.isPresent()) {
-                bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.get().toMillis());
+            if (params.getConnectTimeout().isPresent()) {
+                bootstrap = bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) params.getConnectTimeout().get().toMillis());
             }
     
-    
-            String host = uri.getHost(); 
-            int p = uri.getPort();
-            if (p == -1) {
-                if ("http".equalsIgnoreCase(scheme)) {
-                    p = 80;
-                } else if ("https".equalsIgnoreCase(scheme)) {
-                    p = 443;
-                }
-            }
-            int port = p; 
             
             
-            LOG.debug("[" + id + "] - opening channel with "  + bootstrap.toString());
+            
+            LOG.debug("[" + params.getId() + "] - opening channel with "  + bootstrap.toString());
             
             ChannelFutureListener listener = new ChannelFutureListener() {
     
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
-                        LOG.debug("[" + id + "] - channel " + future.channel().hashCode() + " opened. Sending " + method + " request header " + uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
-                        
-                        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.valueOf(method), uri.getRawPath() + ((uri.getRawQuery() == null) ? "" : "?" + uri.getRawQuery()));
-                        request.headers().set(HttpHeaders.Names.HOST, host + ":" + port);
-                        request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
-                        headers.forEach((name, value) -> request.headers().set(name, value));
-                        
-                        future.channel().writeAndFlush(request);
+                        channelHandler.onConnect(future.channel());
                     } else {
-                        connectedPromise.onError(computeStreamId(future.channel()), future.cause());
+                        channelHandler.onError(future.channel(), future.cause());
                     }
                 }
             };
-            bootstrap.connect(host, port).addListener(listener);
+            bootstrap.connect(params.getUri().getHost(), URIUtils.getPort(params.getUri())).addListener(listener);
             
             
         } catch (SSLException | RuntimeException e) {
-            connectedPromise.onError("-1", new ConnectException("could not connect to " + uri, e));
+            channelHandler.onError(null, new ConnectException("could not connect to " + params.getUri(), e));
         }
-        
-        return connectedPromise;
-    }
-    
-    
-    
-    private static class ConnectedPromise extends CompletableFuture<Stream> implements StreamHandler {
-        private final StreamProvider.StreamHandler dataHandler;
-        private final String id;
-        
-        public ConnectedPromise(String id, StreamProvider.StreamHandler dataHandler) {
-            this.id = id;
-            this.dataHandler = dataHandler;
-        }
-        
-        public StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
-            LOG.debug("[" + id + "] - channel " + channelId + " got response " + response.getStatus().code());
-            complete(new Http11Stream(id, channel));
-            
-            return dataHandler;
-        }
-        
-        @Override
-        public void onError(String channelId, Throwable error) {
-            LOG.debug("[" + id + "] - channel " + channelId + " error occured " + error.getMessage());
-            completeExceptionally(error);
-        }
-        
-        @Override
-        public Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
-            return Optional.empty();
-        }
-    }
-    
-    
-    
-    
-    private static String computeStreamId(Channel channel) {
-        return Integer.toString(Math.abs(channel.hashCode()));
     }
 
     
     
+
+
+    
+    private static interface HttpChannelHandler  {
+        
+        void onConnect(Channel channel);
+        
+        void onResponseHeader(Channel channel, HttpResponse response);
+        
+        void onClosed(Channel channel);
+        
+        void onError(Channel channel, Throwable error);
+        
+        void onData(Channel channel, ByteBuffer[] data);
+    }
+    
+
+
+    
+    private static interface StateContext {
+        
+        void setState(HttpChannelHandler state);
+    }
+    
+
+
+    
+    
+    private class StatefulHttpChannelHandler implements HttpChannelHandler, StateContext {
+        private final AtomicReference<HttpChannelHandler> stateRef;
+        
+       
+        public StatefulHttpChannelHandler(ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+            this.stateRef = new AtomicReference<>(new ConnectStateHandler(this, params, connectPromise));
+        }
+        
+        public void setState(HttpChannelHandler state) {
+            stateRef.set(state); 
+        }
+        
+        @Override
+        public void onConnect(Channel channel) {
+            stateRef.get().onConnect(channel);
+        }
+        
+        @Override
+        public void onResponseHeader(Channel channel, HttpResponse response) {
+            stateRef.get().onResponseHeader(channel, response);
+        }
+        
+        @Override
+        public void onData(Channel channel, ByteBuffer[] data) {
+            stateRef.get().onData(channel, data);
+        }
+        
+        @Override
+        public void onClosed(Channel channel) {
+            stateRef.get().onClosed(channel);
+        }
+        
+        @Override
+        public void onError(Channel channel, Throwable error) {
+            stateRef.get().onError(channel, error);
+        }   
+    }
+    
+    
+    
+
+    private static abstract class HandlerState implements HttpChannelHandler, StateContext {
+        private final ConnectionParams params;
+        private final StateContext context;
+
+        
+        public HandlerState(ConnectionParams params, StateContext context) {
+            this.params = params;
+            this.context = context;
+        }
+        
+        public void onConnect(Channel channel) {
+            onError(channel, new IllegalStateException("got connect notify"));
+        }
+        
+        public void onResponseHeader(Channel channel, HttpResponse response) {
+            onError(channel, new IllegalStateException("got unexpected response header"));
+        }
+        
+        public void onClosed(Channel channel) {
+            onError(channel, new ClosedChannelException());
+        }
+        
+        public void onError(Channel channel, Throwable error) {
+            log(channel, "error occured " + error.toString());
+        }
+        
+        public void onData(Channel channel, ByteBuffer[] data) {
+            
+        }
+        
+        protected ConnectionParams getParams() {
+            return params;
+        }
+
+        @Override
+        public void setState(HttpChannelHandler state) {
+            context.setState(state);
+        }
+
+        protected void log(Channel channel, String msg) {
+            LOG.debug("[" + getId(channel) + "] " + msg);            
+        }
+        
+        protected String getId(Channel channel) {
+            String channelId = (channel == null) ? "-1" : Integer.toString(Math.abs(channel.hashCode()));
+            return params.getId() + "#" + channelId;
+        }
+        
+        protected void setNullState() {
+            context.setState(new NullState());
+        }
+    }
+
+
+        
+    private static class NullState implements HttpChannelHandler {
+        
+        @Override
+        public void onConnect(Channel channel) { }
+        
+        @Override
+        public void onResponseHeader(Channel channel, HttpResponse response) { }
+        
+        @Override
+        public void onData(Channel channel, ByteBuffer[] data) {  }
+        
+        @Override
+        public void onClosed(Channel channel) {  }
+        
+        @Override
+        public void onError(Channel channel, Throwable error) {  }
+    }
+    
+    
+
+    
+    private class ConnectStateHandler extends HandlerState {
+        private final CompletableFuture<Stream> connectPromise;
+        
+        public ConnectStateHandler(StateContext context, ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+            super(params, context);
+            this.connectPromise = connectPromise;
+        }
+
+        
+        @Override
+        public void onConnect(Channel channel) {
+            log(channel, " opened. Sending " + getParams().getMethod() + " request header " + getParams().getUri().getRawPath() + ((getParams().getUri().getRawQuery() == null) ? "" : "?" + getParams().getUri().getRawQuery()));
+            
+            DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.valueOf(getParams().getMethod()), getParams().getUri().getRawPath() + ((getParams().getUri().getRawQuery() == null) ? "" : "?" + getParams().getUri().getRawQuery()));
+            request.headers().set(HttpHeaders.Names.HOST, getParams().getUri().getHost()+ ":" + URIUtils.getPort(getParams().getUri()));
+            request.headers().set(HttpHeaders.Names.USER_AGENT, "sseclient/1.0");
+            getParams().getHeaders().forEach((name, value) -> request.headers().set(name, value));
+            
+            setState(new ResponseMessageStateHandler(this, getParams(), connectPromise));
+            channel.writeAndFlush(request);
+        }
+        
+                
+        @Override
+        public void onError(Channel channel, Throwable error) {
+            super.onError(channel, error);
+            setNullState();
+            connectPromise.completeExceptionally(error);
+        }
+    }
+    
+    
+    
+    
+    private class ResponseMessageStateHandler extends HandlerState {
+        private final CompletableFuture<Stream> connectPromise;
+
+        
+        ResponseMessageStateHandler(StateContext context, ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+            super(params, context);
+            this.connectPromise = connectPromise;
+        }
+        
+        
+        @Override
+        public void onResponseHeader(Channel channel, HttpResponse response) {
+            
+            int status = response.getStatus().code();
+            String locationURI = response.headers().get("location");
+            
+            // success
+            if ((status / 100) == 2) {
+                log(channel, " got " + status + " response. start stream handling");
+                
+                Http11Stream stream = new Http11Stream(getId(channel), channel);
+                setState(new  DataStateHandler(this, getParams(), stream));
+                connectPromise.complete(stream);
+
+            // no success
+            } else {
+                setNullState();
+                channel.close();
+
+                // redirect
+                if ((locationURI != null) && isRedirectSupported(getParams().getMethod(), response) && (getParams().getNumFollowRedirects() > 0)) {
+                    int newNumFollowRedirects = getParams().getNumFollowRedirects() - 1;
+                    log(channel, "follow redirect " + locationURI + " (remaining redirect trials: " + newNumFollowRedirects+ ")");
+                    
+                    openStreamAsync(new ConnectionParams(getParams().getId(), 
+                                                         URI.create(locationURI), 
+                                                         getParams().getMethod(), 
+                                                         getParams().getHeaders(), 
+                                                         getParams().isFailOnConnectError(), 
+                                                         newNumFollowRedirects, 
+                                                         getParams().getDataHandler(), 
+                                                         getParams().getConnectTimeout()), connectPromise);
+                // error 
+                } else {                
+                    onError(channel, new IOException("got unexpected " + status + " response"));
+                }
+            }
+        }
+        
+        
+        @Override
+        public void onError(Channel channel, Throwable error) {
+            super.onError(channel, error);
+            setNullState();
+            connectPromise.completeExceptionally(error);
+        }
+        
+        
+
+        private boolean isRedirectSupported(String method, HttpResponse response) {
+            return REDIRECT_STATUS_CODES.contains(response.getStatus().code()) ||
+                   (method.equalsIgnoreCase("GET") && GET_REDIRECT_STATUS_CODES.contains(response.getStatus().code()));
+        }
+    }
+    
+    
+    
+    private static class DataStateHandler extends HandlerState {
+        private final Http11Stream stream;
+        
+        DataStateHandler(StateContext context, ConnectionParams params, Http11Stream stream) {
+            super(params, context);
+            this.stream = stream;
+        }
+
+        @Override
+        public void onData(Channel channel, ByteBuffer[] data) {
+            getParams().getDataHandler().onContent(getId(channel), data);
+        }
+
+        @Override
+        public void onError(Channel channel, Throwable error) {
+            super.onError(channel, error);
+            setNullState();
+            getParams().getDataHandler().onError(getId(channel), error);
+        }
+        
+        @Override
+        public void onClosed(Channel channel) {
+            stream.close();
+            getParams().getDataHandler().onError(getId(channel), new ClosedChannelException());
+        }
+     }
+    
+    
+    
+    
+    
+    
     private static class Http11Stream implements Stream  {
         private final String id; 
-        private final String streamId;
         private final Channel channel; 
         
         
         public Http11Stream(String id, Channel channel) {
             this.id = id;
-            this.streamId = computeStreamId(channel);
             this.channel = channel;
         }
         
         
         @Override
-        public String getStreamId() {
-            return streamId;
+        public String getId() {
+            return id;
         }
         
         @Override
         public CompletableFuture<Void> writeAsync(String msg) {
-            FutureListenerPromiseAdapter<Void> promise = new FutureListenerPromiseAdapter<>();
+            NettyFutureListenerPromiseAdapter<Void> promise = new NettyFutureListenerPromiseAdapter<>();
         
             synchronized (channel) {
                 if (channel.isWritable()) {
@@ -315,14 +460,18 @@ class NettyBasedChannelProvider implements StreamProvider {
         
         @Override
         public void suspendRead() {
-            LOG.debug("[" + id + "] - stream " + getStreamId() + " suspended");
-            channel.config().setAutoRead(false);
+            if (channel.config().isAutoRead()) {
+                LOG.debug("[" + id + "] suspended");
+                channel.config().setAutoRead(false);
+            }
         }
         
         @Override
         public void resumeRead() {
-            LOG.debug("[" + id + "] - stream " + getStreamId() + " resumed");
-            channel.config().setAutoRead(true);
+            if (!channel.config().isAutoRead()) {
+                LOG.debug("[" + id + "] resumed");
+                channel.config().setAutoRead(true);
+            }
         }
         
         @Override
@@ -340,99 +489,20 @@ class NettyBasedChannelProvider implements StreamProvider {
             return channel.isOpen();
         }
     }
-
-
     
     
     
-   
-    private static final StreamProvider COMMON = new NettyBasedChannelProvider();
-    
-    public static StreamProvider newStreamProvider() {
-        return new StreamProviderHandle();
-    } 
-    
-    private static final class StreamProviderHandle implements StreamProvider {
-        private final StreamProvider delegate;
-        
-        
-        public StreamProviderHandle() {
-            delegate = COMMON;
-        }
-        
-        @Override
-        public CompletableFuture<Stream> openStreamAsync(String id,
-                                                         URI uri,
-                                                         String method, 
-                                                         ImmutableMap<String, String> headers,
-                                                         boolean isFailOnConnectError, 
-                                                         int numFollowRedirects,
-                                                         StreamHandler handler,
-                                                         Optional<Duration> connectTimeout) {
-            return delegate.openStreamAsync(id, 
-                                            uri, 
-                                            method,
-                                            headers,
-                                            isFailOnConnectError, 
-                                            numFollowRedirects,
-                                            handler,
-                                            connectTimeout);
-        }
-        
-        
-        
-        @Override
-        public CompletableFuture<Void> closeAsync() {
-            return CompletableFuture.completedFuture(null);
-        }
-    }
     
     
     
-    private static final class FutureListenerPromiseAdapter<T> extends CompletableFuture<T> implements FutureListener<T> {
     
-        @Override
-        public void operationComplete(Future<T> future) throws Exception {
-            if (future.isSuccess()) {
-                complete(future.get());
-            } else {
-                completeExceptionally(future.cause());
-            }
-        }
-    }
-
-    
-    
-    private static final class HttpResponseError extends RuntimeException {
-        private static final long serialVersionUID = 5524737399197875355L;        
-
-        private final HttpResponse response;
-        
-        public HttpResponseError(HttpResponse response) {   
-            super(response.getStatus() + " response received");
-            this.response = response; 
-        }
-
-        public Optional<URI> getRedirectLocation() {
-            return Optional.ofNullable(response.headers().get("Location")).map(location -> URI.create(location));
-        }
-        
-        
-        public int getStatusCode() {
-            return response.getStatus().code();
-        }
-    }
     
     
     private static class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
-        private final String id;
         private final SslContext sslCtx;
-        private final StreamHandler channelHandler;
+        private final HttpChannelHandler channelHandler;
 
-        public HttpChannelInitializer(String id,
-                                      SslContext sslCtx,
-                                      StreamHandler channelHandler) {
-            this.id = id;
+        public HttpChannelInitializer(SslContext sslCtx, HttpChannelHandler channelHandler) {
             this.sslCtx = sslCtx;
             this.channelHandler = channelHandler;
         }
@@ -449,70 +519,42 @@ class NettyBasedChannelProvider implements StreamProvider {
              p.addLast(new HttpClientCodec());
   
              p.addLast(new HttpContentDecompressor());
-             p.addLast(new HttpInboundHandler(id, channelHandler));
+             p.addLast(new HttpInboundHandler());
         }
-    }
-    
-    
-    private static class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
-        private final String id;
-        private final Instant start = Instant.now();
-        private final AtomicReference<StreamProvider.StreamHandler> channelHandlerRef;
-
-        public HttpInboundHandler(String id, StreamHandler channelHandler) {
-            this.id = id;
-            this.channelHandlerRef = new AtomicReference<>(channelHandler);
-        }
-                
         
-        @Override
-        protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-            
-            if (msg instanceof HttpResponse) {
-                HttpResponse response = (HttpResponse) msg;
-                int status = response.getStatus().code();
-                LOG.debug("[" + id + "] - stream " + computeStreamId(ctx.channel()) + " response " + status +  " received");
 
-                if ((status / 100) == 2) {
-                    StreamHandler dataHandler = channelHandlerRef.get().onResponseHeader(computeStreamId(ctx.channel()), ctx.channel(), response);
-                    channelHandlerRef.set(dataHandler);
-                } else {
-                    notifyError(ctx, new HttpResponseError(response));
-                }
+        
+        private class HttpInboundHandler extends SimpleChannelInboundHandler<HttpObject> {
+            
+            @Override
+            protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
                 
-            } else  if (msg instanceof HttpContent) {
-                HttpContent content = (HttpContent) msg;
-                
-                Optional<StreamHandler> newDataHandler = channelHandlerRef.get().onContent(computeStreamId(ctx.channel()), content.content().nioBuffers());
-                newDataHandler.ifPresent(handler -> channelHandlerRef.set(handler));
-                
-                if (content instanceof LastHttpContent) {
-                    ctx.close();
+                if (msg instanceof HttpResponse) {
+                    channelHandler.onResponseHeader(ctx.channel(), (HttpResponse) msg);
+                    
+                } else  if (msg instanceof HttpContent) {
+                    HttpContent content = (HttpContent) msg;
+                    channelHandler.onData(ctx.channel(), content.content().nioBuffers());
+                    if (content instanceof LastHttpContent) {
+                        ctx.close();
+                    }
                 }
             }
-        }
-        
-        @Override
-        public void exceptionCaught(ChannelHandlerContext ctx, Throwable error) throws Exception {
-            notifyError(ctx, error);
-        }
-        
-        @Override
-        public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
-            StringBuilder builder = new StringBuilder("[" + id + "] - stream " + computeStreamId(ctx.channel()) + " is closed");
-            if (!ctx.channel().config().isAutoRead()) {
-                builder.append(" - read is suspended - ");
-            }
-            builder.append(" age: " + Duration.between(start, Instant.now()).getSeconds() + " sec");
-            LOG.debug(builder.toString());
             
-            notifyError(ctx, new RuntimeException("stream closed"));
+            @Override
+            public void exceptionCaught(ChannelHandlerContext ctx, Throwable error) throws Exception {
+                notifyError(ctx, error);
+            }
+            
+            @Override
+            public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+                channelHandler.onClosed(ctx.channel());
+            }
+            
+            private void notifyError(ChannelHandlerContext ctx, Throwable error) {
+                channelHandler.onError(ctx.channel(), error);
+                ctx.close();
+            }   
         }
-        
-        
-        private void notifyError(ChannelHandlerContext ctx, Throwable error) {
-            channelHandlerRef.getAndSet(new StreamProvider.StreamHandler() { }).onError(computeStreamId(ctx.channel()), error);
-            ctx.close();
-        }   
     }
 }        

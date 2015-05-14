@@ -26,6 +26,8 @@ import io.netty.handler.codec.http.HttpHeaders;
 
 
 
+
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -40,7 +42,7 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
-import net.oneandone.reactive.sse.client.StreamProvider.DataConsumer;
+import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
 import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Reactives;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -338,7 +340,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer implements DataConsumer<EventBuffer> {
+        private static class EventBuffer implements DataHandler {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             
@@ -370,13 +372,12 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             public void onError(String channelId, Throwable error) {
                 parser.reset();
             }
-            
-            
+
             @Override
-            public Optional<EventBuffer> onContent(String channelId, ByteBuffer[] buffers) {
-                for (int i = 0; i < buffers.length; i++) {
+            public void onContent(String streamlId, ByteBuffer[] data) {
+                for (int i = 0; i < data.length; i++) {
                 
-                    ImmutableList<ServerSentEvent> events = parser.parse(buffers[i]);
+                    ImmutableList<ServerSentEvent> events = parser.parse(data[i]);
                     for (ServerSentEvent event : events) {
                         
                         logEventReceived(event);
@@ -390,8 +391,6 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                 }
                 
                 process();
-                
-                return Optional.of(this);
             }
 
             

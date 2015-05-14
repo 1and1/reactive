@@ -231,15 +231,17 @@ class NettyBasedChannelProvider implements StreamProvider {
         public void onClosed(Channel channel) {
             onError(channel, new ClosedChannelException());
         }
+ 
+        public void onData(Channel channel, ByteBuffer[] data) {
+            onError(channel,new IllegalStateException("got unexpected data"));
+        }
+ 
         
         public void onError(Channel channel, Throwable error) {
             log(channel, "error occured " + error.toString());
             setNullState(channel);
         }
         
-        public void onData(Channel channel, ByteBuffer[] data) {
-            
-        }
         
         protected ConnectionParams getParams() {
             return params;

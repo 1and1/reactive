@@ -47,9 +47,11 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
                                              "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg";
 
     
+    /*
     public ServerSentEventSinkTest() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
     }
+    */
   
     
     @Test

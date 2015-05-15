@@ -269,11 +269,7 @@ class ReconnectingHttpChannel implements HttpChannel {
         // [why sync?] replacing ref includes transferring suspended state 
         synchronized (channelRef) {
             // close current channel
-            HttpChannel oldStream = channelRef.get();
-            if (oldStream.isConnected()) {
-                LOG.debug("[" + id + "] closing underlying channel");
-            }
-            oldStream.close();
+            channelRef.get().close();
             
             // restore suspend state for new channel
             channel.suspendRead(channelRef.get().isReadSuspended());
@@ -298,7 +294,7 @@ class ReconnectingHttpChannel implements HttpChannel {
 
 
         
-        // [why sync?] parallel reconnection task have to be avoided
+        // [sync] parallel reconnection task have to be avoided
         // for this reason, first it will be checked if a reconnecting
         // task is already running 
         synchronized (reconnectingLock) {
@@ -311,7 +307,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                     Runnable retryConnect = () -> {
                                                     newHttpChannelAsync().whenComplete((channel, error) -> {
                                                         
-                                                        // [why sync?] ensure that the exit state 
+                                                        // [sync] ensure that the exit state 
                                                         // of this reconnecting task is either 
                                                         // * a valid connection, 
                                                         // * a newly initiated reconnect or

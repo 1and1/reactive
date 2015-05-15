@@ -16,49 +16,76 @@
 package net.oneandone.reactive.sse.client;
 
 
-
-import io.netty.channel.Channel;
-import io.netty.handler.codec.http.HttpResponse;
-
-import java.io.Closeable;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.ImmutableMap;
 
 
+/**
+ * StreamProvider 
+ * 
+ * @author grro
+ */
 interface StreamProvider {
+
     
+    /**
+     * closes the provider 
+     * 
+     * @return the close future
+     */
+    CompletableFuture<Void> closeAsync();
+    
+    
+    
+    /**
+     * creates a new stream 
+     *  
+     * @param params the connection parameters
+     * @return the Stream future
+     */
     CompletableFuture<Stream> newStreamAsync(ConnectionParams params);
     
     
+    
+    /**
+     * ConnectionParams
+     * 
+     * @author grro
+     */
     static final class ConnectionParams {
         private final String id;
         private final URI uri;
         private final String method;
         private final ImmutableMap<String, String> headers; 
-        private final boolean isFailOnConnectError;
         private final int numFollowRedirects;
-        private final DataHandler dataHandler;
+        private final StreamDataHandler dataHandler;
         private final Optional<Duration> connectTimeout;
-        
+    
+        /**
+         * constructor 
+         * @param id                      the stream base id 
+         * @param uri                     the uri to connect
+         * @param method                  the HTTP method to use
+         * @param headers                 the additional headers
+         * @param numFollowRedirects      the the max number of redirects will should be followed  
+         * @param dataHandler             the data handler
+         * @param connectTimeout          the connect timeout 
+         */
         public ConnectionParams(String id,
                                 URI uri, 
                                 String method, 
                                 ImmutableMap<String, String> headers, 
-                                boolean isFailOnConnectError,
                                 int numFollowRedirects,
-                                DataHandler dataHandler,
+                                StreamDataHandler dataHandler,
                                 Optional<Duration> connectTimeout) {
             this.id = id;
             this.uri = uri;
             this.method = method;
             this.headers = headers;
-            this.isFailOnConnectError = isFailOnConnectError;
             this.numFollowRedirects = numFollowRedirects;
             this.dataHandler = dataHandler;
             this.connectTimeout = connectTimeout;
@@ -80,15 +107,11 @@ interface StreamProvider {
             return headers;
         }
 
-        public boolean isFailOnConnectError() {
-            return isFailOnConnectError;
-        }
-
         public int getNumFollowRedirects() {
             return numFollowRedirects;
         }
 
-        public DataHandler getDataHandler() {
+        public StreamDataHandler getDataHandler() {
             return dataHandler;
         }
 
@@ -96,127 +119,4 @@ interface StreamProvider {
             return connectTimeout;
         }
     }
-    
-
-    
-    CompletableFuture<Void> closeAsync();
-    
-
-    
-    static interface Stream extends Closeable {
-        
-        String getId();
-        
-        CompletableFuture<Void> writeAsync(String data);
-        
-        boolean isReadSuspended();
-        
-        void suspendRead();
-        
-        void resumeRead();
-        
-        void terminate();
-        
-        void close();
-        
-        boolean isConnected();
-    }
- 
-    
-    
-    @Deprecated
-    static interface DataConsumer<T extends DataConsumer<?>> {
-        
-        default void onError(String channelId, Throwable error) { };
-        
-        @SuppressWarnings("unchecked")
-        default Optional<T> onContent(String channelId, ByteBuffer[] data) { 
-            return Optional.of((T) this);
-        }
-    }
-    
-    
-    @Deprecated
-    static interface StreamHandler extends DataConsumer<StreamHandler> {
-        
-        default StreamHandler onResponseHeader(String channelId, Channel channel, HttpResponse response) {
-            onError(channelId, new IllegalStateException("got unexpected response header"));
-            return new StreamHandler() { };
-        }
-            
-        default Optional<StreamHandler> onContent(String channelId, ByteBuffer[] buffers) {
-            return Optional.of(new StreamHandler() { });
-        }
-        
-        default void onError(String channelId, Throwable error) {  }
-     }
-
-
-    
-
-    
-    static interface DataHandler {
-        
-        default void onError(String id, Throwable error) { };
-        
-        default void onContent(String id, ByteBuffer[] data) { }
-    }
-    
-    
-  
-    
-    static class NullStream implements Stream {
-        
-        private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
-        
-        public NullStream(boolean suspended) {
-            isReadSuspended.set(suspended);
-        }
-        
-        
-        @Override
-        public void close() {
-        }
-        
-        @Override
-        public String getId() {
-            return "<null>";
-        }
-        
-        @Override
-        public CompletableFuture<Void> writeAsync(String data) {
-            CompletableFuture<Void> promise = new CompletableFuture<Void>();
-            promise.completeExceptionally(new IllegalStateException("stream is disconnected"));
-            return promise;
-        }
-        
-        @Override
-        public boolean isReadSuspended() {
-            return isReadSuspended.get();
-        }
-        
-        @Override
-        public void resumeRead() {
-            isReadSuspended.set(false);
-        }
-        
-        @Override
-        public void suspendRead() {
-            isReadSuspended.set(true);
-        }
-        
-        @Override
-        public void terminate() {
-        }
-        
-        @Override
-        public boolean isConnected() {
-           return false;
-        }
-    }
 }        
-    
-
-
-    
-

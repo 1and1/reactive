@@ -18,16 +18,6 @@ package net.oneandone.reactive.sse.client;
 
 import io.netty.handler.codec.http.HttpHeaders;
 
-
-
-
-
-
-
-
-
-
-
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -42,7 +32,7 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
-import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
+import net.oneandone.reactive.sse.client.StreamDataHandler;
 import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Reactives;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -340,7 +330,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer implements DataHandler {
+        private static class EventBuffer implements StreamDataHandler {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             

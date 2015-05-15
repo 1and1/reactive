@@ -31,9 +31,9 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 import net.oneandone.reactive.sse.ScheduledExceutor;
-import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
-import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 import net.oneandone.reactive.sse.client.StreamProvider.ConnectionParams;
+import net.oneandone.reactive.sse.client.StreamDataHandler;
+import net.oneandone.reactive.sse.client.Stream;
 import net.oneandone.reactive.utils.Reactives;
 
 import org.slf4j.Logger;
@@ -63,7 +63,7 @@ class ReconnectingStream implements Stream {
     
     
     // handlers
-    private final DataHandler dataHandler;
+    private final StreamDataHandler dataHandler;
     private final Consumer<Boolean> isWriteableStateChangedListener;
     private final Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor;
 
@@ -83,7 +83,7 @@ class ReconnectingStream implements Stream {
                              int numFollowRedirects,
                              Optional<Duration> connectTimeout,
                              Consumer<Boolean> isWriteableStateChangedListener,
-                             DataHandler dataHandler,
+                             StreamDataHandler dataHandler,
                              Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor) {
         this.id = id;
         this.uri = uri;
@@ -96,7 +96,7 @@ class ReconnectingStream implements Stream {
         this.dataHandler = dataHandler;
         this.headerInterceptor = headerInterceptor;
         
-        this.channelProvider = NettyBasedChannelProviderFactory.newStreamProvider();
+        this.channelProvider = StreamProviderFactory.newStreamProvider();
     }
 
     
@@ -202,7 +202,7 @@ class ReconnectingStream implements Stream {
     
     private final class StreamManager {
         private final RetryScheduler retryProcessor = new RetryScheduler();
-        private final AtomicReference<StreamProvider.Stream> streamRef = new AtomicReference<>(new StreamProvider.NullStream(false));
+        private final AtomicReference<Stream> streamRef = new AtomicReference<>(new Stream.NullStream(false));
 
         private final Object reconnectLock = new Object(); 
         private boolean isAlreadyRunning = false;
@@ -217,7 +217,7 @@ class ReconnectingStream implements Stream {
         public void terminate() {
             synchronized (reconnectLock) {
                 dataHandler.onError(id, new ClosedChannelException());
-                streamRef.getAndSet(new StreamProvider.NullStream(true)).terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
+                streamRef.getAndSet(new Stream.NullStream(true)).terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
             }
         }
 
@@ -226,7 +226,7 @@ class ReconnectingStream implements Stream {
                 if (streamRef.get().isConnected()) {
                     LOG.debug("[" + id + "] closing underlying stream");
                 }
-                onConnected(new StreamProvider.NullStream(true));
+                onConnected(new Stream.NullStream(true));
             }
         }
         
@@ -306,7 +306,7 @@ class ReconnectingStream implements Stream {
     
     
     
-    private CompletableFuture<StreamProvider.Stream> newStreamAsync() { 
+    private CompletableFuture<Stream> newStreamAsync() { 
        
         if (isOpen.get()) {
             // process headers interceptor
@@ -314,7 +314,7 @@ class ReconnectingStream implements Stream {
             
             LOG.debug("[" + id + "] open underlying stream (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
             
-            DataHandler handler = new DataHandler() {
+            StreamDataHandler handler = new StreamDataHandler() {
               
                 public void onContent(String id, ByteBuffer[] data) {
                     dataHandler.onContent(id, data); 
@@ -335,12 +335,11 @@ class ReconnectingStream implements Stream {
                                                                        uri, 
                                                                        method, 
                                                                        additionalHeaders, 
-                                                                       isFailOnConnectError,
                                                                        numFollowRedirects, 
                                                                        handler, 
                                                                        connectTimeout));
         } else {
-            return CompletableFuture.completedFuture(new StreamProvider.NullStream(true));
+            return CompletableFuture.completedFuture(new Stream.NullStream(true));
         }
     }
     

@@ -15,23 +15,34 @@
  */
 package net.oneandone.reactive.sse.client;
 
-
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
-
-import java.util.concurrent.CompletableFuture;
+import java.nio.ByteBuffer;
 
 
 
-
-class NettyFutureListenerPromiseAdapter<T> extends CompletableFuture<T> implements FutureListener<T> {
+/**
+ * DataHandler
+ *     
+ * @author grro
+ */
+interface StreamDataHandler {
+ 
+    /**
+     * error callback 
+     * 
+     * @param id the stream id 
+     * @param error the cause
+     */
+    default void onError(String id, Throwable error) { };
     
-    @Override
-    public void operationComplete(Future<T> future) throws Exception {
-        if (future.isSuccess()) {
-            complete(future.get());
-        } else {
-            completeExceptionally(future.cause());
-        }
-    }
+    /**
+     * content callback
+     * @param id   the stream id 
+     * @param data the received data
+     */
+    default void onContent(String id, ByteBuffer[] data) { }
 }
+    
+
+
+    
+

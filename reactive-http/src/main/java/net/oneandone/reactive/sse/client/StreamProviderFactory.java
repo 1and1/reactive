@@ -18,11 +18,20 @@ package net.oneandone.reactive.sse.client;
 import java.util.concurrent.CompletableFuture;
 
 
-
-class NettyBasedChannelProviderFactory  {
-    private static final StreamProvider COMMON = new NettyBasedChannelProvider();
+/**
+ * StreamProviderFactory
+ * 
+ * @author grro
+ */
+class StreamProviderFactory  {
+    private static final StreamProvider COMMON = new NettyBasedStreamProvider();
+    
+    private StreamProviderFactory() { }
     
     
+    /**
+     * @return a new stream provider
+     */
     public static StreamProvider newStreamProvider() {
         return new StreamProviderHandle();
     } 

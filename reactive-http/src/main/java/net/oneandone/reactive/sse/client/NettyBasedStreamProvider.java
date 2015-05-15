@@ -42,6 +42,8 @@ import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
 
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -62,9 +64,12 @@ import com.google.common.collect.ImmutableSet;
 
 
 
-
-class NettyBasedChannelProvider implements StreamProvider {
-    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedChannelProvider.class);
+/**
+ * StreamProvider which uses the netty library  
+ * @author grro
+ */
+class NettyBasedStreamProvider implements StreamProvider {
+    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedStreamProvider.class);
     
     private static final ImmutableSet<Integer> REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 307);
     private static final ImmutableSet<Integer> GET_REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 303, 307);
@@ -74,7 +79,7 @@ class NettyBasedChannelProvider implements StreamProvider {
     
     
     
-    NettyBasedChannelProvider() {
+    NettyBasedStreamProvider() {
         eventLoopGroup = new NioEventLoopGroup();
     }
     
@@ -175,6 +180,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         
        
         public StatefulHttpChannelHandler(ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+            // start with initial state: ConnectStateHandler
             this.stateRef = new AtomicReference<>(new ConnectStateHandler(this, params, connectPromise));
         }
         
@@ -249,7 +255,7 @@ class NettyBasedChannelProvider implements StreamProvider {
         }
 
         protected void setNullState(Channel channel) {
-            context.changeState(new NullState());
+            context.changeState(new NullStateHandler());
             channel.close();
         }
         
@@ -269,7 +275,7 @@ class NettyBasedChannelProvider implements StreamProvider {
 
 
         
-    private static class NullState implements HttpChannelHandler {
+    private static class NullStateHandler implements HttpChannelHandler {
         
         @Override
         public void onConnect(Channel channel) { }
@@ -361,7 +367,6 @@ class NettyBasedChannelProvider implements StreamProvider {
                                                          URI.create(locationURI), 
                                                          getParams().getMethod(), 
                                                          getParams().getHeaders(), 
-                                                         getParams().isFailOnConnectError(), 
                                                          newNumFollowRedirects, 
                                                          getParams().getDataHandler(), 
                                                          getParams().getConnectTimeout()), connectPromise);
@@ -490,11 +495,46 @@ class NettyBasedChannelProvider implements StreamProvider {
     }
     
     
+        
+    
+    private static class NettyFutureListenerPromiseAdapter<T> extends CompletableFuture<T> implements FutureListener<T> {
+        
+        @Override
+        public void operationComplete(Future<T> future) throws Exception {
+            if (future.isSuccess()) {
+                complete(future.get());
+            } else {
+                completeExceptionally(future.cause());
+            }
+        }
+    }
     
     
+
     
-    
-    
+    private static class URIUtils {
+        
+        private URIUtils() { }
+        
+        
+        public static String getScheme(URI uri) {
+           return (uri.getScheme() == null) ? "http" : uri.getScheme();
+        }
+        
+        public static int getPort(URI uri) {
+            int port = uri.getPort();
+            if (port == -1) {
+                if ("http".equalsIgnoreCase(getScheme(uri))) {
+                    return 80;
+                } else if ("https".equalsIgnoreCase(getScheme(uri))) {
+                    return 443;
+                }
+            } 
+                
+            return port;
+        }
+    }
+        
     
     
     private static class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {

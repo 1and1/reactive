@@ -32,7 +32,7 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
-import net.oneandone.reactive.sse.client.StreamDataHandler;
+import net.oneandone.reactive.sse.client.HttpChannelDataHandler;
 import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Reactives;
 import net.oneandone.reactive.utils.SubscriberNotifier;
@@ -219,7 +219,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         private final int numPrefetchedElements;
         
         // underlying stream
-        private final ReconnectingStream sseConnection;
+        private final ReconnectingHttpChannel sseConnection;
 
         // incoming event handling
         private final FlowControl flowControl = new FlowControl();
@@ -247,7 +247,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                                lastId);
 
             
-            sseConnection = new ReconnectingStream(id, 
+            sseConnection = new ReconnectingHttpChannel(id, 
                                                    uri,
                                                    "GET", 
                                                    ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
@@ -330,7 +330,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer implements StreamDataHandler {
+        private static class EventBuffer implements HttpChannelDataHandler {
             private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             

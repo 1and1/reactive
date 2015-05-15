@@ -20,11 +20,11 @@ import java.nio.ByteBuffer;
 
 
 /**
- * DataHandler
+ * HttpChannelDataHandler
  *     
  * @author grro
  */
-interface StreamDataHandler {
+interface HttpChannelDataHandler {
  
     /**
      * error callback 

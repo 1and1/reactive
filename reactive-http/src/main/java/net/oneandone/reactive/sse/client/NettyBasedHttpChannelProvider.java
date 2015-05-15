@@ -68,8 +68,8 @@ import com.google.common.collect.ImmutableSet;
  * StreamProvider which uses the netty library  
  * @author grro
  */
-class NettyBasedStreamProvider implements StreamProvider {
-    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedStreamProvider.class);
+class NettyBasedHttpChannelProvider implements HttpChannelProvider {
+    private static final Logger LOG = LoggerFactory.getLogger(NettyBasedHttpChannelProvider.class);
     
     private static final ImmutableSet<Integer> REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 307);
     private static final ImmutableSet<Integer> GET_REDIRECT_STATUS_CODES = ImmutableSet.of(301, 302, 303, 307);
@@ -79,7 +79,7 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     
-    NettyBasedStreamProvider() {
+    NettyBasedHttpChannelProvider() {
         eventLoopGroup = new NioEventLoopGroup();
     }
     
@@ -96,14 +96,14 @@ class NettyBasedStreamProvider implements StreamProvider {
     
 
     @Override
-    public CompletableFuture<Stream> newStreamAsync(ConnectionParams params) {
-        CompletableFuture<Stream> connectPromise = new CompletableFuture<>();
+    public CompletableFuture<HttpChannel> newHttpChannelAsync(ConnectionParams params) {
+        CompletableFuture<HttpChannel> connectPromise = new CompletableFuture<>();
         openStreamAsync(params, connectPromise);
         return connectPromise;
     }
     
  
-    private void openStreamAsync(ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+    private void openStreamAsync(ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
         openStreamAsync(params, new StatefulHttpChannelHandler(params, connectPromise));
     }
  
@@ -154,6 +154,10 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     
+    
+    ///////////////////////////////////////
+    // http channel handler (state pattern)
+    
     private static interface HttpChannelHandler  {
         
         void onConnect(Channel channel);
@@ -179,7 +183,7 @@ class NettyBasedStreamProvider implements StreamProvider {
         private final AtomicReference<HttpChannelHandler> stateRef;
         
        
-        public StatefulHttpChannelHandler(ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+        public StatefulHttpChannelHandler(ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
             // start with initial state: ConnectStateHandler
             this.stateRef = new AtomicReference<>(new ConnectStateHandler(this, params, connectPromise));
         }
@@ -297,9 +301,9 @@ class NettyBasedStreamProvider implements StreamProvider {
 
     
     private class ConnectStateHandler extends AbstractHandlerState {
-        private final CompletableFuture<Stream> connectPromise;
+        private final CompletableFuture<HttpChannel> connectPromise;
         
-        public ConnectStateHandler(StateContext context, ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+        public ConnectStateHandler(StateContext context, ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
             super(params, context);
             this.connectPromise = connectPromise;
         }
@@ -330,10 +334,10 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     private class ResponseMessageStateHandler extends AbstractHandlerState {
-        private final CompletableFuture<Stream> connectPromise;
+        private final CompletableFuture<HttpChannel> connectPromise;
 
         
-        ResponseMessageStateHandler(StateContext context, ConnectionParams params, CompletableFuture<Stream> connectPromise) {
+        ResponseMessageStateHandler(StateContext context, ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
             super(params, context);
             this.connectPromise = connectPromise;
         }
@@ -425,7 +429,11 @@ class NettyBasedStreamProvider implements StreamProvider {
     
     
     
-    private static class Http11Stream implements Stream  {
+    //////////////////////////////////////
+    // netty based stream
+
+    
+    private static class Http11Stream implements HttpChannel  {
         private final String id; 
         private final Channel channel; 
         
@@ -495,6 +503,11 @@ class NettyBasedStreamProvider implements StreamProvider {
     }
     
     
+    
+    
+    //////////////////////////////////////
+    // utilities classes
+
         
     
     private static class NettyFutureListenerPromiseAdapter<T> extends CompletableFuture<T> implements FutureListener<T> {
@@ -536,6 +549,13 @@ class NettyBasedStreamProvider implements StreamProvider {
     }
         
     
+    
+    
+
+    
+    //////////////////////////////////////
+    // netty channel initializer
+
     
     private static class HttpChannelInitializer extends ChannelInitializer<SocketChannel> {
         private final SslContext sslCtx;

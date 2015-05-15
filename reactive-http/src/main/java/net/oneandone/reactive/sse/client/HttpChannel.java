@@ -26,14 +26,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 
 /**
- * Stream represents an underlying network connection 
+ * HttpChannel represents an underlying network connection 
  * @author grro
  *
  */
-interface Stream extends Closeable {
+interface HttpChannel extends Closeable {
     
     /**
-     * @return the stream id 
+     * @return the channel id 
      */
     String getId();
     
@@ -77,12 +77,12 @@ interface Stream extends Closeable {
     
     
     /**
-     * Do nothing stream
+     * Do nothing channel
      * 
      * @author grro
      *
      */
-    static class NullStream implements Stream {
+    static class NullHttpChannel implements HttpChannel {
         
         private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
         
@@ -90,7 +90,7 @@ interface Stream extends Closeable {
          * constructor
          * @param suspended true, if the stream is suspended
          */
-        public NullStream(boolean suspended) {
+        public NullHttpChannel(boolean suspended) {
             isReadSuspended.set(suspended);
         }
         
@@ -136,10 +136,3 @@ interface Stream extends Closeable {
         }
     }
 }
-
-
-    
-
-
-    
-

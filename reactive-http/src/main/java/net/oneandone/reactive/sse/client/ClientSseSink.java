@@ -40,7 +40,7 @@ import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 
-import net.oneandone.reactive.sse.client.Stream;
+import net.oneandone.reactive.sse.client.HttpChannel;
 import net.oneandone.reactive.utils.Reactives;
 
 import org.reactivestreams.Subscriber;
@@ -274,7 +274,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
         // underlying buffer/stream
         private final SendBuffer sendBuffer;
-        private final ReconnectingStream sseConnection;
+        private final ReconnectingHttpChannel sseConnection;
         
         // auto event id support
         private final String globalId = UID.newId();
@@ -300,7 +300,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             this.isAutoRetry = isAutoRetry;
             this.sendBuffer = new SendBuffer(numBufferSize); 
             
-            sseConnection = new ReconnectingStream(id, 
+            sseConnection = new ReconnectingHttpChannel(id, 
                                                    uri,
                                                    "POST", 
                                                    ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
@@ -308,7 +308,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                    numFollowRedirects, 
                                                    connectionTimeout, 
                                                    (isWriteable) -> sendBuffer.refresh(),    // writeable changed listener
-                                                   new StreamDataHandler()  { },                   // data consumer
+                                                   new HttpChannelDataHandler()  { },                   // data consumer
                                                    (headers) -> headers);
 
             sseConnection.init()
@@ -436,10 +436,10 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             private final String id;
             private final Duration keepAlivePeriod;
-            private final Stream stream;
+            private final HttpChannel stream;
             
             
-            public KeepAliveEmitter(String id, Duration keepAlivePeriod, Stream stream) {
+            public KeepAliveEmitter(String id, Duration keepAlivePeriod, HttpChannel stream) {
                 this.id = id;
                 this.keepAlivePeriod = keepAlivePeriod;
                 this.stream = stream;

@@ -19,35 +19,35 @@ import java.util.concurrent.CompletableFuture;
 
 
 /**
- * StreamProviderFactory
+ * HttpChannelProviderFactory
  * 
  * @author grro
  */
-class StreamProviderFactory  {
-    private static final StreamProvider COMMON = new NettyBasedStreamProvider();
+class HttpChannelProviderFactory  {
+    private static final HttpChannelProvider COMMON = new NettyBasedHttpChannelProvider();
     
-    private StreamProviderFactory() { }
+    private HttpChannelProviderFactory() { }
     
     
     /**
      * @return a new stream provider
      */
-    public static StreamProvider newStreamProvider() {
-        return new StreamProviderHandle();
+    public static HttpChannelProvider newHttpChannelProvider() {
+        return new HttpChannelProviderHandle();
     } 
     
     
-    private static final class StreamProviderHandle implements StreamProvider {
-        private final StreamProvider delegate;
+    private static final class HttpChannelProviderHandle implements HttpChannelProvider {
+        private final HttpChannelProvider delegate;
         
         
-        public StreamProviderHandle() {
+        public HttpChannelProviderHandle() {
             delegate = COMMON;
         }
         
         @Override
-        public CompletableFuture<Stream> newStreamAsync(ConnectionParams params) {
-            return delegate.newStreamAsync(params);
+        public CompletableFuture<HttpChannel> newHttpChannelAsync(ConnectionParams params) {
+            return delegate.newHttpChannelAsync(params);
         }
         
         @Override

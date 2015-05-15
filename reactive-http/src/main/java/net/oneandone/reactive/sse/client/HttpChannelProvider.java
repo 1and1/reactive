@@ -25,11 +25,11 @@ import com.google.common.collect.ImmutableMap;
 
 
 /**
- * StreamProvider 
+ * HttpChannelProvider 
  * 
  * @author grro
  */
-interface StreamProvider {
+interface HttpChannelProvider {
 
     
     /**
@@ -47,7 +47,7 @@ interface StreamProvider {
      * @param params the connection parameters
      * @return the Stream future
      */
-    CompletableFuture<Stream> newStreamAsync(ConnectionParams params);
+    CompletableFuture<HttpChannel> newHttpChannelAsync(ConnectionParams params);
     
     
     
@@ -62,12 +62,12 @@ interface StreamProvider {
         private final String method;
         private final ImmutableMap<String, String> headers; 
         private final int numFollowRedirects;
-        private final StreamDataHandler dataHandler;
+        private final HttpChannelDataHandler dataHandler;
         private final Optional<Duration> connectTimeout;
     
         /**
          * constructor 
-         * @param id                      the stream base id 
+         * @param id                      the channel base id 
          * @param uri                     the uri to connect
          * @param method                  the HTTP method to use
          * @param headers                 the additional headers
@@ -80,7 +80,7 @@ interface StreamProvider {
                                 String method, 
                                 ImmutableMap<String, String> headers, 
                                 int numFollowRedirects,
-                                StreamDataHandler dataHandler,
+                                HttpChannelDataHandler dataHandler,
                                 Optional<Duration> connectTimeout) {
             this.id = id;
             this.uri = uri;
@@ -111,7 +111,7 @@ interface StreamProvider {
             return numFollowRedirects;
         }
 
-        public StreamDataHandler getDataHandler() {
+        public HttpChannelDataHandler getDataHandler() {
             return dataHandler;
         }
 

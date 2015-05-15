@@ -20,7 +20,6 @@ package net.oneandone.reactive.sse.client;
 import java.io.Closeable;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 
 
@@ -80,17 +79,6 @@ interface HttpChannel extends Closeable {
      */
     static class NullHttpChannel implements HttpChannel {
         
-        private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
-        
-        /**
-         * constructor
-         * @param suspended true, if the stream is suspended
-         */
-        public NullHttpChannel(boolean suspended) {
-            isReadSuspended.set(suspended);
-        }
-        
-        
         @Override
         public void close() {
         }
@@ -109,12 +97,11 @@ interface HttpChannel extends Closeable {
         
         @Override
         public boolean isReadSuspended() {
-            return isReadSuspended.get();
+            return true;
         }
         
         @Override
         public void suspendRead(boolean isSuspended) {
-            isReadSuspended.set(isSuspended);
         }
         
         @Override

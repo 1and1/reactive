@@ -103,8 +103,6 @@ class ReconnectingHttpChannel implements HttpChannel {
     }
 
   
-    
-    
     public CompletableFuture<Boolean> init() {
         return newHttpChannelAsync().thenApply(channel -> { 
                                                             LOG.debug("[" + id + "] initially connected");
@@ -157,6 +155,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     public void suspendRead(boolean isSuspended) {
         // [sync] modifying isReadSuspended property and channel has to be atomic
         // to avoid race conditions by updating isReadSuspended property and channel(ref)
+        // in parallel
         synchronized (channelRef) {
             isReadSuspended.set(isSuspended);
             getCurrentHttpChannel().suspendRead(isSuspended);
@@ -228,10 +227,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     @Override
     public void terminate() {
-        synchronized (reconnectingLock) {
-            teminateCurrentChannel(new ClosedChannelException());
-        }
-
+        channelRef.get().terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
         close();
     }
     
@@ -253,11 +249,6 @@ class ReconnectingHttpChannel implements HttpChannel {
     // (re)connect handling 
     
     
-    private void teminateCurrentChannel(Throwable error) {
-        channelRef.get().terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
-        closeCurrentChannel(error);
-    }        
-    
     
     private void closeCurrentChannel(Throwable error) {
         // replace current one with null channel (closes old implicitly)
@@ -269,17 +260,16 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     private void replaceCurrentChannel(HttpChannel channel) {
-        // close current channel
-        channelRef.get().close();
      
         // [sync] modifying isReadSuspended property and channel has to be atomic
         // to avoid race conditions by updating isReadSuspended property and channel(ref)
+        // in parallel
         synchronized (channelRef) {
-            // restore suspend state for new channel
+            // restore suspend state 
             channel.suspendRead(isReadSuspended());
             
-            // set new channel
-            channelRef.set(channel);
+            // close the old channel and reset it by the new one
+            channelRef.getAndSet(channel).close();
         }
         
         isWriteableStateChangedListener.accept(true);

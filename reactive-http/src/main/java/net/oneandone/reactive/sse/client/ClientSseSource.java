@@ -301,14 +301,14 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             public void onElementAdded(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
                 if ((numBuffered > getMaxBuffersize(numPendingRequest)) && !sseConnection.isReadSuspended()) {
-                    sseConnection.suspendRead();
+                    sseConnection.suspendRead(true);
                 }
             }
 
             public void onElementRemoved(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be resumed, if num pre-fetched less than one or 25% of the max buffer size
                 if (sseConnection.isReadSuspended() && ( (numBuffered < 1) || (numBuffered < getMaxBuffersize(numPendingRequest) * 0.25)) ) {
-                    sseConnection.resumeRead();
+                    sseConnection.suspendRead(false);
                 }
             }
 

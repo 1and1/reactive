@@ -49,6 +49,7 @@ import com.google.common.collect.Maps;
 class ReconnectingHttpChannel implements HttpChannel {
     private static final Logger LOG = LoggerFactory.getLogger(ReconnectingHttpChannel.class);
 
+    
     private final String id;
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
 
@@ -161,7 +162,9 @@ class ReconnectingHttpChannel implements HttpChannel {
     @Override
     public void close() {
         if (isOpen.getAndSet(false)) {
-            closeStream();
+            // replace current channel by null channel
+            onConnected(new HttpChannel.NullHttpChannel(true));
+            
             channelProvider.closeAsync();
             LOG.debug("[" + id + "] closed");
         }
@@ -173,18 +176,11 @@ class ReconnectingHttpChannel implements HttpChannel {
         return getHttpChannel().isReadSuspended();
     }
 
-    
     @Override
-    public void resumeRead() {
-        getHttpChannel().resumeRead();
+    public void suspendRead(boolean isSuspended) {
+        getHttpChannel().suspendRead(isSuspended);
     }
     
-    
-    @Override
-    public void suspendRead() {
-        getHttpChannel().suspendRead();
-    }
-     
     
     @Override
     public String toString() {
@@ -204,86 +200,8 @@ class ReconnectingHttpChannel implements HttpChannel {
         return channelRef.get();
     }
     
-    
-    private void onConnected(HttpChannel channel) {
-        synchronized (reconnectLock) {
-            // close old channel
-            HttpChannel oldStream = channelRef.get();
-            oldStream.close();
-            dataHandler.onError(id, new ClosedChannelException());
-            
-            // restore suspend state for new channel
-            if (oldStream.isReadSuspended()) {
-                channel.suspendRead();
-            } else {
-                channel.resumeRead();
-            }
-            
-            // set new channel
-            channelRef.set(channel);
-            if (channel.isConnected()) {
-                isWriteableStateChangedListener.accept(true);
-            }
-        }
-    }        
-    
-    
-    private void reconnect() {
-        synchronized (reconnectLock) {
-            closeStream();
-    
-            if (isOpen.get()) {
-                performReconnect();
-            }
-        }
-    }
-
-    
-    private void closeStream() {
-        synchronized (reconnectLock) {
-            if (channelRef.get().isConnected()) {
-                LOG.debug("[" + id + "] closing underlying channel");
-            }
-            onConnected(new HttpChannel.NullHttpChannel(true));
-        }
-    }
   
-    
-    private void performReconnect() {
 
-        synchronized (reconnectLock) {
- 
-            if (!isReconnecting) {
-                isReconnecting = true;
-
-                Runnable retryConnect = () -> {
-                    newHttpChannelAsync()
-                        .whenComplete((channel, error) -> { 
-                                                            synchronized (reconnectLock) {
-                                                                isReconnecting = false;
-                                                                
-                                                                if (error == null) {
-                                                                    if (channel.isConnected()) {
-                                                                        LOG.debug("[" + id + "] channel reconnected");
-                                                                    }
-                                                                    onConnected(channel);
-                                                                    
-                                                                } else {
-                                                                    if (isOpen.get()) {
-                                                                        LOG.debug("[" + id + "] channel reconnect failed. Trying again");
-                                                                        performReconnect();
-                                                                    }
-                                                                }
-                                                            }
-                                                         });
-                 };
-                 
-                 Duration delay = retryProcessor.scheduleWithDelay(retryConnect);
-                 LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
-            }
-        }
-    }
-    
     
     private CompletableFuture<HttpChannel> newHttpChannelAsync() { 
        
@@ -320,6 +238,86 @@ class ReconnectingHttpChannel implements HttpChannel {
             
         } else {
             return CompletableFuture.completedFuture(new HttpChannel.NullHttpChannel(true));
+        }
+    }
+    
+    
+    
+    
+    
+    ///////////////////////////////////////////
+    // (re)connect handling 
+    
+    
+    private void onConnected(HttpChannel channel) {
+        
+        synchronized (reconnectLock) {
+            // close old channel
+            HttpChannel oldStream = channelRef.get();
+            if (oldStream.isConnected()) {
+                LOG.debug("[" + id + "] closing underlying channel");
+            }
+            oldStream.close();
+    
+            dataHandler.onError(id, new ClosedChannelException());
+            
+            // restore suspend state for new channel
+            channel.suspendRead(oldStream.isReadSuspended());
+            
+            // set new channel
+            channelRef.set(channel);
+            if (channel.isConnected()) {
+                isWriteableStateChangedListener.accept(true);
+            }
+        }
+    }        
+    
+    
+    
+    private void reconnect() {
+        synchronized (reconnectLock) {
+            // replace current channel by null channel
+            onConnected(new HttpChannel.NullHttpChannel(true));
+    
+            // and initiate reconnect
+            performReconnect();
+        }
+    }
+
+    
+    private void performReconnect() {
+
+        if (isOpen.get()) {
+            synchronized (reconnectLock) {
+                if (!isReconnecting) {
+                    isReconnecting = true;
+    
+                    Runnable retryConnect = () -> {
+                        newHttpChannelAsync()
+                            .whenComplete((channel, error) -> { 
+                                                                synchronized (reconnectLock) {
+                                                                    isReconnecting = false;
+                                                                    
+                                                                    if (error == null) {
+                                                                        if (channel.isConnected()) {
+                                                                            LOG.debug("[" + id + "] channel reconnected");
+                                                                        }
+                                                                        onConnected(channel);
+                                                                        
+                                                                    } else {
+                                                                        if (isOpen.get()) {
+                                                                            LOG.debug("[" + id + "] channel reconnect failed. Trying again");
+                                                                            reconnect();
+                                                                        }
+                                                                    }
+                                                                }
+                                                             });
+                     };
+                     
+                     Duration delay = retryProcessor.scheduleWithDelay(retryConnect);
+                     LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
+                }
+            }
         }
     }
     

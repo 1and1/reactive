@@ -49,14 +49,9 @@ interface HttpChannel extends Closeable {
     boolean isReadSuspended();
     
     /**
-     * suspend reading the stream
+     * @param isSuspended true, if is suspended
      */
-    void suspendRead();
-
-    /**
-     * resume reading the stream
-     */
-    void resumeRead();
+    void suspendRead(boolean isSuspended);
     
     /**
      * terminates the stream by killing the connection without sending a proper close sequence 
@@ -117,13 +112,8 @@ interface HttpChannel extends Closeable {
         }
         
         @Override
-        public void resumeRead() {
-            isReadSuspended.set(false);
-        }
-        
-        @Override
-        public void suspendRead() {
-            isReadSuspended.set(true);
+        public void suspendRead(boolean isSuspended) {
+            isReadSuspended.set(isSuspended);
         }
         
         @Override

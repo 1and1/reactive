@@ -471,20 +471,18 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
         }
         
         @Override
-        public void suspendRead() {
-            if (channel.config().isAutoRead()) {
+        public void suspendRead(boolean isSuspended) {
+
+            if (isSuspended && channel.config().isAutoRead()) {
                 LOG.debug("[" + id + "] suspended");
                 channel.config().setAutoRead(false);
-            }
-        }
-        
-        @Override
-        public void resumeRead() {
-            if (!channel.config().isAutoRead()) {
+                
+            } else if (!isSuspended && !channel.config().isAutoRead()) {
                 LOG.debug("[" + id + "] resumed");
                 channel.config().setAutoRead(true);
             }
         }
+
         
         @Override
         public void terminate() {

@@ -48,7 +48,7 @@ import com.google.common.collect.Maps;
 
 class ReconnectingHttpChannel implements HttpChannel {
     private static final Logger LOG = LoggerFactory.getLogger(ReconnectingHttpChannel.class);
-
+    private static final HttpChannel NULL_CHANNEL = new HttpChannel.NullHttpChannel();
     
     private final String id;
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -71,7 +71,7 @@ class ReconnectingHttpChannel implements HttpChannel {
    
     // underlying channel
     private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
-    private final AtomicReference<HttpChannel> channelRef = new AtomicReference<>(new HttpChannel.NullHttpChannel());
+    private final AtomicReference<HttpChannel> channelRef = new AtomicReference<>(NULL_CHANNEL);
     private final HttpChannelProvider channelProvider = HttpChannelProviderFactory.newHttpChannelProvider();
     private final RetryScheduler retryProcessor = new RetryScheduler();
     private final Object reconnectingLock = new Object();
@@ -220,7 +220,7 @@ class ReconnectingHttpChannel implements HttpChannel {
             
             
         } else {
-            return CompletableFuture.completedFuture(new HttpChannel.NullHttpChannel());
+            return CompletableFuture.completedFuture(NULL_CHANNEL);
         }
     }
     
@@ -261,7 +261,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     private void closeCurrentChannel(Throwable error) {
         // replace current one with null channel (closes old implicitly)
-        replaceCurrentChannel(new HttpChannel.NullHttpChannel());          
+        replaceCurrentChannel(NULL_CHANNEL);          
         
         // notify close of former channel (-> reset sse parser)
         dataHandler.onError(id, (error == null) ? new ClosedChannelException() : error);

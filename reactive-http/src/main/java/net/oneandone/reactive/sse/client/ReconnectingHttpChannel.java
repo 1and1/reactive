@@ -68,9 +68,8 @@ class ReconnectingHttpChannel implements HttpChannel {
     private final Function<ImmutableMap<String, String>, ImmutableMap<String, String>> headerInterceptor;
 
    
-    // underlying stream
+    // underlying channel
     private final HttpChannelManager channelManager = new HttpChannelManager();
-    private final HttpChannelProvider channelProvider;
     
     
    
@@ -95,33 +94,11 @@ class ReconnectingHttpChannel implements HttpChannel {
         this.isWriteableStateChangedListener = isWriteableStateChangedListener;
         this.dataHandler = dataHandler;
         this.headerInterceptor = headerInterceptor;
-        
-        this.channelProvider = HttpChannelProviderFactory.newHttpChannelProvider();
     }
 
     
     public CompletableFuture<Boolean> init() {
-        
-        return newStreamAsync()
-                    .thenApply(stream -> { 
-                                            LOG.debug("[" + id + "] initially connected");
-                                            channelManager.onConnected(stream); 
-                                            return true;
-                                         })
-                                                    
-                    .exceptionally(error -> { 
-                                                 // initial "connect" failed
-                                                 if (isFailOnConnectError) {
-                                                     LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
-                                                     throw Reactives.propagate(error);
-                                                     
-                                                 // initial "connect" failed, however should be ignored
-                                                 } else { 
-                                                     LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
-                                                     channelManager.reconnect();
-                                                     return false;
-                                                 }
-                                            });
+        return channelManager.init();
     }
 
     
@@ -158,8 +135,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     @Override
     public void close() {
         if (isOpen.getAndSet(false)) {
-            channelManager.closeStream();
-            channelProvider.closeAsync();
+            channelManager.close();
             LOG.debug("[" + id + "] closed");
         }
     } 
@@ -202,12 +178,42 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     private final class HttpChannelManager {
         private final RetryScheduler retryProcessor = new RetryScheduler();
+        private final HttpChannelProvider channelProvider = HttpChannelProviderFactory.newHttpChannelProvider();
         private final AtomicReference<HttpChannel> streamRef = new AtomicReference<>(new HttpChannel.NullHttpChannel(false));
 
         private final Object reconnectLock = new Object(); 
         private boolean isAlreadyRunning = false;
         
     
+        public CompletableFuture<Boolean> init() {
+            
+            return newHttpChannelAsync()
+                        .thenApply(stream -> { 
+                                                LOG.debug("[" + id + "] initially connected");
+                                                onConnected(stream); 
+                                                return true;
+                                             })
+                                                        
+                        .exceptionally(error -> { 
+                                                     // initial "connect" failed
+                                                     if (isFailOnConnectError) {
+                                                         LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
+                                                         throw Reactives.propagate(error);
+                                                         
+                                                     // initial "connect" failed, however should be ignored
+                                                     } else { 
+                                                         LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
+                                                         reconnect();
+                                                         return false;
+                                                     }
+                                                });
+        }
+
+        
+        public void close() {
+            closeStream();
+            channelProvider.closeAsync();
+        }
         
         public HttpChannel getStream() {
             return streamRef.get();
@@ -221,7 +227,7 @@ class ReconnectingHttpChannel implements HttpChannel {
             }
         }
 
-        public void closeStream() {
+        private void closeStream() {
             synchronized (reconnectLock) {
                 if (streamRef.get().isConnected()) {
                     LOG.debug("[" + id + "] closing underlying stream");
@@ -231,7 +237,7 @@ class ReconnectingHttpChannel implements HttpChannel {
         }
         
         
-        public void onConnected(HttpChannel stream) {
+        private void onConnected(HttpChannel stream) {
             synchronized (reconnectLock) {
                 // close old stream
                 HttpChannel oldStream = streamRef.get();
@@ -274,7 +280,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                     isAlreadyRunning = true;
 
                     Runnable retryConnect = () -> {
-                        newStreamAsync()
+                        newHttpChannelAsync()
                             .whenComplete((stream, error) -> { 
                                                                 synchronized (reconnectLock) {
                                                                     isAlreadyRunning = false;
@@ -300,48 +306,50 @@ class ReconnectingHttpChannel implements HttpChannel {
                 }
             }
         }
-    }
-    
-    
-    
-    
-    
-    private CompletableFuture<HttpChannel> newStreamAsync() { 
-       
-        if (isOpen.get()) {
-            // process headers interceptor
-            ImmutableMap<String, String> additionalHeaders = headerInterceptor.apply(headers);
-            
-            LOG.debug("[" + id + "] open underlying stream (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
-            
-            HttpChannelDataHandler handler = new HttpChannelDataHandler() {
-              
-                public void onContent(String id, ByteBuffer[] data) {
-                    dataHandler.onContent(id, data); 
-                }
+        
+        
+
+        
+        
+        private CompletableFuture<HttpChannel> newHttpChannelAsync() { 
+           
+            if (isOpen.get()) {
+                // process headers interceptor
+                ImmutableMap<String, String> additionalHeaders = headerInterceptor.apply(headers);
                 
-                @Override
-                public void onError(String id, Throwable error) {
-                    if (isOpen.get()) {
-                        LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");
-                        channelManager.reconnect();
+                LOG.debug("[" + id + "] open underlying stream (" + method + " " + uri + " - " + Joiner.on("&").withKeyValueSeparator("=").join(additionalHeaders) + ")");
+                
+                HttpChannelDataHandler handler = new HttpChannelDataHandler() {
+                  
+                    public void onContent(String id, ByteBuffer[] data) {
+                        dataHandler.onContent(id, data); 
                     }
-                }
-            };
-            
-            
-            
-            return channelProvider.newHttpChannelAsync(new ConnectionParams(id, 
-                                                                       uri, 
-                                                                       method, 
-                                                                       additionalHeaders, 
-                                                                       numFollowRedirects, 
-                                                                       handler, 
-                                                                       connectTimeout));
-        } else {
-            return CompletableFuture.completedFuture(new HttpChannel.NullHttpChannel(true));
+                    
+                    @Override
+                    public void onError(String id, Throwable error) {
+                        if (isOpen.get()) {
+                            LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");
+                            channelManager.reconnect();
+                        }
+                    }
+                };
+                
+                
+                return channelProvider.newHttpChannelAsync(new ConnectionParams(id, 
+                                                                                uri, 
+                                                                                method, 
+                                                                                additionalHeaders, 
+                                                                                numFollowRedirects, 
+                                                                                handler, 
+                                                                                connectTimeout));
+                
+                
+            } else {
+                return CompletableFuture.completedFuture(new HttpChannel.NullHttpChannel(true));
+            }
         }
     }
+    
     
     
     

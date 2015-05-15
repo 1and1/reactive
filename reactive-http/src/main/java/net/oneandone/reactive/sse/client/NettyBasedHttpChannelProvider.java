@@ -98,12 +98,12 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
     @Override
     public CompletableFuture<HttpChannel> newHttpChannelAsync(ConnectionParams params) {
         CompletableFuture<HttpChannel> connectPromise = new CompletableFuture<>();
-        openStreamAsync(params, connectPromise);
+        openHttpChannelAsync(params, connectPromise);
         return connectPromise;
     }
     
  
-    private void openStreamAsync(ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
+    private void openHttpChannelAsync(ConnectionParams params, CompletableFuture<HttpChannel> connectPromise) {
         openStreamAsync(params, new StatefulHttpChannelHandler(params, connectPromise));
     }
  
@@ -353,9 +353,9 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
             if ((status / 100) == 2) {
                 log(channel, " got " + status + " response. start stream handling");
                 
-                Http11Stream stream = new Http11Stream(getId(channel), channel);
-                changeState(new  DataStateHandler(this, getParams(), stream));
-                connectPromise.complete(stream);
+                Http11Channel httpChannel = new Http11Channel(getId(channel), channel);
+                changeState(new  DataStateHandler(this, getParams(), httpChannel));
+                connectPromise.complete(httpChannel);
 
             // no success
             } else {
@@ -367,7 +367,7 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
                     int newNumFollowRedirects = getParams().getNumFollowRedirects() - 1;
                     log(channel, "follow redirect " + locationURI + " (remaining redirect trials: " + newNumFollowRedirects+ ")");
                     
-                    openStreamAsync(new ConnectionParams(getParams().getId(), 
+                    openHttpChannelAsync(new ConnectionParams(getParams().getId(), 
                                                          URI.create(locationURI), 
                                                          getParams().getMethod(), 
                                                          getParams().getHeaders(), 
@@ -398,11 +398,11 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
     
     
     private static class DataStateHandler extends AbstractHandlerState {
-        private final Http11Stream stream;
+        private final Http11Channel httpChannel;
         
-        DataStateHandler(StateContext context, ConnectionParams params, Http11Stream stream) {
+        DataStateHandler(StateContext context, ConnectionParams params, Http11Channel httpChannel) {
             super(params, context);
-            this.stream = stream;
+            this.httpChannel = httpChannel;
         }
 
         @Override
@@ -414,12 +414,12 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
         public void onError(Channel channel, Throwable error) {
             super.onError(channel, error);
             getParams().getDataHandler().onError(getId(channel), error);
-            stream.close();
+            httpChannel.close();
         }
         
         @Override
         public void onClosed(Channel channel) {
-            stream.close();
+            httpChannel.close();
             getParams().getDataHandler().onError(getId(channel), new ClosedChannelException());
         }
      }
@@ -430,15 +430,15 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
     
     
     //////////////////////////////////////
-    // netty based stream
+    // netty based http channel
 
     
-    private static class Http11Stream implements HttpChannel  {
+    private static class Http11Channel implements HttpChannel  {
         private final String id; 
         private final Channel channel; 
         
         
-        public Http11Stream(String id, Channel channel) {
+        public Http11Channel(String id, Channel channel) {
             this.id = id;
             this.channel = channel;
         }

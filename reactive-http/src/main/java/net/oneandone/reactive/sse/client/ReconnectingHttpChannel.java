@@ -131,7 +131,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                                              // initial "connect" failed, however should be ignored
                                              } else { 
                                                  LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
-                                                 reconnect();
+                                                 reconnect(error);
                                                  return false;
                                              }
                                         });
@@ -142,7 +142,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     public CompletableFuture<Void> writeAsync(String data) {
         return getHttpChannel().writeAsync(data)
                                .exceptionally(error -> { 
-                                                        reconnect(); 
+                                                        reconnect(error); 
                                                         throw Reactives.propagate(error); 
                                                        });
     }
@@ -220,8 +220,8 @@ class ReconnectingHttpChannel implements HttpChannel {
                 @Override
                 public void onError(String id, Throwable error) {
                     if (isOpen.get()) {
-                        LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");
-                        reconnect();
+                        LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");                       
+                        reconnect(error);
                     }
                 }
             };
@@ -252,6 +252,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     private void onConnected(HttpChannel channel) {
         
         synchronized (reconnectLock) {
+            
             // close old channel
             HttpChannel oldStream = channelRef.get();
             if (oldStream.isConnected()) {
@@ -259,36 +260,32 @@ class ReconnectingHttpChannel implements HttpChannel {
             }
             oldStream.close();
     
-            dataHandler.onError(id, new ClosedChannelException());
             
             // restore suspend state for new channel
             channel.suspendRead(oldStream.isReadSuspended());
             
             // set new channel
             channelRef.set(channel);
-            if (channel.isConnected()) {
-                isWriteableStateChangedListener.accept(true);
-            }
+            isWriteableStateChangedListener.accept(true);
         }
     }        
     
     
     
-    private void reconnect() {
+    private void reconnect(Throwable t) {
+
+        // replace current channel by null channel
+        onConnected(new HttpChannel.NullHttpChannel(true));
+        
+        // notify close of former channel (-> reset sse parser)
+        dataHandler.onError(id, t);
+
+
+        
         synchronized (reconnectLock) {
-            // replace current channel by null channel
-            onConnected(new HttpChannel.NullHttpChannel(true));
-    
-            // and initiate reconnect
-            performReconnect();
-        }
-    }
-
-    
-    private void performReconnect() {
-
-        if (isOpen.get()) {
-            synchronized (reconnectLock) {
+            
+            if (isOpen.get()) {
+                
                 if (!isReconnecting) {
                     isReconnecting = true;
     
@@ -307,7 +304,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                                                                     } else {
                                                                         if (isOpen.get()) {
                                                                             LOG.debug("[" + id + "] channel reconnect failed. Trying again");
-                                                                            reconnect();
+                                                                            reconnect(error);
                                                                         }
                                                                     }
                                                                 }

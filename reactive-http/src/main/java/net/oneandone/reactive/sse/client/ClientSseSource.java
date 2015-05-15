@@ -360,6 +360,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             
             @Override
             public void onError(String channelId, Throwable error) {
+                LOG.debug("[" + id + "] resetting sse parser");
                 parser.reset();
             }
 

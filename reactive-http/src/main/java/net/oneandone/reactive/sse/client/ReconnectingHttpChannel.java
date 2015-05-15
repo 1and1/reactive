@@ -70,6 +70,7 @@ class ReconnectingHttpChannel implements HttpChannel {
 
    
     // underlying channel
+    private final AtomicBoolean isReadSuspended = new AtomicBoolean(false);
     private final AtomicReference<HttpChannel> channelRef = new AtomicReference<>(new HttpChannel.NullHttpChannel(false));
     private final HttpChannelProvider channelProvider = HttpChannelProviderFactory.newHttpChannelProvider();
     private final RetryScheduler retryProcessor = new RetryScheduler();
@@ -149,13 +150,15 @@ class ReconnectingHttpChannel implements HttpChannel {
   
     @Override
     public boolean isReadSuspended() {
-        return getCurrentHttpChannel().isReadSuspended();
+        return isReadSuspended.get();
     }
 
     @Override
     public void suspendRead(boolean isSuspended) {
-        // [why sync?] replacing ref (see below) includes transferring suspended state 
+        // [sync?] modifying isReadSuspended property and channel has to be atomic
+        // to avoid race conditions by updating isReadSuspended property and channel(ref)
         synchronized (channelRef) {
+            isReadSuspended.set(isSuspended);
             getCurrentHttpChannel().suspendRead(isSuspended);
         }
     }
@@ -266,13 +269,15 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     private void replaceCurrentChannel(HttpChannel channel) {
-        // [why sync?] replacing ref includes transferring suspended state 
+        
+        // [sync?] modifying isReadSuspended property and channel has to be atomic
+        // to avoid race conditions by updating isReadSuspended property and channel(ref)
         synchronized (channelRef) {
             // close current channel
             channelRef.get().close();
             
             // restore suspend state for new channel
-            channel.suspendRead(channelRef.get().isReadSuspended());
+            channel.suspendRead(isReadSuspended());
             
             // set new channel
             channelRef.set(channel);

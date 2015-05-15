@@ -16,9 +16,9 @@
 package net.oneandone.reactive.utils;
 
 
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.function.Function;
 
 
 
@@ -26,13 +26,73 @@ public class Reactives {
     
     private Reactives() { }
     
-    public static <T, E extends RuntimeException> T get(Future<T> future, Function<Throwable, E> exceptionFactory) {
+
+    
+    
+    public static <T> T get(Future<T> future) {
         try {
             return future.get();
-        } catch (InterruptedException e) {
-            throw exceptionFactory.apply(e);
-        } catch (ExecutionException e) {
-            throw exceptionFactory.apply(e.getCause());
+        } catch (InterruptedException | ExecutionException e) {
+            throw propagate(e);
         }
+    }
+    
+    
+
+    
+    
+    /**
+     * unwraps an exception 
+     *  
+     * @param ex         the exception to unwrap
+     * @return the unwrapped exception
+     */
+    public static RuntimeException propagate(Throwable ex)  {
+        Throwable t = unwrap(ex);
+        return (t instanceof RuntimeException) ? (RuntimeException) t : new RuntimeException(t);
+    }
+    
+    
+    /**
+     * unwraps an exception 
+     *  
+     * @param ex         the exception to unwrap
+     * @return the unwrapped exception
+     */
+    public static Throwable unwrap(Throwable ex)  {
+        return unwrap(ex, 9);
+    }
+    
+    
+    /**
+     * unwraps an exception 
+     *  
+     * @param ex         the exception to unwrap
+     * @param maxDepth   the max depth
+     * @return the unwrapped exception
+     */
+    private static Throwable unwrap(Throwable ex, int maxDepth)  {
+        if (isCompletionException(ex) || isExecutionException(ex)) {
+            Throwable e = ex.getCause();
+            if (e != null) {
+                if (maxDepth > 1) {
+                    return unwrap(e, maxDepth - 1);
+                } else {
+                    return e;
+                }
+            }
+        }
+            
+        return ex;
+    }
+    
+    
+    private static boolean isCompletionException(Throwable t) {
+        return CompletionException.class.isAssignableFrom(t.getClass());
+    }
+    
+    
+    private static boolean isExecutionException(Throwable t) {
+        return ExecutionException.class.isAssignableFrom(t.getClass());
     }
 }

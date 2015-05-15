@@ -43,7 +43,6 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslContext;
 
-import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -117,7 +116,7 @@ class NettyBasedChannelProvider implements StreamProvider {
                     if (future.isSuccess()) {
                         channelHandler.onConnect(future.channel());
                     } else {
-                        channelHandler.onError(future.channel(), future.cause());
+                        channelHandler.onError(future.channel(), new ConnectException(future.cause()));
                     }
                 }
             };
@@ -368,7 +367,7 @@ class NettyBasedChannelProvider implements StreamProvider {
                                                          getParams().getConnectTimeout()), connectPromise);
                 // error 
                 } else {                
-                    onError(channel, new IOException("got unexpected " + status + " response"));
+                    onError(channel, new ConnectException("got unexpected " + status + " response"));
                 }
             }
         }

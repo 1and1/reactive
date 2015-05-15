@@ -16,8 +16,8 @@
 package net.oneandone.reactive;
 
 
+import java.nio.channels.ClosedChannelException;
 import java.util.LinkedList;
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -80,7 +80,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     public void cancel() {
         if (isOpen.getAndSet(false)) {
             if (!isStarted.getAndSet(true)) {
-                startPromise.completeExceptionally(new RuntimeException("closed"));
+                startPromise.completeExceptionally(new ClosedChannelException());
             }
             
             subscriberNotifier.notifyOnComplete();

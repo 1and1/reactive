@@ -66,7 +66,7 @@ public interface ReactiveSink<T> extends Closeable {
 
 
     static <T> ReactiveSink<T> publish(Subscriber<T> subscriber) {
-        return Reactives.get(publishAsync(subscriber), (error) -> new ConnectException(error));
+        return Reactives.get(publishAsync(subscriber));
     }
     
     

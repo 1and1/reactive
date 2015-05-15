@@ -300,7 +300,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             new ClientSseSource(uri).open();
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains(" got unexpected 404 response"));
+            Assert.assertTrue(expected.getMessage().contains("got unexpected 404 response"));
         }
     }
 
@@ -327,7 +327,7 @@ public class ServerSentEventSourceTest extends TestServletbasedTest {
             new ClientSseSource(uri).open();    
             Assert.fail("ConnectException expected");
         } catch (ConnectException expected) { 
-            Assert.assertTrue(expected.getMessage().contains(" got unexpected 500 response"));
+            Assert.assertTrue(expected.getMessage().contains("got unexpected 500 response"));
         }
     }
     

@@ -35,7 +35,7 @@ public interface ReactiveSource<T> extends Closeable {
     
     
     static <T> ReactiveSource<T> subscribe(Publisher<T> publisher) {
-        return Reactives.get(subscribeAsync(publisher), (error) -> new ConnectException(error));
+        return Reactives.get(subscribeAsync(publisher));
     }
     
     

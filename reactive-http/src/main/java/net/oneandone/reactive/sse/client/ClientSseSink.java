@@ -34,8 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSink;
+import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
@@ -213,7 +213,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     
     public ReactiveSink<ServerSentEvent> open() {
-        return Reactives.get(openAsync(), (error) -> new ConnectException(error));
+        return Reactives.get(openAsync());
     }
     
     
@@ -221,7 +221,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
      * @return the new source instance future
      */
     public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
-        return ReactiveSink.publishAsync(this);
+        return ReactiveSink.publishAsync(this)
+                           .exceptionally(error -> { throw (error instanceof ConnectException) ? (ConnectException) error : new ConnectException(error); });
     }
     
 

@@ -34,7 +34,7 @@ import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.client.StreamProvider.DataHandler;
 import net.oneandone.reactive.sse.client.StreamProvider.Stream;
 import net.oneandone.reactive.sse.client.StreamProvider.ConnectionParams;
-import net.oneandone.reactive.utils.Exceptions;
+import net.oneandone.reactive.utils.Reactives;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -113,7 +113,7 @@ class ReconnectingStream implements Stream {
                                                  // initial "connect" failed
                                                  if (isFailOnConnectError) {
                                                      LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
-                                                     throw Exceptions.propagate(error);
+                                                     throw Reactives.propagate(error);
                                                      
                                                  // initial "connect" failed, however should be ignored
                                                  } else { 
@@ -131,7 +131,7 @@ class ReconnectingStream implements Stream {
                             .writeAsync(data)
                             .exceptionally(error -> { 
                                                         streamManager.reconnect(); 
-                                                        throw Exceptions.propagate(error); 
+                                                        throw Reactives.propagate(error); 
                                                     });
     }
     

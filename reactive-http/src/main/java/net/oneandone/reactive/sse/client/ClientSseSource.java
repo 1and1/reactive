@@ -185,7 +185,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
      * @throws ConnectException if an connect error occurs
      */
     public ReactiveSource<ServerSentEvent> open() throws ConnectException {
-        return Reactives.get(openAsync(), (error) -> new ConnectException(error));
+        return Reactives.get(openAsync());
     }
 
     

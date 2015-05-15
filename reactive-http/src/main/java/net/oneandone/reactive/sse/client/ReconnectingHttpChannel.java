@@ -73,7 +73,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     private final AtomicReference<HttpChannel> channelRef = new AtomicReference<>(new HttpChannel.NullHttpChannel(false));
     private final HttpChannelProvider channelProvider = HttpChannelProviderFactory.newHttpChannelProvider();
     private final RetryScheduler retryProcessor = new RetryScheduler();
-    private final Object reconnectLock = new Object();
+    private final Object reconnectingLock = new Object();
     private boolean isReconnecting = false;
 
     
@@ -104,20 +104,20 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     @Override
     public String getId() {
-        return getHttpChannel().getId();
+        return getCurrentHttpChannel().getId();
     }
     
     
     @Override
     public boolean isConnected() {
-        return getHttpChannel().isConnected();
+        return getCurrentHttpChannel().isConnected();
     }
     
     
     public CompletableFuture<Boolean> init() {
         return newHttpChannelAsync().thenApply(channel -> { 
                                                             LOG.debug("[" + id + "] initially connected");
-                                                            onConnected(channel); 
+                                                            replaceCurrentChannel(channel); 
                                                             return true;
                                                           })
                                                 
@@ -130,7 +130,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                                                             // initial "connect" failed, however should be ignored
                                                             } else { 
                                                                 LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
-                                                                reconnect(error);
+                                                                initiateReconnect(error);
                                                                 return false;
                                                             }
                                                            });
@@ -139,45 +139,22 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     @Override
     public CompletableFuture<Void> writeAsync(String data) {
-        return getHttpChannel().writeAsync(data)
-                               .exceptionally(error -> { 
-                                                        reconnect(error); 
-                                                        throw Utils.propagate(error); 
-                                                       });
+        return getCurrentHttpChannel().writeAsync(data)
+                                      .exceptionally(error -> { 
+                                                                  initiateReconnect(error);   
+                                                                  throw Utils.propagate(error); 
+                                                              });
     }
     
-   
-    @Override
-    public void terminate() {
-        synchronized (reconnectLock) {
-            dataHandler.onError(id, new ClosedChannelException());
-            channelRef.getAndSet(new HttpChannel.NullHttpChannel(true)).terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
-        }
-
-        close();
-    }
-    
-    
-    @Override
-    public void close() {
-        if (isOpen.getAndSet(false)) {
-            // replace current channel by null channel
-            onConnected(new HttpChannel.NullHttpChannel(true));
-            
-            channelProvider.closeAsync();
-            LOG.debug("[" + id + "] closed");
-        }
-    } 
-   
-
+  
     @Override
     public boolean isReadSuspended() {
-        return getHttpChannel().isReadSuspended();
+        return getCurrentHttpChannel().isReadSuspended();
     }
 
     @Override
     public void suspendRead(boolean isSuspended) {
-        getHttpChannel().suspendRead(isSuspended);
+        getCurrentHttpChannel().suspendRead(isSuspended);
     }
     
     
@@ -186,8 +163,8 @@ class ReconnectingHttpChannel implements HttpChannel {
         if (!isOpen.get()) {
             return "[closed] " + id;
             
-        } else if (getHttpChannel().isConnected()) {
-            return (getHttpChannel().isReadSuspended() ? "[suspended] " : "") + getId();
+        } else if (getCurrentHttpChannel().isConnected()) {
+            return (getCurrentHttpChannel().isReadSuspended() ? "[suspended] " : "") + getId();
                 
         } else {
             return "[not connected] " + id;
@@ -195,7 +172,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     }
     
     
-    private HttpChannel getHttpChannel() {
+    private HttpChannel getCurrentHttpChannel() {
         return channelRef.get();
     }
     
@@ -212,6 +189,7 @@ class ReconnectingHttpChannel implements HttpChannel {
             
             HttpChannelDataHandler handler = new HttpChannelDataHandler() {
               
+                @Override
                 public void onContent(String id, ByteBuffer[] data) {
                     dataHandler.onContent(id, data); 
                 }
@@ -220,7 +198,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                 public void onError(String id, Throwable error) {
                     if (isOpen.get()) {
                         LOG.debug("[" + id + "]  error " + error.toString() + " occured. Trying to reconnect");                       
-                        reconnect(error);
+                        initiateReconnect(error);  
                     }
                 }
             };
@@ -240,7 +218,28 @@ class ReconnectingHttpChannel implements HttpChannel {
         }
     }
     
+  
     
+    @Override
+    public void terminate() {
+        synchronized (reconnectingLock) {
+            teminateCurrentChannel(new ClosedChannelException());
+        }
+
+        close();
+    }
+    
+    
+    @Override
+    public void close() {
+        if (isOpen.getAndSet(false)) {
+            closeCurrentChannel(new ClosedChannelException());
+            
+            channelProvider.closeAsync();
+            LOG.debug("[" + id + "] closed");
+        }
+    } 
+   
     
     
     
@@ -248,20 +247,35 @@ class ReconnectingHttpChannel implements HttpChannel {
     // (re)connect handling 
     
     
-    private void onConnected(HttpChannel channel) {
+    private void teminateCurrentChannel(Throwable error) {
+        channelRef.get().terminate();  // terminate -> end chunk should NOT be written (refer chunked-transfer encoding)
+        closeCurrentChannel(error);
+    }        
+    
+    
+    private void closeCurrentChannel(Throwable error) {
+        // replace current one with null channel (closes old implicitly)
+        replaceCurrentChannel(new HttpChannel.NullHttpChannel(true));          
         
-        synchronized (reconnectLock) {
-            
-            // close old channel
+        // notify close of former channel (-> reset sse parser)
+        dataHandler.onError(id, (error == null) ? new ClosedChannelException() : error);
+    }        
+    
+    
+    private void replaceCurrentChannel(HttpChannel channel) {
+        
+        // [why sync?] replacing ref includes transferring suspended state 
+        // read and set suspended state has to be performed atomically  
+        synchronized (channelRef) {
+            // close current channel
             HttpChannel oldStream = channelRef.get();
             if (oldStream.isConnected()) {
                 LOG.debug("[" + id + "] closing underlying channel");
             }
             oldStream.close();
-    
             
             // restore suspend state for new channel
-            channel.suspendRead(oldStream.isReadSuspended());
+            channel.suspendRead(channelRef.get().isReadSuspended());
             
             // set new channel
             channelRef.set(channel);
@@ -271,17 +285,22 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     
-    private void reconnect(Throwable t) {
-
-        // replace current channel by null channel
-        onConnected(new HttpChannel.NullHttpChannel(true));
+    private void initiateReconnect(Throwable t) {
+        // This method will be called, if 
+        // * channel read operation fails
+        // * channel write operation fails
+        // * reconnect fails
         
-        // notify close of former channel (-> reset sse parser)
-        dataHandler.onError(id, t);
+
+        // first, close current channel 
+        closeCurrentChannel(t);
 
 
         
-        synchronized (reconnectLock) {
+        // [why sync?] parallel reconnection task have to be avoided
+        // for this reason, first it will be checked if a reconnecting
+        // task is already running 
+        synchronized (reconnectingLock) {
             
             if (isOpen.get()) {
                 
@@ -289,25 +308,33 @@ class ReconnectingHttpChannel implements HttpChannel {
                     isReconnecting = true;
     
                     Runnable retryConnect = () -> {
-                        newHttpChannelAsync()
-                            .whenComplete((channel, error) -> { 
-                                                                synchronized (reconnectLock) {
-                                                                    isReconnecting = false;
+                                                    newHttpChannelAsync().whenComplete((channel, error) -> {
+                                                        
+                                                        // [why sync?] ensure that the exit state 
+                                                        // of this reconnecting task is either 
+                                                        // * a valid connection, 
+                                                        // * a newly initiated reconnect or
+                                                        // * an unchanged state (if the reconnecting channel is already closed meanwhile)
+                                                        synchronized (reconnectingLock) {
+                                                            isReconnecting = false;
+                                                            
+                                                            if (isOpen.get()) {
+                                                                
+                                                                if (error == null) {
+                                                                    if (channel.isConnected()) {
+                                                                        LOG.debug("[" + id + "] channel reconnected");
+                                                                    }
+                                                                    replaceCurrentChannel(channel);
                                                                     
-                                                                    if (error == null) {
-                                                                        if (channel.isConnected()) {
-                                                                            LOG.debug("[" + id + "] channel reconnected");
-                                                                        }
-                                                                        onConnected(channel);
-                                                                        
-                                                                    } else {
-                                                                        if (isOpen.get()) {
-                                                                            LOG.debug("[" + id + "] channel reconnect failed. Trying again");
-                                                                            reconnect(error);
-                                                                        }
+                                                                } else {
+                                                                    if (isOpen.get()) {
+                                                                        LOG.debug("[" + id + "] channel reconnect failed. Trying again");
+                                                                        initiateReconnect(error);
                                                                     }
                                                                 }
-                                                             });
+                                                            }
+                                                        }
+                                                     });
                      };
                      
                      Duration delay = retryProcessor.scheduleWithDelay(retryConnect);

@@ -491,14 +491,14 @@ class NettyBasedHttpChannelProvider implements HttpChannelProvider {
 
         @Override
         public void close() {
-            if (isConnected()) {
+            if (isOpen()) {
                 LOG.debug("[" + id + "] closing underlying channel");
             }
             channel.close();
         }
         
         @Override
-        public boolean isConnected() {
+        public boolean isOpen() {
             return channel.isOpen();
         }
     }

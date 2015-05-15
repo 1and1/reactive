@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * HttpChannel represents an underlying network connection 
+ * 
  * @author grro
  *
  */
@@ -44,7 +45,7 @@ interface HttpChannel extends Closeable {
     CompletableFuture<Void> writeAsync(String data);
     
     /**
-     * @return true, if the stream read is suspended
+     * @return true, if the channel read is suspended
      */
     boolean isReadSuspended();
     
@@ -54,19 +55,19 @@ interface HttpChannel extends Closeable {
     void suspendRead(boolean isSuspended);
     
     /**
-     * terminates the stream by killing the connection without sending a proper close sequence 
+     * terminates the channel by killing the connection without sending a proper close sequence 
      */
     void terminate();
     
     /**
-     * closing the stream regularly
+     * closing the channel regularly
      */
     void close();
     
     /**
-     * @return true, if the stream is connected
+     * @return true, if the channel is open
      */
-    boolean isConnected();
+    boolean isOpen();
     
     
     
@@ -121,7 +122,7 @@ interface HttpChannel extends Closeable {
         }
         
         @Override
-        public boolean isConnected() {
+        public boolean isOpen() {
            return false;
         }
     }

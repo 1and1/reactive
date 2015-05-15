@@ -399,7 +399,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             private synchronized void process() {
                 
-                if (sseConnection.isConnected() && !bufferedEvents.isEmpty()) {
+                if (sseConnection.isOpen() && !bufferedEvents.isEmpty()) {
                     ServerSentEvent event = bufferedEvents.poll();
 
                     sseConnection.writeAsync(event.toWire())

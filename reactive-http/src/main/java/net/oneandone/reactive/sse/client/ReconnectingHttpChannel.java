@@ -109,8 +109,8 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     @Override
-    public boolean isConnected() {
-        return getCurrentHttpChannel().isConnected();
+    public boolean isOpen() {
+        return getCurrentHttpChannel().isOpen();
     }
     
     
@@ -166,7 +166,7 @@ class ReconnectingHttpChannel implements HttpChannel {
         if (!isOpen.get()) {
             return "[closed] " + id;
             
-        } else if (getCurrentHttpChannel().isConnected()) {
+        } else if (getCurrentHttpChannel().isOpen()) {
             return (getCurrentHttpChannel().isReadSuspended() ? "[suspended] " : "") + getId();
                 
         } else {
@@ -318,7 +318,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                                                             if (isOpen.get()) {
                                                                 
                                                                 if (error == null) {
-                                                                    if (channel.isConnected()) {
+                                                                    if (channel.isOpen()) {
                                                                         LOG.debug("[" + id + "] channel reconnected");
                                                                     }
                                                                     replaceCurrentChannel(channel);

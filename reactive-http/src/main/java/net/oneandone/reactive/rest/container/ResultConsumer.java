@@ -21,7 +21,7 @@ import java.util.function.BiConsumer;
 
 import javax.ws.rs.container.AsyncResponse;
 
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 
 
 
@@ -44,7 +44,7 @@ public class ResultConsumer implements BiConsumer<Object, Throwable> {
         if (error == null) {
             asyncResponse.resume(result);
         } else {
-            asyncResponse.resume(Reactives.unwrap(error));
+            asyncResponse.resume(Utils.unwrap(error));
         }
     }
     

@@ -22,9 +22,9 @@ import java.util.concurrent.Future;
 
 
 
-public class Reactives {
+public class Utils {
     
-    private Reactives() { }
+    private Utils() { }
     
 
     

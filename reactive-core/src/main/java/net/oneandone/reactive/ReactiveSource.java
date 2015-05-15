@@ -19,7 +19,7 @@ package net.oneandone.reactive;
 import java.io.Closeable;
 import java.util.concurrent.CompletableFuture;
 
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Publisher;
 
@@ -35,7 +35,7 @@ public interface ReactiveSource<T> extends Closeable {
     
     
     static <T> ReactiveSource<T> subscribe(Publisher<T> publisher) {
-        return Reactives.get(subscribeAsync(publisher));
+        return Utils.get(subscribeAsync(publisher));
     }
     
     

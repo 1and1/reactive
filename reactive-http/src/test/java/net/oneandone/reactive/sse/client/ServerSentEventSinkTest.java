@@ -139,6 +139,7 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         Assert.assertEquals("testInboundConnectionTerminated3", reactiveSource.read().getData().get());
         
         
+        reactiveSource.close();
         reactiveSink.shutdown();
     }
 

@@ -34,7 +34,7 @@ import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.client.HttpChannelProvider.ConnectionParams;
 import net.oneandone.reactive.sse.client.HttpChannelDataHandler;
 import net.oneandone.reactive.sse.client.HttpChannel;
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,26 +115,25 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     public CompletableFuture<Boolean> init() {
-        return newHttpChannelAsync()
-                .thenApply(channel -> { 
-                                        LOG.debug("[" + id + "] initially connected");
-                                        onConnected(channel); 
-                                        return true;
-                                     })
+        return newHttpChannelAsync().thenApply(channel -> { 
+                                                            LOG.debug("[" + id + "] initially connected");
+                                                            onConnected(channel); 
+                                                            return true;
+                                                          })
                                                 
-                .exceptionally(error -> { 
-                                             // initial "connect" failed
-                                             if (isFailOnConnectError) {
-                                                 LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
-                                                 throw Reactives.propagate(error);
+                                    .exceptionally(error -> { 
+                                                            // initial "connect" failed
+                                                            if (isFailOnConnectError) {
+                                                                LOG.debug("[" + id + "] initial connect failed. " + error.getMessage());
+                                                                throw Utils.propagate(error);
                                                  
-                                             // initial "connect" failed, however should be ignored
-                                             } else { 
-                                                 LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
-                                                 reconnect(error);
-                                                 return false;
-                                             }
-                                        });
+                                                            // initial "connect" failed, however should be ignored
+                                                            } else { 
+                                                                LOG.debug("[" + id + "] initial connect failed. " + error.getMessage() + " Trying to reconnect");
+                                                                reconnect(error);
+                                                                return false;
+                                                            }
+                                                           });
     }
 
     
@@ -143,7 +142,7 @@ class ReconnectingHttpChannel implements HttpChannel {
         return getHttpChannel().writeAsync(data)
                                .exceptionally(error -> { 
                                                         reconnect(error); 
-                                                        throw Reactives.propagate(error); 
+                                                        throw Utils.propagate(error); 
                                                        });
     }
     
@@ -323,7 +322,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     
 
     private static final class RetryScheduler {
-        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 5, 25, 250, 500, 2000, 3000, 4000, 6000);
+        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 3, 25, 250, 500, 2000, 3000, 4000, 6000);
 
         private Instant lastSchedule = Instant.now();
         private Duration lastDelay = Duration.ZERO; 

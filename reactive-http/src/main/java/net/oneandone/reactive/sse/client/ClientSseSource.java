@@ -34,7 +34,7 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.ServerSentEventParser;
 import net.oneandone.reactive.sse.client.HttpChannelDataHandler;
 import net.oneandone.reactive.utils.Immutables;
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 import org.reactivestreams.Publisher;
@@ -175,7 +175,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
      * @throws ConnectException if an connect error occurs
      */
     public ReactiveSource<ServerSentEvent> open() throws ConnectException {
-        return Reactives.get(openAsync());
+        return Utils.get(openAsync());
     }
 
     

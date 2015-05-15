@@ -25,7 +25,7 @@ import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -69,7 +69,7 @@ public class ResultSubscriber {
         
         @Override
         public void onError(Throwable error) {
-            error = Reactives.unwrap(error);
+            error = Utils.unwrap(error);
             asyncResponse.resume(error);
         }
         
@@ -120,7 +120,7 @@ public class ResultSubscriber {
         
         @Override
         public void onError(Throwable error) {
-            error = Reactives.unwrap(error);
+            error = Utils.unwrap(error);
             asyncResponse.resume(error);
         }
         

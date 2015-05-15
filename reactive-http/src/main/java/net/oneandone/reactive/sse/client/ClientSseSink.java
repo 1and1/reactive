@@ -41,7 +41,7 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 
 
 import net.oneandone.reactive.sse.client.HttpChannel;
-import net.oneandone.reactive.utils.Reactives;
+import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -213,7 +213,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     
     public ReactiveSink<ServerSentEvent> open() {
-        return Reactives.get(openAsync());
+        return Utils.get(openAsync());
     }
     
     

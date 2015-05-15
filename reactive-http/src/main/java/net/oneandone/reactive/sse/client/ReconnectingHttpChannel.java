@@ -154,7 +154,10 @@ class ReconnectingHttpChannel implements HttpChannel {
 
     @Override
     public void suspendRead(boolean isSuspended) {
-        getCurrentHttpChannel().suspendRead(isSuspended);
+        // [why sync?] replacing ref (see below) includes transferring suspended state 
+        synchronized (channelRef) {
+            getCurrentHttpChannel().suspendRead(isSuspended);
+        }
     }
     
     
@@ -263,9 +266,7 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     
     private void replaceCurrentChannel(HttpChannel channel) {
-        
         // [why sync?] replacing ref includes transferring suspended state 
-        // read and set suspended state has to be performed atomically  
         synchronized (channelRef) {
             // close current channel
             HttpChannel oldStream = channelRef.get();

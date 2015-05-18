@@ -26,6 +26,7 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import net.oneandone.reactive.ConnectException;
@@ -43,9 +44,8 @@ import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Queues;
 
 
 
@@ -214,19 +214,15 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
      */
     private static class SseInboundStreamSubscription implements Subscription {
         private final String id = "cl-in-" + UUID.randomUUID().toString();
-     
-        // properties
-        private final int numPrefetchedElements;
-        
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+
         // underlying stream
         private final ReconnectingHttpChannel sseConnection;
 
         // incoming event handling
-        private final FlowControl flowControl = new FlowControl();
-        private final EventBuffer eventBuffer;
+        private final FlowControl flowControl;
+        private final InboundBuffer inboundBuffer;
         private final SubscriberNotifier<ServerSentEvent> subscriberNotifier; 
-    
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
 
         
     
@@ -238,25 +234,24 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                              Optional<Duration> connectionTimeout, 
                                              Subscriber<? super ServerSentEvent> subscriber) {
 
-            this.numPrefetchedElements = numPrefetchedElements;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
-            this.eventBuffer = new EventBuffer(id, 
-                                               flowControl,
-                                               (event) -> subscriberNotifier.notifyOnNext(event), 
-                                               lastId);
-
+            this.flowControl = new FlowControl(numPrefetchedElements);
+            this.inboundBuffer = new InboundBuffer(id, 
+                                                   flowControl,
+                                                   (event) -> subscriberNotifier.notifyOnNext(event), 
+                                                   lastId);
             
             sseConnection = new ReconnectingHttpChannel(id, 
-                                                   uri,
-                                                   "GET", 
-                                                   ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
-                                                   isFailOnConnectError, 
-                                                   numFollowRedirects, 
-                                                   connectionTimeout, 
-                                                   (stream) -> { },                          // connect listener
-                                                   eventBuffer,                              // data consumer
-                                                   (headers) -> Immutables.join(headers, eventBuffer.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
+                                                        uri,
+                                                        "GET", 
+                                                        ImmutableMap.of(HttpHeaders.Names.ACCEPT, "text/event-stream"),
+                                                        isFailOnConnectError, 
+                                                        numFollowRedirects, 
+                                                        connectionTimeout, 
+                                                        (stream) -> { },                          // connect listener
+                                                        inboundBuffer,                           // data consumer
+                                                        (headers) -> Immutables.join(headers, inboundBuffer.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
             
             sseConnection.init()
                          .thenAccept(isConnected -> subscriberNotifier.start())
@@ -280,7 +275,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     // https://github.com/reactive-streams/reactive-streams#3.9
                     subscriberNotifier.notifyOnError((new IllegalArgumentException("Non-negative number of elements must be requested: https://github.com/reactive-streams/reactive-streams#3.9")));
                 } else {
-                    eventBuffer.onRequested((int) n);
+                    inboundBuffer.onRequested((int) n);
                 }
             } else {
                 subscriberNotifier.notifyOnError((new IllegalArgumentException("source is closed")));
@@ -291,12 +286,17 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
          
         @Override
         public String toString() {
-           return sseConnection.toString() + "  buffered events: " + eventBuffer.getNumBuffered() + ", num requested: " + eventBuffer.getNumPendingRequests();
+           return sseConnection.toString() + "  buffered events: " + inboundBuffer.getNumBuffered() + ", num requested: " + inboundBuffer.getNumPendingRequests();
         }
      
         
         
-        private final class FlowControl implements EventBufferListener {
+        private final class FlowControl implements InboundBufferListener {
+            private final int numPrefetchedElements;
+
+            public FlowControl(int numPrefetchedElements) {
+                this.numPrefetchedElements = numPrefetchedElements;
+            }
    
             public void onElementAdded(int numBuffered, int numPendingRequest) {
                 // [Flow-control] will be suspended, if num pre-fetched more than requested ones
@@ -321,7 +321,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         
 
 
-        private static interface EventBufferListener {
+        private static interface InboundBufferListener {
             
             void onElementAdded(int numBuffered, int numPendingRequest);
 
@@ -330,20 +330,21 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
         
         
-        private static class EventBuffer implements HttpChannelDataHandler {
-            private final Queue<ServerSentEvent> bufferedEvents = Lists.newLinkedList();
+        
+        private static class InboundBuffer implements HttpChannelDataHandler {
+            private final Queue<ServerSentEvent> bufferedEvents = Queues.newConcurrentLinkedQueue();
             private final ServerSentEventParser parser = new ServerSentEventParser();
             
             private final String id;
-            private final EventBufferListener elementListener;
+            private final InboundBufferListener elementListener;
             private final Consumer<ServerSentEvent> eventConsumer;
 
+            private final AtomicInteger numPendingRequested = new AtomicInteger(0);
             private Optional<String> lastEventId;
-            private int numPendingRequested = 0;
 
             
             
-            public EventBuffer(String id, EventBufferListener elementListener, Consumer<ServerSentEvent> eventConsumer, Optional<String> lastEventId) {
+            public InboundBuffer(String id, InboundBufferListener elementListener, Consumer<ServerSentEvent> eventConsumer, Optional<String> lastEventId) {
                 this.id = id;
                 this.elementListener = elementListener;
                 this.eventConsumer = eventConsumer;
@@ -351,32 +352,24 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
             }
             
 
-
-            public synchronized void onRequested(int num) {
-                numPendingRequested += num;
+            public void onRequested(int num) {
+                numPendingRequested.addAndGet(num);
                 process();
             }
             
-            
-            @Override
-            public void onError(String channelId, Throwable error) {
-                LOG.debug("[" + id + "] resetting sse parser");
-                parser.reset();
-            }
 
             @Override
             public void onContent(String streamlId, ByteBuffer[] data) {
+    
                 for (int i = 0; i < data.length; i++) {
                 
-                    ImmutableList<ServerSentEvent> events = parser.parse(data[i]);
-                    for (ServerSentEvent event : events) {
-                        
+                    for (ServerSentEvent event : parser.parse(data[i])) {
                         logEventReceived(event);
+                        
                         if (!event.isSystem()) {
-                            bufferedEvents.add(event);
+                            bufferedEvents.offer(event);
                             lastEventId = event.getId();
-
-                            elementListener.onElementAdded(bufferedEvents.size(), numPendingRequested);
+                            elementListener.onElementAdded(bufferedEvents.size(), numPendingRequested.get());
                         }
                     }
                 }
@@ -386,27 +379,37 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
 
             
             private void process() {
-                while ((numPendingRequested > 0) && !bufferedEvents.isEmpty()) {
+                while (numPendingRequested.get() > 0) {
                     ServerSentEvent event = bufferedEvents.poll();
-                    eventConsumer.accept(event);
-                    numPendingRequested--;
-                    elementListener.onElementRemoved(bufferedEvents.size(), numPendingRequested);
+                    if (event == null) {
+                        return;
+                    } else {
+                        eventConsumer.accept(event);
+                        numPendingRequested.decrementAndGet();
+                        elementListener.onElementRemoved(bufferedEvents.size(), numPendingRequested.get());
+                    }
                 }
             }
+            
+
+            @Override
+            public void onError(String channelId, Throwable error) {
+                LOG.debug("[" + id + "] resetting sse parser");
+                parser.reset();
+            }
+
             
             public synchronized Optional<String> getLastEventId() {
                 return lastEventId;
             }
             
             public synchronized int getNumPendingRequests() {
-                return numPendingRequested;
+                return numPendingRequested.get();
             }
             
             public synchronized int getNumBuffered() {
                 return bufferedEvents.size();
             }
-            
-            
             
             private void logEventReceived(ServerSentEvent event) {
                 if (LOG.isDebugEnabled()) {
@@ -420,7 +423,6 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                     }
                 }
             }
-            
         }
     }
 }  

@@ -193,9 +193,11 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         }
         
         private void process() {
-            while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
-                CompletableFuture<T> promise = pendingReads.removeFirst();
-                promise.complete(inBuffer.removeFirst());
+            synchronized (processingLock) {
+                while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
+                    CompletableFuture<T> promise = pendingReads.removeFirst();
+                    promise.complete(inBuffer.removeFirst());
+                }
             }
         }
         

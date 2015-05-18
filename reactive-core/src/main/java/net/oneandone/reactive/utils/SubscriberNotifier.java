@@ -80,6 +80,9 @@ public class SubscriberNotifier<T> {
      * @param t the element
      */
     public void notifyOnNext(T t) {
+        if (t == null) {
+            throw new NullPointerException("onNext element to notify is null");
+        }
         notify(new OnNext<>(t));
     }
 
@@ -89,6 +92,9 @@ public class SubscriberNotifier<T> {
      * @param error the error to notify
      */
     public void notifyOnError(Throwable error) {
+        if (error == null) {
+            throw new NullPointerException("onError element to notify is null");
+        }
         notify(new OnError<>(error));
     }
     

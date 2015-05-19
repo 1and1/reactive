@@ -54,7 +54,6 @@ import com.google.common.io.BaseEncoding;
 
 
 
-@Deprecated
 public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;

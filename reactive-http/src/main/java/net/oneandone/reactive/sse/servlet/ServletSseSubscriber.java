@@ -42,7 +42,6 @@ import org.slf4j.LoggerFactory;
  * Maps Server-sent events (reactive) stream into a servlet output streamr 
  * 
  */
-@Deprecated
 public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ServletSseSubscriber.class);
 
@@ -72,10 +71,6 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
     }   
 
 
-
-   
-   
-    
     @Override
     public void onSubscribe(Subscription subscription) {
         subscriptionRef.set(subscription);

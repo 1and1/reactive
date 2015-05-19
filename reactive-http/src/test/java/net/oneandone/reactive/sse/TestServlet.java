@@ -21,7 +21,6 @@ package net.oneandone.reactive.sse;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -152,25 +151,18 @@ public class TestServlet extends HttpServlet {
         private final Map<String, Instant> deepSleepTime = Maps.newHashMap();
 
         private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(0);
+        private final Map<String, Map<String, String>> eventHistoryCache = Maps.newHashMap();
         
-        private final Map<String, ServerSentEvent> eventHistoryCache = Collections.synchronizedMap(new LinkedHashMap<String, ServerSentEvent>() {
-            private static final long serialVersionUID = -1640442197943481724L;
-
-            protected boolean removeEldestEntry(Map.Entry<String,ServerSentEvent> eldest) {
-                return (size() > 100);
-            }
-        });
         
-
-        public synchronized void registerPublisher(String id, Publisher<ServerSentEvent> publisher) {
-            if (isKnockedOut(id)) {
+        public synchronized void registerPublisher(String channelId, Publisher<ServerSentEvent> publisher) {
+            if (isKnockedOut(channelId)) {
                 throw new RuntimeException("knockout drops");
             }
-            publisher.subscribe(new InboundHandler(id));
+            publisher.subscribe(new InboundHandler(channelId));
         }
  
-        public synchronized void registerSubscriber(String id, Subscriber<ServerSentEvent> subscriber, String lastEventId) {
-            if (isKnockedOut(id)) {
+        public synchronized void registerSubscriber(String channelId, Subscriber<ServerSentEvent> subscriber, String lastEventId) {
+            if (isKnockedOut(channelId)) {
                 throw new RuntimeException("knockout drops");
             }
             
@@ -179,21 +171,28 @@ public class TestServlet extends HttpServlet {
             
             synchronized (subscriptions) {
                 if (lastEventId != null) {
-                    boolean isReplaying = false;
-                    for (Entry<String, ServerSentEvent> entry : eventHistoryCache.entrySet()) {
-                        if (isReplaying) {
-                            brokerSubscription.publish(entry.getValue());
-                        }
-                        
-                        if (entry.getKey().equals(lastEventId)) {
-                            isReplaying = true;
+                    
+                    synchronized (eventHistoryCache) {
+                        Map<String, String> events = eventHistoryCache.get(channelId);
+
+                        if (events != null) {
+                            boolean isReplaying = false;
+                            for (Entry<String, String> entry : events.entrySet()) {
+                                if (isReplaying) {
+                                    brokerSubscription.publish(ServerSentEvent.newEvent().id(entry.getKey()).data(entry.getValue()));
+                                }
+                                
+                                if (entry.getKey().equals(lastEventId)) {
+                                    isReplaying = true;
+                                }
+                            }
                         }
                     }
                 }
                 
                 
-                ImmutableSet<BrokerSubscription> subs = getSubscriptions(id);
-                subscriptions.put(id, ImmutableSet.<BrokerSubscription>builder().addAll(subs).add(brokerSubscription).build());
+                ImmutableSet<BrokerSubscription> subs = getSubscriptions(channelId);
+                subscriptions.put(channelId, ImmutableSet.<BrokerSubscription>builder().addAll(subs).add(brokerSubscription).build());
             }
         }
         
@@ -289,13 +288,13 @@ public class TestServlet extends HttpServlet {
         
         private final class InboundHandler implements Subscriber<ServerSentEvent> {
 
-            private final String id; 
+            private final String channelId; 
             private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
             private final AtomicReference<FlowControl> flowControlRef = new AtomicReference<>(new Awake());
             
             
-            public InboundHandler(String id) {
-                this.id = id;
+            public InboundHandler(String channelId) {
+                this.channelId = channelId;
             }
             
             @Override
@@ -308,14 +307,14 @@ public class TestServlet extends HttpServlet {
             public void onComplete() {
                 LOG.debug("completed");
                 subscriptionRef.get().cancel();
-                getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                getSubscriptions(channelId).forEach(subscription -> subscription.cancel());
             }
             
             @Override
             public void onError(Throwable t) {
                 LOG.debug("error " + t);
                 subscriptionRef.get().cancel();
-                getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                getSubscriptions(channelId).forEach(subscription -> subscription.cancel());
             }
             
             @Override
@@ -324,13 +323,13 @@ public class TestServlet extends HttpServlet {
                 
                 if (event.getEvent().orElse("").equalsIgnoreCase("posion pill")) {
                     subscriptionRef.get().cancel();
-                    getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                    getSubscriptions(channelId).forEach(subscription -> subscription.cancel());
                 
                 } else if (event.getEvent().orElse("").equalsIgnoreCase("knockout drops")) {
                     String millis = event.getData().orElse("100");
-                    deepSleepTime.put(id, Instant.now().plusMillis(Long.parseLong(millis)));
+                    deepSleepTime.put(channelId, Instant.now().plusMillis(Long.parseLong(millis)));
                     subscriptionRef.get().cancel();
-                    getSubscriptions(id).forEach(subscription -> subscription.cancel());
+                    getSubscriptions(channelId).forEach(subscription -> subscription.cancel());
                     
                 } else if (event.getEvent().orElse("").equalsIgnoreCase("soporific")) {
                     String millis = event.getData().orElse("100");
@@ -338,8 +337,22 @@ public class TestServlet extends HttpServlet {
                     
                 } else {
                     publish(event);
-                    String eventId = event.getId().orElse(UUID.randomUUID().toString());
-                    eventHistoryCache.put(eventId, event);
+                    
+                    synchronized (eventHistoryCache) {
+                        Map<String, String> events = eventHistoryCache.get(channelId);
+                        if (events == null) {
+                            events = new LinkedHashMap<String, String>() {
+                                                    private static final long serialVersionUID = -1640442197943481724L;
+    
+                                                    protected boolean removeEldestEntry(Map.Entry<String,String> eldest) {
+                                                        return (size() > 100);
+                                                    }
+                                    }; 
+                                    
+                           eventHistoryCache.put(channelId, events);
+                        }
+                        events.put(event.getId().orElse(UUID.randomUUID().toString()), event.getData().orElse(""));
+                    }
                 }
                 
                 flowControlRef.get().onEvent();
@@ -347,7 +360,7 @@ public class TestServlet extends HttpServlet {
             
             
             private void publish(ServerSentEvent event) {
-                getSubscriptions(id).forEach(subscription ->  subscription.publish(event));
+                getSubscriptions(channelId).forEach(subscription ->  subscription.publish(event));
             }
             
             
@@ -386,5 +399,4 @@ public class TestServlet extends HttpServlet {
             void onEvent();
         }
     }
-
 }

@@ -73,7 +73,6 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private final boolean isAutoRetry;
     
     
-
     // stream
     private final AtomicReference<SseOutboundStream> sseOutboundStreamRef = new AtomicReference<>();
     
@@ -228,15 +227,19 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onSubscribe(Subscription subscription) {
-        sseOutboundStreamRef.set(new SseOutboundStream(subscription,
-                                                       uri,
-                                                       isAutoId,
-                                                       numFollowRedirects,
-                                                       isFailOnConnectError,
-                                                       connectionTimeout, 
-                                                       keepAlivePeriod,
-                                                       numBufferedElements,
-                                                       isAutoRetry));
+        if (sseOutboundStreamRef.get() == null) {
+            sseOutboundStreamRef.set(new SseOutboundStream(subscription,
+                                                           uri,
+                                                           isAutoId,
+                                                           numFollowRedirects,
+                                                           isFailOnConnectError,
+                                                           connectionTimeout, 
+                                                           keepAlivePeriod,
+                                                           numBufferedElements,
+                                                           isAutoRetry));
+        } else {
+            throw new IllegalStateException("already subscribed");
+        }
     }
 
     
@@ -266,6 +269,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     
     private static final class SseOutboundStream {
         private final String id = "cl-out-" + UUID.randomUUID().toString();
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         // properties
         private final boolean isAutoId;
@@ -273,15 +277,18 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         private final Subscription subscription;
 
         // underlying buffer/stream
-        private final SendBuffer sendBuffer;
+        private final OutboundBuffer outboundBuffer;
         private final ReconnectingHttpChannel sseConnection;
         
         // auto event id support
         private final String globalId = UID.newId();
         private final AtomicLong nextLocalId = new AtomicLong(1);
 
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
-
+        // statistics
+        private final AtomicLong numSent = new AtomicLong();
+        private final AtomicLong numSendErrors = new AtomicLong();
+        private final AtomicLong numResendTrials = new AtomicLong();
+         
         
 
         
@@ -292,24 +299,25 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
                                  Duration keepAlivePeriod,
-                                 int numBufferSize,
+                                 int maxBufferSize,
                                  boolean isAutoRetry) {
             
             this.subscription = subscription;
             this.isAutoId = isAutoId;
             this.isAutoRetry = isAutoRetry;
-            this.sendBuffer = new SendBuffer(numBufferSize); 
+            
+            this.outboundBuffer = new OutboundBuffer(maxBufferSize); 
             
             sseConnection = new ReconnectingHttpChannel(id, 
-                                                   uri,
-                                                   "POST", 
-                                                   ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
-                                                   isFailOnConnectError, 
-                                                   numFollowRedirects, 
-                                                   connectionTimeout, 
-                                                   (isWriteable) -> sendBuffer.refresh(),    // writeable changed listener
-                                                   new HttpChannelDataHandler()  { },                   // data consumer
-                                                   (headers) -> headers);
+                                                        uri,
+                                                        "POST", 
+                                                        ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
+                                                        isFailOnConnectError, 
+                                                        numFollowRedirects, 
+                                                        connectionTimeout, 
+                                                        (isWriteable) -> outboundBuffer.refresh(),    // writeable changed listener
+                                                        new HttpChannelDataHandler()  { },        // data consumer
+                                                        (headers) -> headers);
 
             sseConnection.init()
                          .thenAccept(isConnected -> { new KeepAliveEmitter(id, keepAlivePeriod, sseConnection).start(); subscription.request(1); })
@@ -330,7 +338,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                        .comment(event.getComment().orElse(null));
             }
             
-            sendBuffer.onData(event);
+            outboundBuffer.onData(event);
         }
         
 
@@ -350,11 +358,11 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                 subscription.cancel();
             }
         }
-        
+
         
         @Override
         public String toString() {
-           return sseConnection.toString();
+           return  sseConnection.toString() + ", numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
         }
         
         
@@ -373,11 +381,11 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
         
         
-        private final class SendBuffer {
+        private final class OutboundBuffer {
             private final LinkedList<ServerSentEvent> bufferedEvents; 
             private final int maxBufferSize;
 
-            public SendBuffer(int maxBufferSize) {
+            public OutboundBuffer(int maxBufferSize) {
                 this.maxBufferSize = maxBufferSize;
                 this.bufferedEvents = Lists.newLinkedList(); 
             }
@@ -387,27 +395,47 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                 process();
             }
     
-            public synchronized void onData(ServerSentEvent event) {
-                if (bufferedEvents.size() > maxBufferSize) {
-                    throw new IllegalStateException("buffer limit " + maxBufferSize + " exceeded");
+            public void onData(ServerSentEvent event) {
+                synchronized (bufferedEvents) {
+                    if (bufferedEvents.size() > maxBufferSize) {
+                        throw new IllegalStateException("buffer limit " + maxBufferSize + " exceeded");
+                    }
+                    
+                    bufferedEvents.add(event);
                 }
-                
-                bufferedEvents.add(event);
+
                 process();
             }
 
             
-            private synchronized void process() {
+            private void process() {
                 
-                if (sseConnection.isOpen() && !bufferedEvents.isEmpty()) {
-                    ServerSentEvent event = bufferedEvents.poll();
-
+                if (sseConnection.isOpen()) {
+                    
+                    ServerSentEvent event;
+                    synchronized (bufferedEvents) {
+                        event = bufferedEvents.poll();
+                    }
+                    
+                    if (event == null) {
+                        return;
+                    }
+                    
+                    
                     sseConnection.writeAsync(event.toWire())
-                                 .thenAccept((Void) -> { logEventWritten(id, event); subscription.request(1); process(); })
+                                 .thenAccept((Void) -> {
+                                                         logEventWritten(id, event);
+                                                         numSent.incrementAndGet();
+                                                         subscription.request(1); 
+                                                         process(); 
+                                                       })
                                  .exceptionally((error -> {
+                                                             numSendErrors.incrementAndGet();
+                                                             
                                                              if (isAutoRetry) {
                                                                  LOG.debug("[" + id + "] " + error.getMessage() + " error occured by writing event " + event.getId().orElse("") + " requeue event to send buffer");
-                                                                 synchronized (SendBuffer.this) {
+                                                                 numResendTrials.incrementAndGet();
+                                                                 synchronized (bufferedEvents) {
                                                                      bufferedEvents.addFirst(event);
                                                                  }
                                                                  

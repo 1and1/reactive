@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -77,6 +78,10 @@ class ReconnectingHttpChannel implements HttpChannel {
     private final Object reconnectingLock = new Object();
     private boolean isReconnecting = false;
 
+    
+    // statistics
+    private final AtomicInteger numReconnectTrials = new AtomicInteger();
+    private final AtomicInteger numReconnects = new AtomicInteger();
     
    
     
@@ -165,15 +170,21 @@ class ReconnectingHttpChannel implements HttpChannel {
     
     @Override
     public String toString() {
+        StringBuilder builder = new StringBuilder();
+        
         if (!isOpen.get()) {
-            return "[closed] " + id;
+            builder.append("[closed] " + id);
             
         } else if (getCurrentHttpChannel().isOpen()) {
-            return (getCurrentHttpChannel().isReadSuspended() ? "[suspended] " : "") + getId();
+            builder.append((getCurrentHttpChannel().isReadSuspended() ? "[suspended] " : "") + getId());
                 
         } else {
-            return "[not connected] " + id;
+            builder.append("[not connected] " + id);
         }
+        
+        builder.append(" numReconnectTrials: " + numReconnectTrials.get() + ", numReconnects: " + numReconnects.get());
+        
+        return builder.toString();
     }
     
     
@@ -299,6 +310,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                 if (!isReconnecting) {
                     isReconnecting = true;
     
+                    numReconnectTrials.incrementAndGet();
                     Runnable retryConnect = () -> {
                                                     newHttpChannelAsync().whenComplete((channel, error) -> {
                                                         
@@ -315,6 +327,7 @@ class ReconnectingHttpChannel implements HttpChannel {
                                                                 if (error == null) {
                                                                     if (channel.isOpen()) {
                                                                         LOG.debug("[" + id + "] channel reconnected");
+                                                                        numReconnects.incrementAndGet();
                                                                     }
                                                                     replaceCurrentChannel(channel);
                                                                     

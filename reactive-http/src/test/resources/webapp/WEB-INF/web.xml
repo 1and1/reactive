@@ -56,4 +56,16 @@
 	</servlet-mapping>
 
 
+
+	<servlet>
+		<servlet-name>SinkServlet</servlet-name>
+		<servlet-class>net.oneandone.reactive.sse.EventSinkServlet</servlet-class>
+		<async-supported>true</async-supported>
+	</servlet>
+
+	<servlet-mapping>
+		<servlet-name>SinkServlet</servlet-name>
+		<url-pattern>/sink/*</url-pattern>
+	</servlet-mapping>
+
 </web-app> 

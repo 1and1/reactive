@@ -76,10 +76,12 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
         reactiveSink.shutdown();
     }
     
+    
+
 
     @Ignore
     @Test
-    public void testWriteBufferOverflow() throws Exception {        
+    public void testWriteBufferOverflowFull() throws Exception {        
     
         URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
         
@@ -95,11 +97,11 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
             reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));
         }
         
+        sleep(1000);
 
         Map<String, ServerSentEvent> result = Maps.newHashMap();
         for (int i = 0; i < numLoops; i++) {
             ServerSentEvent event = reactiveSource.read();
-            System.out.println(event.getId().get());
             result.put(event.getId().get(), event);
         }
 

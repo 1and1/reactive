@@ -17,7 +17,6 @@ package net.oneandone.reactive;
 
 
 import java.util.LinkedList;
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,13 +27,18 @@ import java.util.concurrent.atomic.AtomicReference;
 
 
 
+import java.util.function.Consumer;
+
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 
 
 class ReactiveSourceSubscriber<T> implements Subscriber<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(ReactiveSourceSubscriber.class);
     
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
     private final AtomicReference<EventConsumer<T>> eventConsumerRef = new AtomicReference<>(new InitialEventConsumer());
@@ -142,6 +146,20 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
             }
         }
 
+        
+        @Override
+        public void consume(Consumer<T> consumer) {
+            readAsync().thenAccept(event -> {
+                                                consumer.accept(event);
+                                                consume(consumer);
+                                            })
+                       .exceptionally(error -> {
+                           LOG.debug("error occured by calling consumer " + consumer + " " + error.toString());
+                           close();
+                           return null;
+                       });
+        }
+        
         
         @Override
         public CompletableFuture<T> readAsync() {

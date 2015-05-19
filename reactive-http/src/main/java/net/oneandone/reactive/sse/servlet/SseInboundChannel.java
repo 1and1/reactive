@@ -143,6 +143,12 @@ class SseInboundChannel {
         serverSentEventsStream.close();
     }
     
+    
+    @Override
+    public String toString() {
+        return serverSentEventsStream.toString() + ", num requested: " + numPendingConsumes.get();
+    }
+    
 
     /**
      * SSEInputStream
@@ -203,6 +209,11 @@ class SseInboundChannel {
             } catch (IllegalStateException ise)  {
                 return false;
             }
+        }
+        
+        @Override
+        public String toString() {
+            return id + " dataAvailable?: " + isNetworkdataAvailable() + ",  buffered events: " + bufferedEvents.size();
         }
     }
 }    

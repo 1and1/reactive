@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 public class ServletSsePublisher implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ServletSsePublisher.class);
     
+    private final HttpServletResponse resp;
     
     private boolean subscribed = false; // true after first subscribe
     private final ServletInputStream inputStream;
@@ -49,32 +50,30 @@ public class ServletSsePublisher implements Publisher<ServerSentEvent> {
     
 
     public ServletSsePublisher(HttpServletRequest req, HttpServletResponse resp) {
-        this(req, (Void) -> sendNoContentResponse(resp),  (error) -> sendServerError(resp, error));
+        LOG.debug(req.getMethod() + " " + req.getRequestURL().toString());
         
+        try {
+            this.resp = resp;
+            this.inputStream = req.getInputStream();
+            this.closeListener = (Void) -> sendNoContentResponse(resp);
+            this.errorListener = (error) -> sendServerError(resp, error);
+            
+            if (!req.isAsyncStarted()) {
+                req.startAsync().setTimeout(Long.MAX_VALUE);  // tomcat 7 default is 30 sec 
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+    
+    
+    private void startReceiving() {
         try {
             resp.flushBuffer();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
     }
-    
-    
-    private ServletSsePublisher(HttpServletRequest req, Consumer<Void> closeListener, Consumer<Throwable> errorListener) {
-        LOG.debug(req.getMethod() + " " + req.getRequestURL().toString());
-        
-        if (!req.isAsyncStarted()) {
-            req.startAsync().setTimeout(Long.MAX_VALUE);  // tomcat 7 default is 30 sec 
-        }
-        
-        try {
-            this.inputStream = req.getInputStream();
-            this.closeListener = closeListener;
-            this.errorListener = errorListener;
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
-    }
-    
 
     
     
@@ -89,6 +88,8 @@ public class ServletSsePublisher implements Publisher<ServerSentEvent> {
             if (subscribed == true) {
                 subscriber.onError(new IllegalStateException("subscription already exists. Multi-subscribe is not supported"));  // only one allowed
             } else {
+                startReceiving();
+                
                 subscribed = true;
                 SEEEventReaderSubscription subscription = new SEEEventReaderSubscription(inputStream, subscriber, closeListener, errorListener);
                 subscription.init();
@@ -175,6 +176,12 @@ public class ServletSsePublisher implements Publisher<ServerSentEvent> {
             } else {
                 channel.request(n);
             }
+        }
+        
+        
+        @Override
+        public String toString() {
+            return channel.toString();
         }
     }
 }        

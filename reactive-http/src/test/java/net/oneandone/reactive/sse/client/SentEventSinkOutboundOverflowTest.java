@@ -57,7 +57,7 @@ public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
         
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).buffer(Integer.MAX_VALUE).open();
         
-        int numLoops = 3000;
+        int numLoops = 5000;
         
         for (int i = 0; i < numLoops; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data(i + "_" + LARGE_TEXT));

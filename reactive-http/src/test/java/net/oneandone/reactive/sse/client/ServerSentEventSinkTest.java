@@ -25,6 +25,7 @@ import java.util.UUID;
 import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ReactiveSource;
+import net.oneandone.reactive.TestServletbasedTest;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;
@@ -79,38 +80,6 @@ public class ServerSentEventSinkTest extends TestServletbasedTest  {
     
 
 
-    @Ignore
-    @Test
-    public void testWriteBufferOverflowFull() throws Exception {        
-    
-        URI uri = URI.create(getServer().getBaseUrl() + "/simpletest/channel/" + UUID.randomUUID().toString());
-        
-        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri).open();    
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).buffer(Integer.MAX_VALUE).open();
-  
-        reactiveSink.write(ServerSentEvent.newEvent().event("soporific").data("500"));
-        
-        
-        int numLoops = 1000;
-        
-        for (int i = 0; i < numLoops; i++) {
-            reactiveSink.write(ServerSentEvent.newEvent().data("test" + i + LARGE_TEXT));
-        }
-        
-        sleep(1000);
-
-        Map<String, ServerSentEvent> result = Maps.newHashMap();
-        for (int i = 0; i < numLoops; i++) {
-            ServerSentEvent event = reactiveSource.read();
-            result.put(event.getId().get(), event);
-        }
-
-
-        
-        reactiveSource.close();        
-        reactiveSink.shutdown();
-    }
-    
 
 
 

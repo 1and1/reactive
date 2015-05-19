@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ReactiveSource;
+import net.oneandone.reactive.TestServletbasedTest;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.junit.Assert;

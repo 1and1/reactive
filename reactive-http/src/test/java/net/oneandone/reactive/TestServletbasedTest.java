@@ -13,11 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse.client;
+package net.oneandone.reactive;
 
 
-
-import net.oneandone.reactive.WebContainer;
 
 import org.junit.After;
 import org.junit.Before;

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse.client;
+package net.oneandone.reactive.rest.client;
 
 
 
@@ -27,15 +27,17 @@ import javax.ws.rs.client.ClientBuilder;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ReactiveSource;
+import net.oneandone.reactive.TestServletbasedTest;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.junit.Assert;
 import org.junit.Test;
 
 import com.google.common.base.Splitter;
 
 
-public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
+public class RxClientSinkTest extends TestServletbasedTest  {
     
     private static final String LARGE_TEXT = "DSDGSRHEDHGSFDFADFWSFSADFQEWRTSFDGASFDFSADFASTFRWAERTWSGSDFSDFSDGFSRGTWRTWERGSFGSDFsdfaser" +
                                              "gfsdfgsdfgsagadfgsafgsgsgasfgasfdgasdfgdsfgaerzqtehdbycbnsfthastrhdfadfbyfxbadfgaehgatedhd" +
@@ -52,15 +54,17 @@ public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
     
     @Test
     public void testWriteBufferOverflow() throws Exception {        
+        Client client = new ResteasyClientBuilder().connectionPoolSize(5).build(); 
+        
         URI uri = URI.create(getServer().getBaseUrl() + "/sink/");
         System.out.println(uri);
         
-        ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).buffer(Integer.MAX_VALUE).open();
+        ReactiveSink<String> reactiveSink = new RxClientSink<String>(client, uri).buffersize(Integer.MAX_VALUE).open();
         
         int numLoops = 1000;
         
         for (int i = 0; i < numLoops; i++) {
-            reactiveSink.write(ServerSentEvent.newEvent().data(i + "_" + LARGE_TEXT));
+            reactiveSink.write(i + "_" + LARGE_TEXT);
         }
         
         sleep(2000);
@@ -76,11 +80,9 @@ public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
             }
         }
         
-        Assert.assertFalse(reactiveSink.toString().contains("numSendErrors: 0"));
         System.out.println(reactiveSink.toString());
         
         
-        Client client = ClientBuilder.newClient();
         String result = client.target(uri).request().get(String.class);
         List<Integer> ids = Splitter.on("\r\n").splitToList(result).stream().map(id -> Integer.parseInt(id)).collect(Collectors.toList());
         Collections.sort(ids);

@@ -35,9 +35,11 @@ import net.oneandone.reactive.sse.servlet.ServletSsePublisher;
 
 import org.reactivestreams.Publisher;
 
+import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.io.ByteStreams;
 
 
 
@@ -45,35 +47,40 @@ import com.google.common.collect.Lists;
 public class EventSinkServlet extends HttpServlet {
     
     private static final long serialVersionUID = -2315647950747518122L;
-    private final List<ServerSentEvent> events = Lists.newArrayList(); 
+    private final List<String> events = Lists.newArrayList(); 
 
     private final Instant startTime = Instant.now();
     private final Duration initialPause = Duration.ofMillis(500);
-    
-    
+
+      
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
-        ReactiveSource<ServerSentEvent> source = ReactiveSource.subscribe(publisher);
-     
-        Duration sleepTime = Duration.between(startTime, Instant.now()).minus(initialPause);
-        if (!sleepTime.isNegative()) {
-            try {
-               Thread.sleep(sleepTime.toMillis()); 
-            } catch (InterruptedException ignore) { }
+        if (req.getContentType().equalsIgnoreCase("text/event-stream")) {
+            Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
+            ReactiveSource<ServerSentEvent> source = ReactiveSource.subscribe(publisher);
+         
+            Duration sleepTime = Duration.between(startTime, Instant.now()).minus(initialPause);
+            if (!sleepTime.isNegative()) {
+                try {
+                   Thread.sleep(sleepTime.toMillis()); 
+                } catch (InterruptedException ignore) { }
+            }
+            
+            source.consume(event -> addEvent(event.getData().get()));
+            
+        } else {
+            addEvent(new String(ByteStreams.toByteArray(req.getInputStream()), Charsets.UTF_8));
         }
-        
-        source.consume(event -> addEvent(event));
     }
  
     
-    private void addEvent(ServerSentEvent event) {
+    private void addEvent(String data) {
         synchronized (events) {
-            events.add(event);            
+            events.add(data);            
         }
     }
     
-    private ImmutableList<ServerSentEvent> getEvents() {
+    private ImmutableList<String> getEvents() {
         synchronized (events) {
             return ImmutableList.copyOf(events);
         }
@@ -83,6 +90,6 @@ public class EventSinkServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("text/plain");
-        resp.getWriter().print(Joiner.on("\r\n").join(getEvents().stream().map(event -> event.getData().get().split("_")[0]).collect(Collectors.toList())).toString());
+        resp.getWriter().print(Joiner.on("\r\n").join(getEvents().stream().map(data -> data.split("_")[0]).collect(Collectors.toList())).toString());
     }
 }

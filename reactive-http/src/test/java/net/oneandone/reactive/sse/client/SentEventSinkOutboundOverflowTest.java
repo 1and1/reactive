@@ -48,12 +48,6 @@ public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
                                              "affdaffbdfadfhadthadhdatrhdadfsrzsfietzurthadthatehzutrzhadthadfadgtghtarhzqethadthadthadg";
 
     
-    /*
-    public ServerSentEventSinkTest() {
-        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "DEBUG");
-    }
-    */
-  
     
     
     @Test
@@ -63,16 +57,25 @@ public class SentEventSinkOutboundOverflowTest extends TestServletbasedTest  {
         
         ReactiveSink<ServerSentEvent> reactiveSink = new ClientSseSink(uri).buffer(Integer.MAX_VALUE).open();
         
-        int numLoops = 1000;
+        int numLoops = 3000;
         
         for (int i = 0; i < numLoops; i++) {
             reactiveSink.write(ServerSentEvent.newEvent().data(i + "_" + LARGE_TEXT));
         }
         
-        sleep(1000);
+        sleep(2000);
 
+
+        int maxWaittimeMillis = 5 * 1000; 
+        int sleeptimeMillis = 250;
+        for (int i = 0; i < (maxWaittimeMillis / sleeptimeMillis); i++) {
+            if (reactiveSink.toString().contains("numSent: " + numLoops)) {
+                break;
+            } else {
+                sleep(sleeptimeMillis);
+            }
+        }
         
-        Assert.assertTrue(reactiveSink.toString().contains("numSent: 1000"));
         Assert.assertFalse(reactiveSink.toString().contains("numSendErrors: 0"));
         System.out.println(reactiveSink.toString());
         

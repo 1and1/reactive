@@ -31,6 +31,9 @@ import com.google.common.collect.ImmutableList;
 public interface ReactiveSink<T> extends Closeable {
     
     
+    boolean isWriteable();
+    
+    
     /**
      * @param element  the element to write
      * @return the write future  
@@ -71,6 +74,11 @@ public interface ReactiveSink<T> extends Closeable {
     
     
     static <T> CompletableFuture<ReactiveSink<T>> publishAsync(Subscriber<T> subscriber) {
-        return ReactiveSinkSubscription.newSubscriptionAsync(subscriber);
+        return ReactiveSinkSubscription.newSubscriptionAsync(subscriber, 25);
+    }
+    
+    
+    static <T> CompletableFuture<ReactiveSink<T>> publishAsync(Subscriber<T> subscriber, int buffersizee) {
+        return ReactiveSinkSubscription.newSubscriptionAsync(subscriber, buffersizee);
     }
 }

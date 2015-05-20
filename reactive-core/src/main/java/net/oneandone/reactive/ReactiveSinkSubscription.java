@@ -17,7 +17,7 @@ package net.oneandone.reactive;
 
 
 import java.nio.channels.ClosedChannelException;
-import java.util.LinkedList;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,6 +37,8 @@ import com.google.common.collect.Lists;
 
 
 
+
+
 class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private static final Logger LOG = LoggerFactory.getLogger(ReactiveSinkSubscription.class);
     
@@ -46,24 +48,27 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     
     private final Object processingLock = new Object();
     private final AtomicLong numRequested = new AtomicLong();
-    private final LinkedList<Write> pendingWrites = Lists.newLinkedList();
+    private final Queue<Write> pendingWrites = Lists.newLinkedList();
+    
+    private final int maxBuffered;
     
     private final AtomicBoolean isStarted = new AtomicBoolean(false);
     private final CompletableFuture<ReactiveSink<T>> startPromise = new CompletableFuture<>(); 
 
     
     
-    static <T> CompletableFuture<ReactiveSink<T>> newSubscriptionAsync(Subscriber<T> subscriber) {
-        return new ReactiveSinkSubscription<>(subscriber).init();
+    static <T> CompletableFuture<ReactiveSink<T>> newSubscriptionAsync(Subscriber<T> subscriber, int maxBuffered) {
+        return new ReactiveSinkSubscription<>(subscriber, maxBuffered).init();
     }
 
     
-    private ReactiveSinkSubscription(Subscriber<T> subscriber) {
+    private ReactiveSinkSubscription(Subscriber<T> subscriber, int maxBuffered) {
         // https://github.com/reactive-streams/reactive-streams-jvm#1.9
         if (subscriber == null) {  
             throw new NullPointerException("subscriber is null");
         }
 
+        this.maxBuffered = maxBuffered;
         this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
     }
     
@@ -72,8 +77,6 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         this.subscriberNotifier.start();
         return startPromise;
     }
-    
-    
 
     
     @Override
@@ -107,13 +110,32 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     
     private void process() {
         synchronized (processingLock) {
-            while ((numRequested.get() > 0) && !pendingWrites.isEmpty()) {
-                Write write = pendingWrites.removeFirst();
-                write.perform();
+            while (numRequested.get() > 0) {
+                Write write = pendingWrites.poll();
+                if (write == null) {
+                    return;
+                } else {
+                    write.perform();
+                }
             }
         }
     }
 
+
+
+    @Override
+    public boolean isWriteable() {
+        synchronized (processingLock) {
+            return getCapacity() > 0;
+        }
+    }
+    
+    
+    private long getCapacity() {
+        int remainingBufferSpace = maxBuffered - pendingWrites.size();
+        return remainingBufferSpace + numRequested.get();
+    }
+ 
     
     
     @Override
@@ -122,7 +144,11 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
             Write write = new Write(element);
 
             synchronized (processingLock) {
-                pendingWrites.add(write);
+                if (getCapacity() <= 0) {
+                    throw new IllegalStateException("capacitiy limit reached (maxBuffered: " + maxBuffered + ", numRequested: " + numRequested.get() + " pending: " + pendingWrites.size() + ")");
+                }
+
+                pendingWrites.offer(write);
                 process();
             }
             
@@ -186,6 +212,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
             
         return builder.toString();
     }
+    
     
     private final class Write extends CompletableFuture<Void> {
  

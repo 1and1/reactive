@@ -219,7 +219,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
      * @return the new source instance future
      */
     public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
-        return ReactiveSink.publishAsync(this)
+        return ReactiveSink.publishAsync(this, numBufferedElements)
                            .exceptionally(error -> { throw (error instanceof ConnectException) ? (ConnectException) error : new ConnectException(error); });
     }
     
@@ -234,7 +234,6 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                            isFailOnConnectError,
                                                            connectionTimeout, 
                                                            keepAlivePeriod,
-                                                           numBufferedElements,
                                                            isAutoRetry));
         } else {
             throw new IllegalStateException("already subscribed");
@@ -277,7 +276,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
         // underlying buffer/stream
         private final OutboundBuffer outboundBuffer;
-        private final ReconnectingHttpChannel sseConnection;
+        private final ReconnectingHttpChannel httpChannel;
         
         // auto event id support
         private final String globalId = UID.newId();
@@ -298,16 +297,15 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                  boolean isFailOnConnectError,
                                  Optional<Duration> connectionTimeout,
                                  Duration keepAlivePeriod,
-                                 int maxBufferSize,
                                  boolean isAutoRetry) {
             
             this.subscription = subscription;
             this.isAutoId = isAutoId;
             this.isAutoRetry = isAutoRetry;
             
-            this.outboundBuffer = new OutboundBuffer(maxBufferSize); 
+            this.outboundBuffer = new OutboundBuffer(); 
             
-            sseConnection = new ReconnectingHttpChannel(id, 
+            httpChannel = new ReconnectingHttpChannel(id, 
                                                         uri,
                                                         "POST", 
                                                         ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
@@ -318,8 +316,8 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                                                         new HttpChannelDataHandler()  { },        // data consumer
                                                         (headers) -> headers);
 
-            sseConnection.init()
-                         .thenAccept(isConnected -> { new KeepAliveEmitter(id, keepAlivePeriod, sseConnection).start(); subscription.request(1); })
+            httpChannel.init()
+                         .thenAccept(isConnected -> { new KeepAliveEmitter(id, keepAlivePeriod, httpChannel).start(); subscription.request(1); })
                          .exceptionally((error) -> terminate(error)); 
         }
         
@@ -343,7 +341,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
 
         
         public Void terminate(Throwable t) {
-            sseConnection.terminate();
+            httpChannel.terminate();
             close();
             return null;
         }
@@ -353,7 +351,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             if (isOpen.getAndSet(false)) {
                 LOG.debug("[" + id + "] closing");
 
-                sseConnection.close();
+                httpChannel.close();
                 subscription.cancel();
             }
         }
@@ -361,7 +359,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
         @Override
         public String toString() {
-           return  sseConnection.toString() + ", numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
+           return  httpChannel.toString() + ", numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
         }
         
         
@@ -381,13 +379,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
         
         
         private final class OutboundBuffer {
-            private final LinkedList<ServerSentEvent> bufferedEvents; 
-            private final int maxBufferSize;
-
-            public OutboundBuffer(int maxBufferSize) {
-                this.maxBufferSize = maxBufferSize;
-                this.bufferedEvents = Lists.newLinkedList(); 
-            }
+            private final LinkedList<ServerSentEvent> bufferedEvents = Lists.newLinkedList(); 
             
             
             public void refresh() {
@@ -396,10 +388,6 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
     
             public void onData(ServerSentEvent event) {
                 synchronized (bufferedEvents) {
-                    if (bufferedEvents.size() > maxBufferSize) {
-                        throw new IllegalStateException("buffer limit " + maxBufferSize + " exceeded");
-                    }
-                    
                     bufferedEvents.add(event);
                 }
 
@@ -409,7 +397,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             
             private void process() {
                 
-                if (sseConnection.isOpen()) {
+                if (httpChannel.isOpen()) {
                     
                     ServerSentEvent event;
                     synchronized (bufferedEvents) {
@@ -421,7 +409,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
                     }
                     
                     
-                    sseConnection.writeAsync(event.toWire())
+                    httpChannel.writeAsync(event.toWire())
                                  .thenAccept((Void) -> {
                                                          logEventWritten(id, event);
                                                          numSent.incrementAndGet();

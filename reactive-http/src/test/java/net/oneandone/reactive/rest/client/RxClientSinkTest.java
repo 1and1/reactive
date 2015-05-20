@@ -23,12 +23,9 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
 
 import net.oneandone.reactive.ReactiveSink;
-import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.TestServletbasedTest;
-import net.oneandone.reactive.sse.ServerSentEvent;
 
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.junit.Assert;

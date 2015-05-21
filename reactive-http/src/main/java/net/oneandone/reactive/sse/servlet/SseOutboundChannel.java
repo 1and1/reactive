@@ -176,7 +176,6 @@ class SseOutboundChannel  {
         }
         
         public void perform() {
-System.out.println("writing " + event);            
             try {
                 int written = writeToStream(event);
                 complete(written);

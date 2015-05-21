@@ -22,7 +22,6 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.UUID;
 
-import javax.jms.JMSException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.GET;
@@ -54,11 +53,17 @@ import com.google.common.io.ByteStreams;
 @Path("/queues")
 public class QueueResource implements Closeable { 
     
-    private final QueueManager<String> queueManager;
+    private QueueManager<String> queueManager = null;
 
     
-    public QueueResource() throws JMSException, Exception {
-        queueManager = new ActiveMQQueueManager(new File("mqqueue" + File.separator + UUID.randomUUID().toString()));
+    private QueueManager<String> getQueueManager() {
+        synchronized (this) {
+            if (queueManager == null) {
+                queueManager = new ActiveMQQueueManager(new File("mqqueue" + File.separator + UUID.randomUUID().toString()));
+            }
+            
+            return queueManager;
+        }
     }
     
 
@@ -81,7 +86,7 @@ public class QueueResource implements Closeable {
     public void publishMessage(@PathParam("queuename") String queuename, @PathParam("uuid") String uuid, @QueryParam("ttl") Integer ttlSec, InputStream bodyStream) throws IOException {
         Message<String> message = new Message<String>(uuid, new String(ByteStreams.toByteArray(bodyStream), Charsets.UTF_8), (ttlSec == null) ? null : Duration.ofSeconds(ttlSec));
         
-        ReactiveSink<Message<String>> sink = ReactiveSink.publish(queueManager.newSubscriber(queuename));
+        ReactiveSink<Message<String>> sink = ReactiveSink.publish(getQueueManager().newSubscriber(queuename));
         sink.write(message);
     }
     
@@ -91,7 +96,7 @@ public class QueueResource implements Closeable {
     @Path("/{queuename}/messages")
     @Produces("text/event-stream")
     public void consumeMessageSse(@Context HttpServletRequest request, @Context HttpServletResponse response, @PathParam("queuename") String queuename) throws IOException {
-        Publisher<Message<String>> publisher = queueManager.newPublisher(queuename);
+        Publisher<Message<String>> publisher = getQueueManager().newPublisher(queuename);
         
         Pipes.newPipe(publisher)
              .map(message -> ServerSentEvent.newEvent().id(message.getId()).data(message.getData()))

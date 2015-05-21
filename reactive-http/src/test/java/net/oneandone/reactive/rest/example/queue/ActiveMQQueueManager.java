@@ -37,18 +37,21 @@ public class ActiveMQQueueManager extends AbstractQueueManager<String> implement
     private final List<QueueImpl> openQueues = Lists.newArrayList();
 	
 	
-	public ActiveMQQueueManager(File dataDirectory) throws JMSException, Exception {
-		broker = new BrokerService();
-		broker.addConnector("tcp://localhost:0");
-		broker.setPersistent(true);
-		broker.setDataDirectoryFile(dataDirectory);
-		broker.setSchedulerSupport(true);
-		broker.start();
-			
-		ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(broker.getTransportConnectors().get(0).getConnectUri());
-		connection = connectionFactory.createConnection();
-		connection.start();
-
+	public ActiveMQQueueManager(File dataDirectory) {
+	    try  {
+    		broker = new BrokerService();
+    		broker.addConnector("tcp://localhost:0");
+    		broker.setPersistent(true);
+    		broker.setDataDirectoryFile(dataDirectory);
+    		broker.setSchedulerSupport(true);
+    		broker.start();
+    			
+    		ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(broker.getTransportConnectors().get(0).getConnectUri());
+    		connection = connectionFactory.createConnection();
+    		connection.start();
+	    } catch (Exception e) {
+	        throw new RuntimeException(e);
+	    }
 	}
 	
 	@Override

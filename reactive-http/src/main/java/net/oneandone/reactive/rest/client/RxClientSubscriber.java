@@ -18,7 +18,8 @@ package net.oneandone.reactive.rest.client;
 
 
 import java.net.URI;
-
+import java.util.Collections;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,21 +32,20 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import net.oneandone.reactive.ReactiveSink;
-
 
 import net.oneandone.reactive.utils.IllegalStateSubscription;
-import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Sets;
 
 
-public class RxClientSink<T> implements Subscriber<T> {
-    private static final Logger LOG = LoggerFactory.getLogger(RxClientSink.class);
+
+public class RxClientSubscriber<T> implements Subscriber<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(RxClientSubscriber.class);
     
     private final String id = UUID.randomUUID().toString();
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
@@ -57,22 +57,24 @@ public class RxClientSink<T> implements Subscriber<T> {
     private final MediaType mediaType;
     private final String method;
     private final boolean isAutoRetry;
-    private final int prefetchSize; 
+    private final int maxInFlight; 
 
     
     private final AtomicBoolean isSubscribed = new AtomicBoolean(false); 
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(new IllegalStateSubscription());
+    
     
     // statistics
     private final AtomicLong numSent = new AtomicLong();
     private final AtomicLong numSendErrors = new AtomicLong();
     private final AtomicLong numResendTrials = new AtomicLong();
      
+    // statistics
+    private final Set<Object> inFlight = Collections.synchronizedSet(Sets.newHashSet());
     
     
     
-    
-    public RxClientSink(Client client, URI uri) {
+    public RxClientSubscriber(Client client, URI uri) {
         this(client,
              uri, 
              "POST",
@@ -81,17 +83,17 @@ public class RxClientSink<T> implements Subscriber<T> {
              true);
     }
 
-    private RxClientSink(Client client,
-                         URI uri, 
-                         String method,
-                         MediaType mediaType,
-                         int prefetchSize,
-                         boolean isAutoRetry) {
+    private RxClientSubscriber(Client client,
+                               URI uri, 
+                               String method,
+                               MediaType mediaType,
+                               int prefetchSize,
+                               boolean isAutoRetry) {
         this.client = new RxClient(client); 
         this.uri = uri;
         this.method = method;
         this.mediaType = mediaType;
-        this.prefetchSize = prefetchSize;
+        this.maxInFlight = prefetchSize;
         this.isAutoRetry = isAutoRetry;
     }
     
@@ -100,52 +102,52 @@ public class RxClientSink<T> implements Subscriber<T> {
      * @param mediaType the media type to use
      * @return a new instance with the updated behavior
      */
-    public RxClientSink<T> mediaType(MediaType mediaType) {
-        return new RxClientSink<>(this.client,
-                                  this.uri, 
-                                  this.method,
-                                  this.mediaType,
-                                  this.prefetchSize,
-                                  this.isAutoRetry);
+    public RxClientSubscriber<T> mediaType(MediaType mediaType) {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        this.method,
+                                        this.mediaType,
+                                        this.maxInFlight,
+                                        this.isAutoRetry);
     }
     
     
     /**
      * @return a new instance with the updated behavior
      */
-    public RxClientSink<T> usePost() {
-        return new RxClientSink<>(this.client,
-                                  this.uri, 
-                                  "POST",
-                                  this.mediaType,
-                                  this.prefetchSize,
-                                  this.isAutoRetry);
-    }
-
-    /**
-     * @return a new instance with the updated behavior
-     */
-    public RxClientSink<T> usePut() {
-        return new RxClientSink<>(this.client,
-                                  this.uri, 
-                                  "PUT",
-                                  this.mediaType,
-                                  this.prefetchSize,
-                                  this.isAutoRetry);
+    public RxClientSubscriber<T> usePost() {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        "POST",
+                                        this.mediaType,
+                                        this.maxInFlight,
+                                        this.isAutoRetry);
     }
 
-    
     /**
-     * @param buffersize  the outbound buffer size
      * @return a new instance with the updated behavior
      */
-    public RxClientSink<T> buffersize(int buffersize) {
-        return new RxClientSink<>(this.client,
-                                  this.uri, 
-                                  this.method,
-                                  this.mediaType,
-                                  prefetchSize,
-                                  this.isAutoRetry);
+    public RxClientSubscriber<T> usePut() {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        "PUT",
+                                        this.mediaType,
+                                        this.maxInFlight,
+                                        this.isAutoRetry);
+    }
+
+    
+    /**
+     * @param maxInFlight  the max number of in flight transactions
+     * @return a new instance with the updated behavior
+     */
+    public RxClientSubscriber<T> maxInFlight(int maxInFlight) {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        this.method,
+                                        this.mediaType,
+                                        maxInFlight,
+                                        this.isAutoRetry);
     }
      
 
@@ -155,27 +157,15 @@ public class RxClientSink<T> implements Subscriber<T> {
      * @param isAutoRetry if failed send activity should be retried
      * @return a new instance with the updated behavior
      */
-    public RxClientSink<T> autoRetry(boolean isAutoRetry) {
-        return new RxClientSink<>(this.client,
-                                  this.uri, 
-                                  this.method,
-                                  this.mediaType,
-                                  this.prefetchSize,
-                                  isAutoRetry);
+    public RxClientSubscriber<T> autoRetry(boolean isAutoRetry) {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        this.method,
+                                        this.mediaType,
+                                        this.maxInFlight,
+                                        isAutoRetry);
     }
     
-    
-    public ReactiveSink<T> open() {
-        return Utils.get(openAsync());
-    }
-    
-    
-    /**
-     * @return the new source instance future
-     */
-    public CompletableFuture<ReactiveSink<T>> openAsync() {
-        return ReactiveSink.publishAsync(this);
-    }
     
 
     @Override
@@ -185,7 +175,7 @@ public class RxClientSink<T> implements Subscriber<T> {
             
         } else {
             subscriptionRef.set(subscription);
-            subscription.request(10);
+            subscription.request(maxInFlight);
         }
     }
 
@@ -194,13 +184,18 @@ public class RxClientSink<T> implements Subscriber<T> {
     public void onNext(T element) {
 
         if (isOpen.get()) {
+            final Object marker = new Object();
+            inFlight.add(marker);
+            
             send(element).thenAccept((response) -> {
+                                                     inFlight.remove(marker);
                                                      response.close();
                                                      LOG.debug("[" + id + "] element transmitted");
                                                      numSent.incrementAndGet();
                                                      subscriptionRef.get().request(1); 
                                                    })
                          .exceptionally((error -> {
+                                                     inFlight.remove(marker);
                                                      numSendErrors.incrementAndGet();
                                                      if (isAutoRetry) {
                                                          LOG.debug("[" + id + "] " + error.getMessage() + " error occured by transmitting element " + element + " retry sending");
@@ -271,6 +266,6 @@ public class RxClientSink<T> implements Subscriber<T> {
     
     @Override
     public String toString() {
-       return  id + ", numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
+       return  id + ", inFlight: " + inFlight.size() + " , numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
     }
 }

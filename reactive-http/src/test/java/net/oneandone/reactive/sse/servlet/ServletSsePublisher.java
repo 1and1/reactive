@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Maps the servlet input stream (which have to receive Server-sent events) into a publisher 
  */
+@Deprecated
 public class ServletSsePublisher implements Publisher<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ServletSsePublisher.class);
     

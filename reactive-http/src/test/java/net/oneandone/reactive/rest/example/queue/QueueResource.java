@@ -15,10 +15,36 @@
  */
 package net.oneandone.reactive.rest.example.queue;
 
+import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.UUID;
+
+import javax.jms.JMSException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
+
+import org.reactivestreams.Publisher;
+
+import net.oneandone.reactive.ReactiveSink;
+import net.oneandone.reactive.pipe.Pipes;
+import net.oneandone.reactive.rest.example.queue.QueueManager.Message;
+import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
+
+import com.google.common.base.Charsets;
+import com.google.common.io.ByteStreams;
 
 
 
@@ -26,15 +52,59 @@ import javax.ws.rs.core.Response;
 
 
 @Path("/queues")
-public class QueueResource { 
+public class QueueResource implements Closeable { 
+    
+    private final QueueManager<String> queueManager;
 
-
-    @PUT
-    @Path("/{name}/element/{uuid}")
-    public Response addElememt(@QueryParam("name") String name, @QueryParam("uuid") String uuid) {
-        
-        return null;
+    
+    public QueueResource() throws JMSException, Exception {
+        queueManager = new ActiveMQQueueManager(new File("mqqueue" + File.separator + UUID.randomUUID().toString()));
     }
     
-     
+
+    @Override
+    public void close() throws IOException {
+        queueManager.close();
+    }
+
+    
+    @POST
+    @Path("/{queuename}/messages")
+    public Response publishMessage(@PathParam("queuename") String queuename, @QueryParam("ttl") Integer ttlSec, InputStream bodyStream) throws IOException {
+        String uuid = "rg" + UUID.randomUUID().toString();
+        publishMessage(queuename, uuid, ttlSec, bodyStream);
+        return Response.ok().header("x-ui-message-id", uuid).build();
+    }
+
+    @PUT
+    @Path("/{queuename}/messages/{uuid}")
+    public void publishMessage(@PathParam("queuename") String queuename, @PathParam("uuid") String uuid, @QueryParam("ttl") Integer ttlSec, InputStream bodyStream) throws IOException {
+        Message<String> message = new Message<String>(uuid, new String(ByteStreams.toByteArray(bodyStream), Charsets.UTF_8), (ttlSec == null) ? null : Duration.ofSeconds(ttlSec));
+        
+        ReactiveSink<Message<String>> sink = ReactiveSink.publish(queueManager.newSubscriber(queuename));
+        sink.write(message);
+    }
+    
+    
+    
+    @GET
+    @Path("/{queuename}/messages")
+    @Produces("text/event-stream")
+    public void consumeMessageSse(@Context HttpServletRequest request, @Context HttpServletResponse response, @PathParam("queuename") String queuename) throws IOException {
+        Publisher<Message<String>> publisher = queueManager.newPublisher(queuename);
+        
+        Pipes.newPipe(publisher)
+             .map(message -> ServerSentEvent.newEvent().id(message.getId()).data(message.getData()))
+             .consume(new ServletSseSubscriber(request, response));
+    }
+    
+    
+    
+
+    @GET
+    @Path("/{queuename}/messages")
+    @Produces("text/plain")
+    public void consumeMessagePlain(@PathParam("queuename") String queuename) throws IOException {
+        
+    }
 }

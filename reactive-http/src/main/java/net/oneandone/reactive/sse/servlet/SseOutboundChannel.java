@@ -80,7 +80,7 @@ class SseOutboundChannel  {
         Write write = new Write(event);
         
         synchronized (pendingWrites) {
-            pendingWrites.add(write);
+            pendingWrites.offer(write);
         }
         process();
         
@@ -176,6 +176,7 @@ class SseOutboundChannel  {
         }
         
         public void perform() {
+System.out.println("writing " + event);            
             try {
                 int written = writeToStream(event);
                 complete(written);

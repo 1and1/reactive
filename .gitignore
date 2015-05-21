@@ -19,3 +19,4 @@
 /reactive-core/.project
 /reactive-core/.settings
 /reactive-http/*.log
+/reactive-http/mqqueue

@@ -8,4 +8,7 @@
 	
 	<bean id="publisherresource" class="net.oneandone.reactive.rest.PublisherResource"/>
 
+	<bean id="queueresource" class="net.oneandone.reactive.rest.example.queue.QueueResource" destroy-method="close"/>
+
+
 </beans>

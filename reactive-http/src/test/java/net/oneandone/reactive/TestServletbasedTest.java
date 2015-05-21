@@ -17,13 +17,19 @@ package net.oneandone.reactive;
 
 
 
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+import javax.ws.rs.client.Client;
+
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.junit.After;
 import org.junit.Before;
 
 
 public abstract class TestServletbasedTest {
     
-    
+    private Client client; 
     private WebContainer server;
     
    
@@ -31,14 +37,23 @@ public abstract class TestServletbasedTest {
     public void before() throws Exception {
         server = new WebContainer("/ssetest");
         server.start();
+        
+        client = new ResteasyClientBuilder().socketTimeout(60, TimeUnit.SECONDS)
+                                            .connectionPoolSize(10)
+                                            .build();
     }
    
     
     @After
     public void after() throws Exception {
+        client.close();
         server.stop();
     }
 
+    
+    protected Client getClient() {
+        return client;
+    }
     
     protected WebContainer getServer() {
         return server;
@@ -51,6 +66,20 @@ public abstract class TestServletbasedTest {
             Thread.sleep(millis);
         } catch (InterruptedException ignore) {
             
+        }
+    }
+    
+    
+    protected void waitUtil(Supplier<Boolean> condition, long maxSec) {
+        
+        long maxWaittimeMillis = maxSec * 1000; 
+        long sleeptimeMillis = 100;
+        for (int i = 0; i < (maxWaittimeMillis / sleeptimeMillis); i++) {
+            if (condition.get()) {
+                return;
+            } else {
+                sleep(sleeptimeMillis);
+            }
         }
     }
 }

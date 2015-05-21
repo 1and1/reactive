@@ -67,7 +67,6 @@ public interface ReactiveSink<T> extends Closeable {
     
     
 
-
     static <T> ReactiveSink<T> publish(Subscriber<T> subscriber) {
         return Utils.get(publishAsync(subscriber));
     }
@@ -78,7 +77,25 @@ public interface ReactiveSink<T> extends Closeable {
     }
     
     
-    static <T> CompletableFuture<ReactiveSink<T>> publishAsync(Subscriber<T> subscriber, int buffersizee) {
-        return ReactiveSinkSubscription.newSubscriptionAsync(subscriber, buffersizee);
+    static ReactiveSinkBuilder buffersize(int buffersize) {
+        return new ReactiveSinkBuilder(buffersize);
+    }
+
+    
+    public static class ReactiveSinkBuilder {
+        private final int bufferSize;
+        
+        ReactiveSinkBuilder(int bufferSize) {    
+            this.bufferSize = bufferSize;
+        }
+        
+        public <T> ReactiveSink<T> publish(Subscriber<T> subscriber) {
+            return Utils.get(publishAsync(subscriber));
+        }
+        
+        
+        public <T> CompletableFuture<ReactiveSink<T>> publishAsync(Subscriber<T> subscriber) {
+            return ReactiveSinkSubscription.newSubscriptionAsync(subscriber, bufferSize);
+        }
     }
 }

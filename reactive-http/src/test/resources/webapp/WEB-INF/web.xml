@@ -59,7 +59,7 @@
 
 	<servlet>
 		<servlet-name>SinkServlet</servlet-name>
-		<servlet-class>net.oneandone.reactive.sse.EventSinkServlet</servlet-class>
+		<servlet-class>net.oneandone.reactive.rest.client.EventSinkServlet</servlet-class>
 		<async-supported>true</async-supported>
 	</servlet>
 

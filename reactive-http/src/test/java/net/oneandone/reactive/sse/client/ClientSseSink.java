@@ -54,6 +54,7 @@ import com.google.common.io.BaseEncoding;
 
 
 
+@Deprecated
 public class ClientSseSink implements Subscriber<ServerSentEvent> {
     private static final Logger LOG = LoggerFactory.getLogger(ClientSseSink.class);
     private static final int DEFAULT_NUM_FOILLOW_REDIRECTS = 9;
@@ -219,7 +220,7 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
      * @return the new source instance future
      */
     public CompletableFuture<ReactiveSink<ServerSentEvent>> openAsync() {
-        return ReactiveSink.publishAsync(this, numBufferedElements)
+        return ReactiveSink.buffersize(numBufferedElements).publishAsync(this)
                            .exceptionally(error -> { throw (error instanceof ConnectException) ? (ConnectException) error : new ConnectException(error); });
     }
     

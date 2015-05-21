@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.sse;
+package net.oneandone.reactive.rest.client;
 
 
 
 
 import java.io.IOException;
-import java.time.Duration;
-import java.time.Instant;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,12 +27,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import net.oneandone.reactive.ReactiveSource;
-import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.sse.servlet.ServletSsePublisher;
-
-import org.reactivestreams.Publisher;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -45,32 +38,21 @@ import com.google.common.io.ByteStreams;
 
 
 public class EventSinkServlet extends HttpServlet {
-    
     private static final long serialVersionUID = -2315647950747518122L;
     private final List<String> events = Lists.newArrayList(); 
-
-    private final Instant startTime = Instant.now();
-    private final Duration initialPause = Duration.ofMillis(500);
 
       
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        if (req.getContentType().equalsIgnoreCase("text/event-stream")) {
-            Publisher<ServerSentEvent> publisher = new ServletSsePublisher(req, resp);
-            ReactiveSource<ServerSentEvent> source = ReactiveSource.subscribe(publisher);
-         
-            Duration sleepTime = Duration.between(startTime, Instant.now()).minus(initialPause);
-            if (!sleepTime.isNegative()) {
-                try {
-                   Thread.sleep(sleepTime.toMillis()); 
-                } catch (InterruptedException ignore) { }
-            }
-            
-            source.consume(event -> addEvent(event.getData().get()));
-            
-        } else {
-            addEvent(new String(ByteStreams.toByteArray(req.getInputStream()), Charsets.UTF_8));
+        
+        String pauseMillis = req.getParameter("pauseMillis");
+        if (pauseMillis != null) {
+            try {
+                Thread.sleep(Integer.parseInt(pauseMillis));
+            } catch (InterruptedException ignore) { }
         }
+        
+        addEvent(new String(ByteStreams.toByteArray(req.getInputStream()), Charsets.UTF_8));
     }
  
     

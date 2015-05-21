@@ -207,7 +207,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         if (!isOpen.get()) {
             builder.append("[closed] " );
         }
-        builder.append("running writes=" + pendingWrites.size() + " numRequested=" + numRequested);
+        builder.append("running writes=" + pendingWrites.size() + " numRequested=" + numRequested + ", maxBuffered: " + maxBuffered + ", capacitiy: " + getCapacity());
         builder.append("  (subscription: " + subscriberNotifier.toString() + ")");
             
         return builder.toString();
@@ -230,6 +230,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         public void perform() {
             try {
                 subscriberNotifier.notifyOnNext(element);
+                numRequested.decrementAndGet();
                 complete(null);
             } catch (RuntimeException rt) {
                 completeExceptionally(rt);

@@ -30,7 +30,6 @@ import com.google.common.collect.ImmutableList;
 
 public interface ReactiveSink<T> extends Closeable {
     
-    
     boolean isWriteable();
     
     
@@ -60,6 +59,11 @@ public interface ReactiveSink<T> extends Closeable {
      * shutdown the queue. Let the unprocessed elements be processed
      */
     public void shutdown();
+    
+    
+
+    boolean isOpen();
+    
     
     
     @Override

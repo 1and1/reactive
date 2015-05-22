@@ -18,7 +18,9 @@ package net.oneandone.reactive.rest.client;
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -26,29 +28,42 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+
+
+
+
 import javax.ws.rs.ServerErrorException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+
+
+
+
+
 
 
 import net.oneandone.reactive.utils.IllegalStateSubscription;
+import net.oneandone.reactive.utils.RetryScheduler;
+
+
+
+
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Sets;
-
 
 
 public class RxClientSubscriber<T> implements Subscriber<T> {
     private static final Logger LOG = LoggerFactory.getLogger(RxClientSubscriber.class);
+    private final RetryScheduler retryScheduler = new RetryScheduler();
     
     private final String id = UUID.randomUUID().toString();
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
+    
     
     
     // properties
@@ -58,7 +73,7 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
     private final String method;
     private final boolean isAutoRetry;
     private final int maxInFlight; 
-
+    private final boolean isFailOnInitialError;
     
     private final AtomicBoolean isSubscribed = new AtomicBoolean(false); 
     private final AtomicReference<Subscription> subscriptionRef = new AtomicReference<>(new IllegalStateSubscription());
@@ -68,9 +83,7 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
     private final AtomicLong numSent = new AtomicLong();
     private final AtomicLong numSendErrors = new AtomicLong();
     private final AtomicLong numResendTrials = new AtomicLong();
-     
-    // statistics
-    private final Set<Object> inFlight = Collections.synchronizedSet(Sets.newHashSet());
+    private final Set<RetryTask> runningRetryTasks = Collections.synchronizedSet(new HashSet<>());
     
     
     
@@ -80,6 +93,7 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
              "POST",
              MediaType.APPLICATION_JSON_TYPE,
              25,
+             true,
              true);
     }
 
@@ -88,13 +102,15 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                String method,
                                MediaType mediaType,
                                int prefetchSize,
-                               boolean isAutoRetry) {
+                               boolean isAutoRetry,
+                               boolean isFailOnInitialError) {
         this.client = new RxClient(client); 
         this.uri = uri;
         this.method = method;
         this.mediaType = mediaType;
         this.maxInFlight = prefetchSize;
         this.isAutoRetry = isAutoRetry;
+        this.isFailOnInitialError = isFailOnInitialError;
     }
     
     
@@ -108,7 +124,8 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                         this.method,
                                         this.mediaType,
                                         this.maxInFlight,
-                                        this.isAutoRetry);
+                                        this.isAutoRetry,
+                                        this.isFailOnInitialError);
     }
     
     
@@ -121,7 +138,8 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                         "POST",
                                         this.mediaType,
                                         this.maxInFlight,
-                                        this.isAutoRetry);
+                                        this.isAutoRetry,
+                                        this.isFailOnInitialError);
     }
 
     /**
@@ -133,7 +151,8 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                         "PUT",
                                         this.mediaType,
                                         this.maxInFlight,
-                                        this.isAutoRetry);
+                                        this.isAutoRetry,
+                                        this.isFailOnInitialError);
     }
 
     
@@ -147,7 +166,8 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                         this.method,
                                         this.mediaType,
                                         maxInFlight,
-                                        this.isAutoRetry);
+                                        this.isAutoRetry,
+                                        this.isFailOnInitialError);
     }
      
 
@@ -163,9 +183,27 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
                                         this.method,
                                         this.mediaType,
                                         this.maxInFlight,
-                                        isAutoRetry);
+                                        isAutoRetry,
+                                        this.isFailOnInitialError);
     }
     
+    
+    
+    /**
+     * @param isFailOnInitialError will fail on initial error
+     * @return a new instance with the updated behavior
+     */
+    public RxClientSubscriber<T> failOnInitialError(boolean isFailOnInitialError) {
+        return new RxClientSubscriber<>(this.client,
+                                        this.uri, 
+                                        this.method,
+                                        this.mediaType,
+                                        this.maxInFlight,
+                                        this.isAutoRetry,
+                                        isFailOnInitialError);
+    }
+    
+   
     
 
     @Override
@@ -184,25 +222,20 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
     public void onNext(T element) {
 
         if (isOpen.get()) {
-            final Object marker = new Object();
-            inFlight.add(marker);
-            
             send(element).thenAccept((response) -> {
-                                                     inFlight.remove(marker);
-                                                     response.close();
                                                      LOG.debug("[" + id + "] element transmitted");
                                                      numSent.incrementAndGet();
                                                      subscriptionRef.get().request(1); 
                                                    })
                          .exceptionally((error -> {
-                                                     inFlight.remove(marker);
                                                      numSendErrors.incrementAndGet();
-                                                     if (isAutoRetry) {
+                                                     if (isAutoRetry && !(isFailOnInitialError && numSent.get() == 0)) {
                                                          LOG.debug("[" + id + "] " + error.getMessage() + " error occured by transmitting element " + element + " retry sending");
                                                          numResendTrials.incrementAndGet();
                                                          
-                                                         // TODO add with delay 
-                                                         onNext(element);
+                                                         Duration delay = new RetryTask(element).start();
+                                                         LOG.debug("[" + id + "] schedule retry in " + delay.toMillis() + " millis");
+                                                         
                                                          
                                                      } else { 
                                                          LOG.debug("[" + id + "] " + error.getMessage() + " error occured by transmitting element " + element + " terminating sink");
@@ -214,26 +247,45 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
         }
     }
     
+    
+    private final class RetryTask implements Runnable {
+        private final T element;
+        
+        public RetryTask(T element) {
+            this.element = element;
+        }
+        
+        @Override
+        public void run() {
+            runningRetryTasks.remove(this);
+            onNext(element); 
+        };
+        
+        public Duration start() {
+            runningRetryTasks.add(this);
+            return retryScheduler.scheduleWithDelay(this);
+        }
+    }
 
     
-    private CompletableFuture<Response> send(T element) {
+    private CompletableFuture<byte[]> send(T element) {
         
         try {
             if (method.equalsIgnoreCase("POST")) {
                 return client.target(uri)
                              .request()
                              .rx()
-                             .post(Entity.entity(element, mediaType));
+                             .post(Entity.entity(element, mediaType), byte[].class);
             } else {
                 return client.target(uri)
                              .request()
                              .rx()
-                             .put(Entity.entity(element, mediaType));
+                             .put(Entity.entity(element, mediaType), byte[].class);
 
             }
             
         } catch (ServerErrorException error) {
-            CompletableFuture<Response> errorPromise = new CompletableFuture<>();
+            CompletableFuture<byte[]> errorPromise = new CompletableFuture<>();
             errorPromise.completeExceptionally(error);
             return errorPromise;
             
@@ -266,6 +318,6 @@ public class RxClientSubscriber<T> implements Subscriber<T> {
     
     @Override
     public String toString() {
-       return  id + ", inFlight: " + inFlight.size() + " , numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
+       return  id + " , runningRetries: "  + runningRetryTasks.size() + ", numSent: " + numSent.get() + ", numSendErrors: " + numSendErrors + ", numResendTrials: " + numResendTrials;
     }
 }

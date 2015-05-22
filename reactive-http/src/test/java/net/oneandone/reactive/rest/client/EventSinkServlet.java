@@ -19,8 +19,8 @@ package net.oneandone.reactive.rest.client;
 
 
 import java.io.IOException;
-
 import java.util.List;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 import javax.servlet.ServletException;
@@ -45,14 +45,45 @@ public class EventSinkServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         
-        String pauseMillis = req.getParameter("pauseMillis");
-        if (pauseMillis != null) {
-            try {
-                Thread.sleep(Integer.parseInt(pauseMillis));
-            } catch (InterruptedException ignore) { }
+        if (req.getPathInfo().startsWith("/redirect")) {
+            resp.setStatus(307);
+            int num = Integer.parseInt(req.getParameter("num"));
+            if (num > 0)  {
+                resp.setHeader("location", req.getRequestURL().toString() + "?num=" + (num  - 1));
+            } else {
+                resp.setHeader("location", req.getRequestURL().toString().replace("redirect", "channel"));
+            }
+
+        } else if (req.getPathInfo().startsWith("/notfound")) {
+            resp.sendError(404);
+
+        } else if (req.getPathInfo().startsWith("/servererror")) {
+            resp.sendError(500);
+
+        } else {
+            String pauseMillis = req.getParameter("pauseMillis");
+            if (pauseMillis != null) {
+                try {
+                    Thread.sleep(Integer.parseInt(pauseMillis));
+                } catch (InterruptedException ignore) { }
+            }
+            
+            String msg = new String(ByteStreams.toByteArray(req.getInputStream()), Charsets.UTF_8);
+            
+            if (msg.equalsIgnoreCase("posion pill")) {
+                resp.sendError(500);
+                return;
+            } 
+            
+            if (msg.equalsIgnoreCase("unreliable")) {
+                if (new Random().nextInt(10) > 6) {
+                    resp.sendError(500);
+                    return;
+                }
+            }
+            
+            addEvent(msg);
         }
-        
-        addEvent(new String(ByteStreams.toByteArray(req.getInputStream()), Charsets.UTF_8));
     }
  
     

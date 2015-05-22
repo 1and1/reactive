@@ -36,11 +36,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ConnectException;
-import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 
 import net.oneandone.reactive.sse.client.HttpChannel;
+import net.oneandone.reactive.utils.ScheduledExceutor;
 import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Subscriber;

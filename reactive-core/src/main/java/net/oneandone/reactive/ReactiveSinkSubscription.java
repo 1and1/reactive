@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import net.oneandone.reactive.utils.SubscriberNotifier;
+import net.oneandone.reactive.utils.Utils;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -126,7 +127,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     @Override
     public boolean isWriteable() {
         synchronized (processingLock) {
-            return getCapacity() > 0;
+            return isOpen() && (getCapacity() > 0);
         }
     }
     
@@ -169,11 +170,15 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw new RuntimeException(e.getCause());
+            throw Utils.propagate(e);
         }
     }
 
     
+    @Override
+    public boolean isOpen() {
+        return isOpen.get();
+    }
     
     @Override
     public void close() {

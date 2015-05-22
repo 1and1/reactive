@@ -20,21 +20,18 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.client.HttpChannelProvider.ConnectionParams;
 import net.oneandone.reactive.sse.client.HttpChannelDataHandler;
 import net.oneandone.reactive.sse.client.HttpChannel;
+import net.oneandone.reactive.utils.RetryScheduler;
 import net.oneandone.reactive.utils.Utils;
 
 import org.slf4j.Logger;
@@ -42,7 +39,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 
 
 
@@ -345,61 +341,6 @@ class ReconnectingHttpChannel implements HttpChannel {
                      Duration delay = retryProcessor.scheduleWithDelay(retryConnect);
                      LOG.debug("[" + id + "] schedule reconnect in " + delay.toMillis() + " millis");
                 }
-            }
-        }
-    }
-    
-    
-    
-    
-
-    private static final class RetryScheduler {
-        private static final RetrySequence RETRY_SEQUENCE = new RetrySequence(0, 3, 25, 250, 500, 2000, 3000, 4000, 6000);
-
-        private Instant lastSchedule = Instant.now();
-        private Duration lastDelay = Duration.ZERO; 
-        
-        
-        public Duration scheduleWithDelay(Runnable connectTast) {
-            
-            // last schedule a while ago?
-            Duration delaySinceLastSchedule = Duration.between(lastSchedule, Instant.now());
-            if (RETRY_SEQUENCE.getMaxDelay().multipliedBy(2).minus(delaySinceLastSchedule).isNegative()) {
-                // yes
-                lastDelay = Duration.ZERO;
-            } else {
-                // no
-                lastDelay = RETRY_SEQUENCE.nextDelay(lastDelay);
-            }
-            
-            lastSchedule = Instant.now();
-            ScheduledExceutor.common().schedule(connectTast, lastDelay.toMillis(), TimeUnit.MILLISECONDS);
-            
-            return lastDelay;
-        }
-        
-
-        
-        private static final class RetrySequence {
-            private final ImmutableMap<Duration, Duration> delayMap;
-            private final Duration lastDelay;
-            
-            public RetrySequence(int... delaysMillis) {
-                Map<Duration, Duration> map = Maps.newHashMap();
-                for (int i = 0; i < delaysMillis.length; i++) {
-                    map.put(Duration.ofMillis(delaysMillis[i]), Duration.ofMillis( (delaysMillis.length > (i+1)) ? delaysMillis[i+1] : delaysMillis[i]) );
-                }
-                delayMap = ImmutableMap.copyOf(map);
-                
-                lastDelay = Duration.ofMillis(delaysMillis[delaysMillis.length - 1]);
-            }
-            
-            public Duration nextDelay(Duration previous) {
-                return (delayMap.get(previous) == null) ? previous : delayMap.get(previous);
-            }
-            
-            public Duration getMaxDelay() {
-                return lastDelay;
             }
         }
     }

@@ -69,7 +69,9 @@ public class QueueResource implements Closeable {
 
     @Override
     public void close() throws IOException {
-        queueManager.close();
+        if (queueManager != null) {
+            queueManager.close();
+        }
     }
 
     

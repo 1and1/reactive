@@ -19,7 +19,6 @@ package net.oneandone.reactive.sse.servlet;
 
 
 import java.io.IOException;
-
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,8 +35,8 @@ import javax.servlet.WriteListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import net.oneandone.reactive.sse.ScheduledExceutor;
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.utils.ScheduledExceutor;
 
 import com.google.common.collect.Lists;
 

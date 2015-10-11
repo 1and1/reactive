@@ -20,3 +20,12 @@
 /reactive-core/.settings
 /reactive-http/*.log
 /reactive-http/mqqueue
+/reactive-kafka/kafkalog
+/reactive-kafka/.classpath
+/reactive-kafka/.project
+/reactive-kafka/target
+/reactive-kafka/.settings
+/reactive-kafka-test/.project
+/reactive-kafka-test/.settings
+/reactive-kafka-test/target
+/reactive-kafka-test/.classpath

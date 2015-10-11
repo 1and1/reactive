@@ -19,6 +19,8 @@
 	<modules>
 		<module>reactive-core</module>
 		<module>reactive-http</module>
+		<module>reactive-kafka</module>
+		<module>reactive-kafka-test</module>
 	</modules>
 
 

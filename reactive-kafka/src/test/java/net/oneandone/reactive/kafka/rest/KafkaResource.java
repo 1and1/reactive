@@ -59,7 +59,7 @@ public class KafkaResource implements Closeable {
     
     @POST
     @Path("/topics/{topic}")
-    public void cunsume(@Context UriInfo uriInfo,
+    public void consume(@Context UriInfo uriInfo,
                         @PathParam("topic") String topic,
                         @HeaderParam("Content-Type") String contentType, 
                         String jsonObject,
@@ -77,7 +77,7 @@ public class KafkaResource implements Closeable {
         // ---
         // Content-Type: application/vnd.ui.events.user.addressmodified-v1+json
         //
-        // {"addressChangedEvent":{"datetime":"2015-10-12T05:00:18.613Z","accountId":"us-r3344434","address":"myAddress","operation":"add"}}
+        // {"datetime":"2015-10-12T05:00:18.613Z","accountId":"us-r3344434","address":"myAddress","operation":"add"}
         // ---
         //
         final String kafkaMessage = "Content-Type: " + contentType + "\r\n" +
@@ -133,7 +133,7 @@ public class KafkaResource implements Closeable {
 
             // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
             // * the schema definition files will by loaded over URI by the data replicator, periodically
-            // * the mime type is extracted form the filename by usaingt naming conventions  
+            // * the mime type is extracted from the filename by using naming conventions  
 
             final ImmutableSet<String> schemafilenames = ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.json");
 

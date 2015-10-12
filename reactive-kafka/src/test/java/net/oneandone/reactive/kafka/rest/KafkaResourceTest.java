@@ -25,7 +25,6 @@ import net.oneandone.reactive.kafka.EmbeddedZookeeper;
 
 
 
-@Ignore
 public class KafkaResourceTest {
 
     private static WebContainer server;
@@ -70,7 +69,7 @@ public class KafkaResourceTest {
         
         Response response = client.target(server.getBaseUrl() + "/topics/test")
                                   .request()
-                                  .post(Entity.entity(new AddressChangedEvent("us-r3344434", "myAddress", "add"), "application/vnd.ui.events.addresschanged-v1+json"));      
+                                  .post(Entity.entity(new AddressChangedEvent("us-r3344434", "myAddress", "add"), "application/vnd.ui.events.user.addressmodified-v1+json"));      
         
         System.out.println(response.getStatus());
         System.out.println(response.getHeaderString("location"));

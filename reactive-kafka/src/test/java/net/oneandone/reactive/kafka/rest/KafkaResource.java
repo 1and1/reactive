@@ -2,9 +2,8 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
-import java.net.URL;
+import java.util.Map;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
@@ -22,7 +21,6 @@ import javax.ws.rs.core.UriInfo;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.Ignore;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.fge.jackson.JsonLoader;
 import com.github.fge.jsonschema.core.exceptions.ProcessingException;
 import com.github.fge.jsonschema.core.report.ProcessingReport;
@@ -30,12 +28,12 @@ import com.github.fge.jsonschema.main.JsonSchema;
 import com.github.fge.jsonschema.main.JsonSchemaFactory;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.io.Resources;
 
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.rest.container.ResultConsumer;
-
-
 
 
 @Ignore
@@ -70,12 +68,11 @@ public class KafkaResource implements Closeable {
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
         
-        // validate json schema
+        // (1) validate json schema
         jsonValidator.validate(contentType, jsonObject);
         
- 
         
-        // the kafka message consists of a header followed by a blank line and the body. E.G.
+        // (2) create the kafka message. the kafka message consists of a header followed by a blank line and the body. E.G.
         // 
         // ---
         // Content-Type: application/vnd.ui.events.user.addressmodified-v1+json
@@ -88,7 +85,7 @@ public class KafkaResource implements Closeable {
                                     jsonObject;  
 
         
-        // send the kafka message in an asynchronous way 
+        // (3) send the kafka message in an asynchronous way 
         kafkaProducer.sendAsync(new ProducerRecord<String, String>(topic, kafkaMessage))
                      .thenApply(metadata -> Response.created(uriBuilder.path("partition")
                                                                        .path(Integer.toString(metadata.partition()))
@@ -138,26 +135,29 @@ public class KafkaResource implements Closeable {
             // * the schema definition files will by loaded over URI by the data replicator, periodically
             // * the mime type is extracted form the filename by usaingt naming conventions  
 
+            final ImmutableSet<String> schemafilenames = ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.json");
+
+            
             try {
                 final JsonSchemaFactory factory = JsonSchemaFactory.byDefault();
                 
-                final String filename = "application_vnd.ui.events.user.addressmodified-v1+json.json";
-                final JsonSchema schema = factory.getJsonSchema(JsonLoader.fromString(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
-
-                String mimeType = filename.substring(0, filename.length() - ".json".length()).replace("_", "/"); 
-                schemaRegistry = ImmutableMap.of(mimeType, schema);
+                final Map<String, JsonSchema> map = Maps.newHashMap();
+                for (String filename : schemafilenames) {
+                    map.put(filename.substring(0, filename.length() - ".json".length()).replace("_", "/"), 
+                            factory.getJsonSchema(JsonLoader.fromString(Resources.toString(Resources.getResource(filename), Charsets.UTF_8))));
+                }
+                schemaRegistry = ImmutableMap.copyOf(map);
                 
             } catch (ProcessingException | IOException e) {
                 throw new RuntimeException(e);
             }      
-                
         }
         
         
         public void validate(String mimeType, String jsonObject) {
             try {
                 final ProcessingReport report = schemaRegistry.get(mimeType).validate(JsonLoader.fromString(jsonObject));
-                if (report.isSuccess()) {
+                if (!report.isSuccess()) {
                     throw new IllegalArgumentException("schema conflict " + report.toString()); 
                 }
             } catch (ProcessingException | IOException e) {

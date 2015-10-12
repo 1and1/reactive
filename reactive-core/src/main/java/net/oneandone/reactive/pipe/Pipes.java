@@ -36,7 +36,7 @@ public class Pipes {
      * @param publisher   the underlying publisher
      * @return a new pipe instance
      */
-    public static <T> Pipe<T> newPipe(Publisher<T> publisher) {
+    public static <T> Pipe<T> source(Publisher<T> publisher) {
         return new PublisherSourcedPipe<>(publisher);
     }
     
@@ -45,7 +45,7 @@ public class Pipes {
      * @param it  the underlying iterator
      * @return a new pipe instance
      */
-    public static <T> Pipe<T> newPipe(Iterator<T> it) {
+    public static <T> Pipe<T> source(Iterator<T> it) {
         return new PublisherSourcedPipe<>(new IteratorToPublisherAdapter<>(it));
     }
 }

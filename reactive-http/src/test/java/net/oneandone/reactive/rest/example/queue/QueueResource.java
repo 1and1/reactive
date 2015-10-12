@@ -100,7 +100,7 @@ public class QueueResource implements Closeable {
     public void consumeMessageSse(@Context HttpServletRequest request, @Context HttpServletResponse response, @PathParam("queuename") String queuename) throws IOException {
         Publisher<Message<String>> publisher = getQueueManager().newPublisher(queuename);
         
-        Pipes.newPipe(publisher)
+        Pipes.source(publisher)
              .map(message -> ServerSentEvent.newEvent().id(message.getId()).data(message.getData()))
              .consume(new ServletSseSubscriber(request, response));
     }

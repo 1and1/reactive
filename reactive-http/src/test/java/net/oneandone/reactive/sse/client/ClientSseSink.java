@@ -307,15 +307,15 @@ public class ClientSseSink implements Subscriber<ServerSentEvent> {
             this.outboundBuffer = new OutboundBuffer(); 
             
             httpChannel = new ReconnectingHttpChannel(id, 
-                                                        uri,
-                                                        "POST", 
-                                                        ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
-                                                        isFailOnConnectError, 
-                                                        numFollowRedirects, 
-                                                        connectionTimeout, 
-                                                        (isWriteable) -> outboundBuffer.refresh(),    // writeable changed listener
-                                                        new HttpChannelDataHandler()  { },        // data consumer
-                                                        (headers) -> headers);
+                                                      uri,
+                                                      "POST", 
+                                                      ImmutableMap.of("Content-Type", "text/event-stream", "Transfer-Encoding", "chunked"),
+                                                      isFailOnConnectError, 
+                                                      numFollowRedirects, 
+                                                      connectionTimeout, 
+                                                      (isWriteable) -> outboundBuffer.refresh(),    // writeable changed listener
+                                                      new HttpChannelDataHandler()  { },        // data consumer
+                                                      (headers) -> headers);
 
             httpChannel.init()
                          .thenAccept(isConnected -> { new KeepAliveEmitter(id, keepAlivePeriod, httpChannel).start(); subscription.request(1); })

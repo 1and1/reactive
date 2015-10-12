@@ -25,23 +25,18 @@ import net.oneandone.reactive.ReactiveSink;
 import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.utils.Utils;
 
-import org.apache.kafka.clients.producer.Callback;
-import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
 
 
 
+
 public class KafkaSink<K, V> implements Subscriber<ProducerRecord<K, V>> {
     
-    private static final Logger LOG = LoggerFactory.getLogger(KafkaSink.class);
     private static final int DEFAULT_BUFFER_SIZE = 50;
     
     // properties
@@ -129,36 +124,22 @@ public class KafkaSink<K, V> implements Subscriber<ProducerRecord<K, V>> {
     
     
     private static final class Producer<K, V> {
-        private final KafkaProducer<K, V> kafkaProducer;
+        private final CompletableKafkaProducer<K, V> kafkaProducer;
         private final Subscription subscription;
         
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         
         public Producer(ImmutableMap<String, Object> properties, Subscription subscription) {
-            this.kafkaProducer = new KafkaProducer<K, V>(properties);
+            this.kafkaProducer = new CompletableKafkaProducer<K, V>(properties);
             this.subscription = subscription;
             subscription.request(1);
         }
         
         
         public void write(ProducerRecord<K, V> record) {
-            
-            Callback callback = new Callback() {
-                
-                @Override
-                public void onCompletion(RecordMetadata metadata, Exception exception) {
-                    if (exception == null) {
-                        LOG.debug("submit into " + metadata.topic() + "  (" + metadata.offset() + "@" + metadata.partition() + ")");
-                        subscription.request(1);
-                    } else {
-                        LOG.debug(exception.getMessage() + " error occured by writing data");
-                        subscription.cancel();
-                    }
-                }
-            };
-            
-            kafkaProducer.send(record, callback);
+            kafkaProducer.sendAsync(record)
+                         .whenComplete((metadata, error) -> { if (error == null) { subscription.request(1); } else { subscription.cancel(); } });
         }
         
 

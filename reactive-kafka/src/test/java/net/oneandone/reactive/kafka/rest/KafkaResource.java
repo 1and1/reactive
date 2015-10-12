@@ -36,7 +36,6 @@ import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 
 
-@Ignore
 @Path("/")
 public class KafkaResource implements Closeable {
     

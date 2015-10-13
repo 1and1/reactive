@@ -136,7 +136,7 @@ public class KafkaResourceAvro implements Closeable {
                                  .map(writer -> writer.write(jsonObject));
         }
         
-        public String toJson(String mimeType, byte[] avroObject) {
+        public Optional<String> toJson(String mimeType, byte[] avroObject) {
             // To be implemented
             return null;
         }

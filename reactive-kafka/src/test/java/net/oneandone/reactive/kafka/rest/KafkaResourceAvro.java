@@ -48,7 +48,7 @@ import net.oneandone.reactive.rest.container.ResultConsumer;
 @Path("/avro")
 public class KafkaResourceAvro implements Closeable {
     
-    private final JsonToAvro jsonToAvro = new JsonToAvro(); 
+    private final AvroMessageMapper avroMessageMapper = new AvroMessageMapper(); 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     
     
@@ -76,10 +76,10 @@ public class KafkaResourceAvro implements Closeable {
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
 
-        final byte[] kafkaMessage = jsonToAvro.fromJsonToAvro(contentType, jsonObject)
-                                              .orElseThrow(BadRequestException::new);  
+        final byte[] kafkaMessage = avroMessageMapper.fromJson(contentType, jsonObject)
+                                                     .orElseThrow(BadRequestException::new);  
         
-        // (3) send the kafka message in an asynchronous way 
+ 
         kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessage))
                      .thenApply(metadata -> Response.created(uriBuilder.path("partition")
                                                                        .path(Integer.toString(metadata.partition()))
@@ -119,48 +119,26 @@ public class KafkaResourceAvro implements Closeable {
     
     
     
+    
+    
  
-    private static final class JsonToAvro {
+    private static final class AvroMessageMapper {
         
-        private static final Logger LOG = LoggerFactory.getLogger(JsonToAvro.class);
-        private volatile ImmutableMap<String, JsonToAvroWriter> schemaRegistry = ImmutableMap.of(); 
+        private final AvroSchemaRegistry schemaRegistry = new AvroSchemaRegistry();
         
         
-        public JsonToAvro() {
-
-            // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
-            // * the schema definition files will by loaded over URI by the data replicator, periodically
-            // * the mime type is extracted from the filename by using naming conventions  
-
-            final ImmutableSet<String> schemafilenames = ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.avsc");
-
-            reloadSchemadefintions(schemafilenames);
+        public AvroMessageMapper() {
+            schemaRegistry.reloadSchemadefintions(ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.avsc"));
         }
         
-        
-        private void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
-            
-            Map<String, JsonToAvroWriter> newSchemaRegistry = Maps.newHashMap();
-            
-            for (String filename : schemafilenames) {
-                final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
-                
-                try {
-                    newSchemaRegistry.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
-                } catch (IOException ioe) {
-                    LOG.warn("error loading avro schema " + filename, ioe);
-                }
-            }
-            
-            schemaRegistry = ImmutableMap.copyOf(newSchemaRegistry);
+        public Optional<byte[]> fromJson(String mimeType, String jsonObject) {
+            return schemaRegistry.getJsonToAvroWriter(mimeType)
+                                 .map(writer -> writer.write(jsonObject));
         }
-
-                
         
-        
-        public Optional<byte[]> fromJsonToAvro(String mimeType, String jsonObject) {
-            return Optional.ofNullable(schemaRegistry.get(mimeType))
-                           .map(writer -> writer.write(jsonObject));
+        public String toJson(String mimeType, byte[] avroObject) {
+            // To be implemented
+            return null;
         }
         
         
@@ -195,6 +173,44 @@ public class KafkaResourceAvro implements Closeable {
                     throw new BadRequestException("schema conflict " + ioe);
                 }
 
+            }
+        }
+        
+        
+        
+        
+
+        // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
+        // * the schema definition files will by loaded over URI by the data replicator, periodically
+        // * the mime type is extracted from the filename by using naming conventions  
+
+        private static final class AvroSchemaRegistry {
+            
+            private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaRegistry.class);
+            
+            private volatile ImmutableMap<String, JsonToAvroWriter> jsonToAvroWriters = ImmutableMap.of();
+            
+            
+            public void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
+                
+                Map<String, JsonToAvroWriter> newJsonToAvroWriters = Maps.newHashMap();
+                
+                for (String filename : schemafilenames) {
+                    final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
+                    
+                    try {
+                        newJsonToAvroWriters.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
+                    } catch (IOException ioe) {
+                        LOG.warn("error loading avro schema " + filename, ioe);
+                    }
+                }
+                
+                jsonToAvroWriters = ImmutableMap.copyOf(newJsonToAvroWriters);
+            }
+            
+            
+            public Optional<JsonToAvroWriter> getJsonToAvroWriter(String mimeType) {
+                return Optional.ofNullable(jsonToAvroWriters.get(mimeType));
             }
         }
     }

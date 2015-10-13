@@ -31,7 +31,7 @@ import net.oneandone.reactive.kafka.rest.beans.AddressChangedEventAvaro;
 
 
 
-//@Ignore
+@Ignore
 public class KafkaResourceTest {
 
     private static WebContainer server;

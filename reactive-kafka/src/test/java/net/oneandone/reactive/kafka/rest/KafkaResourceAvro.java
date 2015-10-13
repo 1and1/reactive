@@ -48,7 +48,7 @@ import net.oneandone.reactive.rest.container.ResultConsumer;
 @Path("/avro")
 public class KafkaResourceAvro implements Closeable {
     
-    private final AvroMessageMapper avroMessageMapper = new AvroMessageMapper(); 
+    private final AvroSchemaRegistry avroSchemaRegistry = new AvroSchemaRegistry(); 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     
     
@@ -75,9 +75,10 @@ public class KafkaResourceAvro implements Closeable {
 
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
-
-        final byte[] kafkaMessage = avroMessageMapper.fromJson(contentType, jsonObject)
-                                                     .orElseThrow(BadRequestException::new);  
+        
+        final byte[] kafkaMessage = avroSchemaRegistry.getJsonToAvroWriter(contentType)
+                                                      .map(writer -> writer.write(jsonObject))
+                                                      .orElseThrow(BadRequestException::new);  
         
  
         kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessage))
@@ -121,97 +122,79 @@ public class KafkaResourceAvro implements Closeable {
     
     
     
- 
-    private static final class AvroMessageMapper {
-        
-        private final AvroSchemaRegistry schemaRegistry = new AvroSchemaRegistry();
-        
-        
-        public AvroMessageMapper() {
-            schemaRegistry.reloadSchemadefintions(ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.avsc"));
+    private static final class JsonToAvroWriter {
+        private final Schema schema;
+        private final GenericDatumWriter<Object> writer;
+                    
+        public JsonToAvroWriter(String schemaAsString) {
+             this(new Schema.Parser().parse(schemaAsString));
         }
         
-        public Optional<byte[]> fromJson(String mimeType, String jsonObject) {
-            return schemaRegistry.getJsonToAvroWriter(mimeType)
-                                 .map(writer -> writer.write(jsonObject));
-        }
-        
-        public Optional<String> toJson(String mimeType, byte[] avroObject) {
-            // To be implemented
-            return null;
+        public JsonToAvroWriter(Schema schema) {
+            this.schema = schema;
+            this.writer = new GenericDatumWriter<Object>(schema);
         }
         
         
-        private static final class JsonToAvroWriter {
-            private final Schema schema;
-            private final GenericDatumWriter<Object> writer;
-                        
-            public JsonToAvroWriter(String schemaAsString) {
-                 this(new Schema.Parser().parse(schemaAsString));
+        public byte[] write(String jsonObject) {
+            try {
+                final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                
+                final Decoder decoder = DecoderFactory.get().jsonDecoder(schema, new DataInputStream(new ByteArrayInputStream(jsonObject.getBytes(Charsets.UTF_8))));
+                final Object datum = new GenericDatumReader<Object>(schema).read(null, decoder);
+                
+                final Encoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
+                writer.write(datum, encoder);
+                encoder.flush();
+               
+                return outputStream.toByteArray();
+                
+            } catch (IOException ioe) {
+                throw new BadRequestException("schema conflict " + ioe);
             }
+
+        }
+    }
+    
+    
+    
+
+    // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
+    // * the schema definition files will by loaded over URI by the data replicator, periodically
+    // * the mime type is extracted from the filename by using naming conventions  
+
+    private static final class AvroSchemaRegistry {
+        private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaRegistry.class);
+        
+        private volatile ImmutableMap<String, JsonToAvroWriter> jsonToAvroWriters = ImmutableMap.of();
+
+        
+        
+        public AvroSchemaRegistry() {
+            reloadSchemadefintions(ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.avsc"));
+        }
+        
+        
+        public void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
             
-            public JsonToAvroWriter(Schema schema) {
-                this.schema = schema;
-                this.writer = new GenericDatumWriter<Object>(schema);
-            }
+            final Map<String, JsonToAvroWriter> newJsonToAvroWriters = Maps.newHashMap();
             
-            
-            public byte[] write(String jsonObject) {
+            for (String filename : schemafilenames) {
+                final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
+                
                 try {
-                    final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                    
-                    final Decoder decoder = DecoderFactory.get().jsonDecoder(schema, new DataInputStream(new ByteArrayInputStream(jsonObject.getBytes(Charsets.UTF_8))));
-                    final Object datum = new GenericDatumReader<Object>(schema).read(null, decoder);
-                    
-                    final Encoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
-                    writer.write(datum, encoder);
-                    encoder.flush();
-                   
-                    return outputStream.toByteArray();
-                    
+                    newJsonToAvroWriters.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
                 } catch (IOException ioe) {
-                    throw new BadRequestException("schema conflict " + ioe);
+                    LOG.warn("error loading avro schema " + filename, ioe);
                 }
-
             }
+            
+            jsonToAvroWriters = ImmutableMap.copyOf(newJsonToAvroWriters);
         }
         
         
-        
-        
-
-        // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
-        // * the schema definition files will by loaded over URI by the data replicator, periodically
-        // * the mime type is extracted from the filename by using naming conventions  
-
-        private static final class AvroSchemaRegistry {
-            
-            private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaRegistry.class);
-            
-            private volatile ImmutableMap<String, JsonToAvroWriter> jsonToAvroWriters = ImmutableMap.of();
-            
-            
-            public void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
-                
-                Map<String, JsonToAvroWriter> newJsonToAvroWriters = Maps.newHashMap();
-                
-                for (String filename : schemafilenames) {
-                    final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
-                    
-                    try {
-                        newJsonToAvroWriters.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
-                    } catch (IOException ioe) {
-                        LOG.warn("error loading avro schema " + filename, ioe);
-                    }
-                }
-                
-                jsonToAvroWriters = ImmutableMap.copyOf(newJsonToAvroWriters);
-            }
-            
-            
-            public Optional<JsonToAvroWriter> getJsonToAvroWriter(String mimeType) {
-                return Optional.ofNullable(jsonToAvroWriters.get(mimeType));
-            }
+        public Optional<JsonToAvroWriter> getJsonToAvroWriter(String mimeType) {
+            return Optional.ofNullable(jsonToAvroWriters.get(mimeType));
         }
     }
 }

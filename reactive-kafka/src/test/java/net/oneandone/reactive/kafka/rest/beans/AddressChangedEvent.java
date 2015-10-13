@@ -1,4 +1,4 @@
-package net.oneandone.reactive.kafka.rest;
+package net.oneandone.reactive.kafka.rest.beans;
 
 import java.time.Instant;
 

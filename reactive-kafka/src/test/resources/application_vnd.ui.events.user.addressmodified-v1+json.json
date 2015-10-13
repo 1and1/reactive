@@ -13,6 +13,11 @@
         "address": {
             "description": "the user adress",
             "type": "string"
+        },
+        "operation": {
+            "description": "the kind of modification such as add, remove or update",
+            "type": "string",
+            "minimum": 0
         }
     },
     "required": ["accountId", "datetime", "address"]

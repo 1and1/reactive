@@ -5,10 +5,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
-import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.ws.rs.BadRequestException;
 import javax.ws.rs.GET;
@@ -24,13 +23,17 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.github.fge.jackson.JsonLoader;
-import com.github.fge.jsonschema.core.exceptions.ProcessingException;
-import com.github.fge.jsonschema.core.report.ProcessingReport;
-import com.github.fge.jsonschema.main.JsonSchema;
-import com.github.fge.jsonschema.main.JsonSchemaFactory;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -42,14 +45,14 @@ import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 
 
-@Path("/")
-public class KafkaResource implements Closeable {
+@Path("/avro")
+public class KafkaResourceAvro implements Closeable {
     
-    private final JsonValidator jsonValidator = new JsonValidator(); 
+    private final JsonToAvro jsonToAvro = new JsonToAvro(); 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     
     
-    public KafkaResource(String bootstrapservers) {
+    public KafkaResourceAvro(String bootstrapservers) {
         this.kafkaProducer = new CompletableKafkaProducer<>(ImmutableMap.of("bootstrap.servers", bootstrapservers,
                                                                             "key.serializer", org.apache.kafka.common.serialization.ByteArraySerializer.class,
                                                                             "value.serializer", org.apache.kafka.common.serialization.ByteArraySerializer.class));
@@ -73,26 +76,11 @@ public class KafkaResource implements Closeable {
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
 
-        
-        // (1) validate json schema
-        jsonValidator.validate(contentType, jsonObject);
-        
-        
-        // (2) create the kafka message. the kafka message consists of a header followed by a blank line and the body. E.G.
-        // 
-        // ---
-        // Content-Type: application/vnd.ui.events.user.addressmodified-v1+json
-        //
-        // {"datetime":"2015-10-12T05:00:18.613Z","accountId":"us-r3344434","address":"myAddress","operation":"add"}
-        // ---
-        //
-        final String kafkaMessage = "Content-Type: " + contentType + "\r\n" +
-                                    "\r\n" + 
-                                    jsonObject;  
-
+        final byte[] kafkaMessage = jsonToAvro.fromJsonToAvro(contentType, jsonObject)
+                                              .orElseThrow(BadRequestException::new);  
         
         // (3) send the kafka message in an asynchronous way 
-        kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessage.getBytes(Charsets.UTF_8)))
+        kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessage))
                      .thenApply(metadata -> Response.created(uriBuilder.path("partition")
                                                                        .path(Integer.toString(metadata.partition()))
                                                                        .path("offset")
@@ -131,45 +119,83 @@ public class KafkaResource implements Closeable {
     
     
     
-    private static final class JsonValidator {
+ 
+    private static final class JsonToAvro {
         
-        private final ImmutableMap<String, JsonSchema> schemaRegistry; 
+        private static final Logger LOG = LoggerFactory.getLogger(JsonToAvro.class);
+        private volatile ImmutableMap<String, JsonToAvroWriter> schemaRegistry = ImmutableMap.of(); 
         
         
-        public JsonValidator() {
+        public JsonToAvro() {
 
             // TODO replace this: managing the local schema registry should be replaced by a data-replicator based approach
             // * the schema definition files will by loaded over URI by the data replicator, periodically
             // * the mime type is extracted from the filename by using naming conventions  
 
-            final ImmutableSet<String> schemafilenames = ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.json");
+            final ImmutableSet<String> schemafilenames = ImmutableSet.of("application_vnd.ui.events.user.addressmodified-v1+json.avsc");
 
-            
-            try {
-                final JsonSchemaFactory factory = JsonSchemaFactory.byDefault();
-                
-                final Map<String, JsonSchema> map = Maps.newHashMap();
-                for (String filename : schemafilenames) {
-                    map.put(filename.substring(0, filename.length() - ".json".length()).replace("_", "/"), 
-                            factory.getJsonSchema(JsonLoader.fromString(Resources.toString(Resources.getResource(filename), Charsets.UTF_8))));
-                }
-                schemaRegistry = ImmutableMap.copyOf(map);
-                
-            } catch (ProcessingException | IOException e) {
-                throw new RuntimeException(e);
-            }      
+            reloadSchemadefintions(schemafilenames);
         }
         
         
-        public void validate(String mimeType, String jsonObject) throws BadRequestException {
-            try {
-                final ProcessingReport report = schemaRegistry.get(mimeType).validate(JsonLoader.fromString(jsonObject));
-                if (!report.isSuccess()) {
-                    throw new BadRequestException("schema conflict " + report.toString()); 
+        private void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
+            
+            Map<String, JsonToAvroWriter> newSchemaRegistry = Maps.newHashMap();
+            
+            for (String filename : schemafilenames) {
+                final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
+                
+                try {
+                    newSchemaRegistry.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
+                } catch (IOException ioe) {
+                    LOG.warn("error loading avro schema " + filename, ioe);
                 }
-            } catch (ProcessingException | IOException e) {
-                throw new RuntimeException(e);
-            }            
+            }
+            
+            schemaRegistry = ImmutableMap.copyOf(newSchemaRegistry);
+        }
+
+                
+        
+        
+        public Optional<byte[]> fromJsonToAvro(String mimeType, String jsonObject) {
+            return Optional.ofNullable(schemaRegistry.get(mimeType))
+                           .map(writer -> writer.write(jsonObject));
+        }
+        
+        
+        private static final class JsonToAvroWriter {
+            private final Schema schema;
+            private final GenericDatumWriter<Object> writer;
+                        
+            public JsonToAvroWriter(String schemaAsString) {
+                 this(new Schema.Parser().parse(schemaAsString));
+            }
+            
+            public JsonToAvroWriter(Schema schema) {
+                this.schema = schema;
+                this.writer = new GenericDatumWriter<Object>(schema);
+            }
+            
+            
+            public byte[] write(String jsonObject) {
+                try {
+                    final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                    
+                    final Decoder decoder = DecoderFactory.get().jsonDecoder(schema, new DataInputStream(new ByteArrayInputStream(jsonObject.getBytes(Charsets.UTF_8))));
+                    final Object datum = new GenericDatumReader<Object>(schema).read(null, decoder);
+                    
+                    final Encoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
+                    writer.write(datum, encoder);
+                    encoder.flush();
+                   
+                    return outputStream.toByteArray();
+                    
+                } catch (IOException ioe) {
+                    throw new BadRequestException("schema conflict " + ioe);
+                }
+
+            }
         }
     }
 }

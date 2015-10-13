@@ -1,0 +1,11 @@
+{
+    "namespace": "test",
+    "type": "record",
+    "name": "addressChangedEvent",
+    "fields": [
+        {"name": "accountId", "type": "string"},
+        {"name": "datetime", "type": "string"},
+        {"name": "address", "type": "string"},
+        {"name": "operation", "type": ["string", "null"]}
+    ]
+}

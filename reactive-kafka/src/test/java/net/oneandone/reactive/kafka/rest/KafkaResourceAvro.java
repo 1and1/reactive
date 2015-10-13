@@ -76,8 +76,8 @@ public class KafkaResourceAvro implements Closeable {
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
         
-        final byte[] kafkaMessage = avroSchemaRegistry.getJsonToAvroWriter(contentType)
-                                                      .map(writer -> writer.write(jsonObject))
+        final byte[] kafkaMessage = avroSchemaRegistry.getJsonToAvroMapper(contentType)
+                                                      .map(mapper -> mapper.toAvro(jsonObject))
                                                       .orElseThrow(BadRequestException::new);  
         
  
@@ -122,21 +122,21 @@ public class KafkaResourceAvro implements Closeable {
     
     
     
-    private static final class JsonToAvroWriter {
+    private static final class JsonToAvroMapper {
         private final Schema schema;
         private final GenericDatumWriter<Object> writer;
                     
-        public JsonToAvroWriter(String schemaAsString) {
+        public JsonToAvroMapper(String schemaAsString) {
              this(new Schema.Parser().parse(schemaAsString));
         }
         
-        public JsonToAvroWriter(Schema schema) {
+        public JsonToAvroMapper(Schema schema) {
             this.schema = schema;
             this.writer = new GenericDatumWriter<Object>(schema);
         }
         
         
-        public byte[] write(String jsonObject) {
+        public byte[] toAvro(String jsonObject) {
             try {
                 final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                 
@@ -166,7 +166,7 @@ public class KafkaResourceAvro implements Closeable {
     private static final class AvroSchemaRegistry {
         private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaRegistry.class);
         
-        private volatile ImmutableMap<String, JsonToAvroWriter> jsonToAvroWriters = ImmutableMap.of();
+        private volatile ImmutableMap<String, JsonToAvroMapper> jsonToAvroWriters = ImmutableMap.of();
 
         
         
@@ -177,13 +177,13 @@ public class KafkaResourceAvro implements Closeable {
         
         public void reloadSchemadefintions(ImmutableSet<String> schemafilenames) {
             
-            final Map<String, JsonToAvroWriter> newJsonToAvroWriters = Maps.newHashMap();
+            final Map<String, JsonToAvroMapper> newJsonToAvroWriters = Maps.newHashMap();
             
             for (String filename : schemafilenames) {
                 final String mimeType = filename.substring(0, filename.length() - ".avsc".length()).replace("_", "/");
                 
                 try {
-                    newJsonToAvroWriters.put(mimeType, new JsonToAvroWriter(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
+                    newJsonToAvroWriters.put(mimeType, new JsonToAvroMapper(Resources.toString(Resources.getResource(filename), Charsets.UTF_8)));
                 } catch (IOException ioe) {
                     LOG.warn("error loading avro schema " + filename, ioe);
                 }
@@ -193,7 +193,7 @@ public class KafkaResourceAvro implements Closeable {
         }
         
         
-        public Optional<JsonToAvroWriter> getJsonToAvroWriter(String mimeType) {
+        public Optional<JsonToAvroMapper> getJsonToAvroMapper(String mimeType) {
             return Optional.ofNullable(jsonToAvroWriters.get(mimeType));
         }
     }

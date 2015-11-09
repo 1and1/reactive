@@ -1,0 +1,12 @@
+{
+    "namespace": "ui.mam.event.mailbox",
+    "type": "record",
+    "name": "emailmoved",
+    "fields": [
+        {"name": "mailaccountid", "type": "string"},
+        {"name": "timestamp", "type": "string"},
+        {"name": "mailid", "type": "string"},
+        {"name": "sourcefolderid", "type": "string"},
+        {"name": "targetfolderid", "type": "string"}
+    ]
+}

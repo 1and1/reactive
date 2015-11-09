@@ -15,7 +15,6 @@ public class KafkaResourceApp extends Application {
     
     @Override
     public ImmutableSet<Object> getSingletons() {
-        return ImmutableSet.of(new KafkaResource("localhost:" + 8553), 
-                               new KafkaResourceAvro("localhost:" + 8553));
+        return ImmutableSet.of(new KafkaResource("localhost:" + 8553));
     }
 }

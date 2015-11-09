@@ -1,0 +1,9 @@
+
+@namespace("ui.mam.event.mailbox")
+protocol Simple {
+
+    record mailmoved {
+  
+        string mailAccountId;
+    }    
+}

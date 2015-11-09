@@ -1,0 +1,13 @@
+{
+    "namespace": "ui.mam.event.mailaccount",
+    "type": "record",
+    "name": "emailsent",
+    "fields": [
+        {"name": "mailaccountid", "type": "string"},
+        {"name": "timestamp", "type": "string"},
+        {"name": "number_of_recipients", "type": "int"},
+        {"name": "authenticationscheme", "type": { "type":"enum", "name":"authscheme", "symbols" : ["BASIC", "CLIENTCERT", "DIGEST", "FORM", "BEARER"] } },
+        {"name": "external_ip", "type": "string"},
+        {"name": "principalname", "type": "string"}
+    ]
+}

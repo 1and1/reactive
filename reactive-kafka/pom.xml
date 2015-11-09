@@ -73,7 +73,12 @@
 			<version>1.7.7</version>
 			<scope>test</scope>
 		</dependency>
-	
+
+		<dependency>
+			<groupId>org.apache.avro</groupId>
+			<artifactId>avro-tools</artifactId>
+			<version>1.7.7</version>
+		</dependency>
 
 		<dependency>
 			<groupId>io.confluent</groupId>

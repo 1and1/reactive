@@ -1,0 +1,30 @@
+{
+  "namespace": "example.event",
+  "type": "record",
+  "name": "customerdatachanged",
+  "fields": [
+        {"name": "header", "type": { "type" : "record",
+                                     "name" : "header",
+                                     "namespace": "example.event",
+                                     "fields" : [
+                                           {"name": "eventId", "type": "string"},
+                                           {"name": "timestamp", "type": "string"},
+                                           {"name": "user", "type": { "type" : "record",
+                                                                               "name" : "authinfo",
+                                                                               "fields" : [
+                                                                                        {"name": "principalname", "type": "string", "doc" : "may be blank"}, 
+                                                                                        {"name": "authenticationscheme", "type": { "type":"enum", "name":"authscheme", "symbols" : ["BASIC", "CLIENTCERT", "SOURCEIP", "PLAIN", "DIGEST", "FORM", "OAUTHBEARER"] } }, 
+                                                                                 ]
+                                                    
+                                                                      }
+                                            }
+                                      ]                               
+                                  }},    
+        {"name": "accountid", "type": "string"},
+    ]
+}
+
+
+
+
+    

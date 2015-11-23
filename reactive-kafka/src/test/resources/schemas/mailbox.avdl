@@ -1,0 +1,9 @@
+
+@namespace("excample.mailbox")
+protocol Simple {
+
+    record mailmoved {
+  
+        string accountId;
+    }    
+}

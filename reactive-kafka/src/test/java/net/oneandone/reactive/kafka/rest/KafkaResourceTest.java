@@ -2,17 +2,14 @@ package net.oneandone.reactive.kafka.rest;
 
 
 
-
-
 import java.io.File;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.xml.bind.annotation.XmlRootElement;
@@ -21,19 +18,15 @@ import org.jboss.resteasy.plugins.providers.jackson.ResteasyJacksonProvider;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import net.oneandone.reactive.kafka.EmbeddedKafka;
 import net.oneandone.reactive.kafka.EmbeddedZookeeper;
-import net.oneandone.reactive.kafka.rest.KafkaResourceTest.EmailAddressChangedEvent.Operation;
-import net.oneandone.reactive.kafka.rest.KafkaResourceTest.EmailSentEvent.AuthenticationScheme;
 
 
-@Ignore
+
 public class KafkaResourceTest {
 
     private static WebContainer server;
@@ -74,180 +67,94 @@ public class KafkaResourceTest {
     }
 
     
-    @SuppressWarnings("unchecked")
     @Test
     public void testFetchMetaData() throws Exception {
 
-        // fetch root representation
-        Map<String, Object> root = client.target(server.getBaseUrl())
-                                         .request(MediaType.APPLICATION_JSON)
-                                         .get(new GenericType<Map<String, Object>>() { });
-
-        // to get schema uri
-        String schemaUri = (((Map<String, String>) ((Map<String, Object>) root.get("_links")).get("schemas")).get("href"));
-        
-        
         // request all schemas
-        String metaData = client.target(schemaUri)
+        String metaData = client.target(server.getBaseUrl() + "/topics/mytopic/schemas")
                                 .request(MediaType.TEXT_PLAIN)
                                 .get(String.class);
 
-        Assert.assertTrue(metaData.contains("== application/vnd.ui.mam.event.mailbox.mailmoved+json =="));
-        Assert.assertTrue(metaData.contains("== application/vnd.ui.mam.event.mailbox.mailmoved.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent.list+json =="));
     }
+   
         
-    
     @Test
     public void testEnqueue() throws Exception {
 
         // submit event
-        Response response = client.target(server.getBaseUrl() + "/topics/mytopic/events")
-                                  .request()
-                                  .post(Entity.entity(new EmailAddressChangedEvent("us-r3344434", "myAddress", Operation.ADDED), 
-                                                      "application/vnd.ui.mam.event.mailaccount.emailaddresschanged+json"));
-        String kafkaMessageURI = response.getHeaderString("location");
-        response.close();
+        Response resp = client.target(server.getBaseUrl() + "/topics/mytopic/events")
+                              .request()
+                              .post(Entity.entity(new CustomerChangedEvent("44545453"), "application/vnd.example.event.customerdatachanged+json"));
+        
+        Assert.assertTrue((resp.getStatus() / 100) == 2);
+        String uri = resp.getHeaderString("location");
+        Assert.assertNotNull(uri);
+        resp.close();
+
         
         // and check if submitted
-        String event = client.target(kafkaMessageURI)
+        String event = client.target(uri)
                              .request(MediaType.APPLICATION_JSON)
                              .get(String.class);      
-        System.out.println(event);
-        
-   
-        
-        
-        // submit event
-        response = client.target(server.getBaseUrl() + "/topics/mytopic/events")
-                         .request()
-                         .post(Entity.entity(new EmailSentEvent("44554503", 3, "243.34.34.22", "CN=Hans Herber", AuthenticationScheme.BEARER), 
-                                             "application/vnd.ui.mam.event.mailaccount.emailsent+json"));
-        kafkaMessageURI = response.getHeaderString("location");
-        response.close();
-        
-        
-        
-        // and check if submitted
-        event = client.target(kafkaMessageURI)
-                      .request(MediaType.APPLICATION_JSON)
-                      .get(String.class);      
-        System.out.println(event);
-        
-        
-        
-        
-        // submit event
-        response = client.target(server.getBaseUrl() + "/topics/mytopic/events")
-                         .request()
-                         .post(Entity.entity(ImmutableList.of(new EmailMovedEvent("4545403", "345345354", "23322", "34443"), new EmailMovedEvent("4654503", "34545", "23322", "34443")), 
-                                             "application/vnd.ui.mam.event.mailbox.emailmoved.list+json"));
-        kafkaMessageURI = response.getHeaderString("location");
-        response.close();
-        
-        
-        // and check if submitted
-        event = client.target(kafkaMessageURI)
-                      .request(MediaType.APPLICATION_JSON)
-                      .get(String.class);      
         System.out.println(event);
     } 
     
     
- 
+
     
     
     @XmlRootElement
-    public static class EmailAddressChangedEvent {
-        public static enum Operation { ADDED, REMOVED, UPDATED };
-    
-        public String timestamp = Instant.now().toString();
-        public String mailaccountid;
-        public String emailaddress;
-        public Operation operation;
+    public static class CustomerChangedEvent {
+        public Header header = new Header();
+        public String accountid;
         
-        
-        public EmailAddressChangedEvent() { }
-        
-        public EmailAddressChangedEvent(String mailaccountid, String emailaddress, Operation operation) {
-            this.mailaccountid = mailaccountid;
-            this.emailaddress = emailaddress;
-            this.operation = operation;
-        }
-    }
+        public CustomerChangedEvent() { }
     
-    
-    
-    
-    @XmlRootElement
-    public static class EmailSentEvent {
-        public static enum AuthenticationScheme { BASIC, CLIENTCERT, DIGEST, FORM, BEARER };
-    
-        public String timestamp = Instant.now().toString();
-        public String mailaccountid;
-        public int number_of_recipients;
-        public String external_ip;
-        public String principalname;
-        public AuthenticationScheme authenticationscheme;
         
-        
-        public EmailSentEvent() { }
-        
-        public EmailSentEvent(String mailaccountid, 
-                              int number_of_recipients,
-                              String external_ip,
-                              String principalname,
-                              AuthenticationScheme authenticationscheme) {
-            this.mailaccountid = mailaccountid;
-            this.number_of_recipients = number_of_recipients;
-            this.external_ip = external_ip;
-            this.principalname = principalname;
-            this.authenticationscheme = authenticationscheme;
+        public CustomerChangedEvent(String accountid) {
+            this.accountid = accountid;
         }
     }
 
+    
     
   
-    
-    @XmlRootElement
-    public static class EmailMovedEvent {
-    
+    public static class Header {
+        public String eventId = UUID.randomUUID().toString();  // change to timesuuid 
         public String timestamp = Instant.now().toString();
-        public String mailaccountid;
-        public String mailid;
-        public String sourcefolderid;
-        public String targetfolderid;
+        public AuthenticationInfo authInfo;
         
         
-        public EmailMovedEvent() { }
-    
+        public Header() {  }
         
-        public EmailMovedEvent(String mailaccountid,
-                              String mailid,
-                              String sourcefolderid,
-                              String targetfolderid) {
-            this.mailaccountid = mailaccountid;
-            this.mailid = mailid;
-            this.sourcefolderid = sourcefolderid;
-            this.targetfolderid = targetfolderid;
+
+        public Header(String eventId, String timestamp, AuthenticationInfo authInfo) { 
+            this.eventId = eventId;
+            this.timestamp = timestamp;
+            this.authInfo = authInfo;
+        }
+        
+        
+        public Header withAuthInfo(AuthenticationInfo.AuthenticationScheme scheme, String principalname) {
+            return new Header(eventId, timestamp, new AuthenticationInfo(scheme, principalname));
         }
     }
 
     
-    
-
-    @XmlRootElement
-    public static class StringUnion {
-    
-        public String string; 
-    
-        public static StringUnion valueOf(String value) {
-            if (value == null) {
-                return null;
-            } else {
-                StringUnion union = new StringUnion();
-                union.string = value;
-                return union;
-            }
+    public static final class AuthenticationInfo  {
+        public static enum AuthenticationScheme { BASIC, CLIENTCERT, DIGEST, PLAIN, FORM, OAUTHBEARER };
+        
+        public AuthenticationInfo() {  }
+        
+        public AuthenticationInfo(AuthenticationScheme scheme, String principalname) {
+            this.principalname = principalname;
+            this.scheme = scheme;
         }
+        
+        public String principalname;
+        public AuthenticationScheme scheme;
     }
+   
 }

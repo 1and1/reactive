@@ -17,6 +17,7 @@ package net.oneandone.reactive.kafka;
 
 
 import java.util.List;
+
 import java.util.Map;
 import java.util.Properties;
 import java.util.Queue;
@@ -41,8 +42,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -51,7 +50,6 @@ import com.google.common.collect.Queues;
 
 
 public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
-    private static final Logger LOG = LoggerFactory.getLogger(KafkaSource.class);
     
     // properties
     private final ImmutableMap<String, Object> properties;

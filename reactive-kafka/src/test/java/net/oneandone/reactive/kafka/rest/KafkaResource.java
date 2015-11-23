@@ -2,6 +2,7 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.Closeable;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -11,7 +12,6 @@ import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 
-import javax.json.Json;
 import javax.ws.rs.BadRequestException;
 
 import javax.ws.rs.GET;

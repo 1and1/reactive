@@ -9,14 +9,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 
 import javax.json.Json;
-import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
 import javax.json.JsonString;
-import javax.json.JsonValue;
 import javax.json.stream.JsonParser;
 import javax.json.stream.JsonParser.Event;
 
@@ -152,9 +149,9 @@ public class AvroSchemaRegistry {
             
             
             while (jsonParser.hasNext()) {
+                
                 switch (jsonParser.next()) {
 
-                
                 case END_ARRAY:
                     return ImmutableList.copyOf(avroRecords);
 
@@ -163,13 +160,10 @@ public class AvroSchemaRegistry {
                     break;
                     
                 default:
-                    System.out.println("");
                 }
             }
 
-            
             throw new IllegalStateException("END_ARRAY event is missing");
-            
         }
 
         

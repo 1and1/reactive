@@ -3,11 +3,11 @@ package net.oneandone.avro.json;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 
 import javax.json.Json;
-import javax.json.JsonObject;
 import javax.json.JsonReader;
 import javax.json.stream.JsonParser;
 import javax.xml.bind.annotation.XmlRootElement;
@@ -18,6 +18,8 @@ import org.apache.avro.file.DataFileWriter.AppendWriteException;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -83,14 +85,24 @@ public class JsonAvroMapperTest {
     private void writeToFile(Schema schema, ImmutableList<GenericRecord> avroRecords) throws IOException {
         GenericRecord record =  avroRecords.get(0);
         
-        File file = new File("test.avro");
+        File file = new File("withDataFileWriter.avro");
         DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);
         DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<GenericRecord>(datumWriter);
         dataFileWriter.create(schema, file);
         dataFileWriter.append(record);
         dataFileWriter.close();
         
-        System.out.println("file written to " + file.getAbsolutePath());
+        
+        File file2 = new File("plain.avro");
+        GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<GenericRecord>(schema); 
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        Encoder encoder = EncoderFactory.get().binaryEncoder(os, null); 
+        writer.write(record, encoder); 
+        encoder.flush();
+
+        FileOutputStream fos = new FileOutputStream(file2); 
+        fos.write(os.toByteArray());
+        fos.close();
     }
     
     

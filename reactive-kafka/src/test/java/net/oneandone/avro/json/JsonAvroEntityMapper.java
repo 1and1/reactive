@@ -28,7 +28,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 
-import com.google.common.base.Charsets;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -69,11 +69,17 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
     public String getAbsoluteName() {
         return namespace + '.' + name;
     }
+
     
     @Override
-    public ImmutableList<GenericRecord> toAvroRecord(JsonObject jsonObject) {
-        JsonParser jsonParser = Json.createParser(new ByteArrayInputStream(jsonObject.toString().getBytes(Charsets.UTF_8)));
-        
+    public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
+        return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
+                                                            .map(record -> serialize(record, getSchema()))
+                                                            .collect(Collectors.toList()));
+    }
+    
+    @Override
+    public ImmutableList<GenericRecord> toAvroRecord(JsonParser jsonParser) {
         // check initial state
         if (jsonParser.next() != Event.START_OBJECT) {
             throw new IllegalStateException("START_OBJECT event excepted");
@@ -81,16 +87,8 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
         
         return ImmutableList.of(toSingleAvroRecord(jsonParser));
     }
-    
-    
-    @Override
-    public ImmutableList<byte[]> toAvroBinaryRecord(JsonObject jsonObject) {
-        return ImmutableList.copyOf(toAvroRecord(jsonObject).stream()
-                                                            .map(record -> serialize(record, getSchema()))
-                                                            .collect(Collectors.toList()));
-    }
-    
-    private static byte[] serialize(GenericRecord avroMessage, Schema schema) {
+
+    static byte[] serialize(GenericRecord avroMessage, Schema schema) {
         
         try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
             Encoder encoder = EncoderFactory.get().binaryEncoder(os, null); 
@@ -105,7 +103,7 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
         }
     }
     
-    private GenericRecord toSingleAvroRecord(JsonParser jsonParser) {
+    GenericRecord toSingleAvroRecord(JsonParser jsonParser) {
         return jsonObjectToAvroWriter.apply(jsonParser);
     }
     

@@ -85,7 +85,8 @@ public class KafkaResourceTest {
         // submit event
         Response resp = client.target(server.getBaseUrl() + "/topics/mytopic/events")
                               .request()
-                              .post(Entity.entity(new CustomerChangedEvent("44545453"), "application/vnd.example.event.customerdatachanged+json"));
+                              .post(Entity.entity(new CustomerChangedEvent("44545453"), 
+                                    "application/vnd.example.event.customerdatachanged+json"));
         
         Assert.assertTrue((resp.getStatus() / 100) == 2);
         String uri = resp.getHeaderString("location");
@@ -100,6 +101,30 @@ public class KafkaResourceTest {
         System.out.println(event);
     } 
     
+    
+    
+    
+    @Test
+    public void testEnqueueBatch() throws Exception {
+
+        // submit event
+        Response resp = client.target(server.getBaseUrl() + "/topics/mytopic/events")
+                              .request()
+                              .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent("44545453"), new CustomerChangedEvent("454502") },
+                                    "application/vnd.example.event.customerdatachanged.list+json"));
+        
+        Assert.assertTrue((resp.getStatus() / 100) == 2);
+        String uri = resp.getHeaderString("location");
+        Assert.assertNotNull(uri);
+        resp.close();
+
+        
+        // and check if submitted
+        String event = client.target(uri)
+                             .request(MediaType.APPLICATION_JSON)
+                             .get(String.class);      
+        System.out.println(event);
+    } 
     
 
     

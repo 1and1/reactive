@@ -9,6 +9,7 @@ import java.time.Instant;
 import javax.json.Json;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
+import javax.json.stream.JsonParser;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import org.apache.avro.Schema;
@@ -50,13 +51,13 @@ public class JsonAvroMapperTest {
             MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "566");
         event.emailaddress = null;
         
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonObject(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
     }
 
     
     @Test
     public void testValid() throws Exception {
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonObject(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
     }
     
     
@@ -65,7 +66,7 @@ public class JsonAvroMapperTest {
     public void testValidWithNullRecord() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonObject(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
     }
     
    
@@ -74,7 +75,7 @@ public class JsonAvroMapperTest {
     public void testInValidEnumValue() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ILLEGAL, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonObject(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
     }
     
     
@@ -93,15 +94,14 @@ public class JsonAvroMapperTest {
     }
     
     
-    private JsonObject toJsonObject(Object jsonObject) {
+    private JsonParser toJsonParser(Object jsonObject) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             objectMapper.writeValue(bos, jsonObject);
             bos.close();
             
-            JsonReader reader = Json.createReader(new ByteArrayInputStream(bos.toByteArray()));
-            return reader.readObject();
+            return Json.createParser(new ByteArrayInputStream(bos.toByteArray()));
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }

@@ -110,7 +110,7 @@ public class KafkaResource implements Closeable {
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
         final ImmutableList<byte[]> avroMessages = avroSchemaRegistry.getJsonToAvroMapper(contentType)
-                                                                     .map(mapper -> mapper.toAvroBinaryRecord(Json.createReader(jsonObjectStream).readObject()))
+                                                                     .map(mapper -> mapper.toAvroBinaryRecord(jsonObjectStream))
                                                                      .orElseThrow(BadRequestException::new);  
 
         sendAsync(topic, avroMessages)

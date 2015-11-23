@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
 import javax.json.Json;
 import javax.json.JsonArray;
@@ -16,6 +17,8 @@ import javax.json.JsonObject;
 import javax.json.JsonReader;
 import javax.json.JsonString;
 import javax.json.JsonValue;
+import javax.json.stream.JsonParser;
+import javax.json.stream.JsonParser.Event;
 
 import org.apache.avro.generic.GenericRecord;
 
@@ -127,26 +130,49 @@ public class AvroSchemaRegistry {
             this.entityMapper = entityMapper;
         }
         
-        @Override
-        public ImmutableList<GenericRecord> toAvroRecord(JsonObject jsonObject) {
-            final List<GenericRecord> avroRecords = Lists.newArrayList();
-            for (JsonValue json : ((JsonArray) jsonObject)) {
-                avroRecords.addAll(entityMapper.toAvroRecord((JsonObject) json));
-            }
-            
-            return ImmutableList.copyOf(avroRecords); 
-        }
         
         @Override
-        public ImmutableList<byte[]> toAvroBinaryRecord(JsonObject jsonObject) {
-            final List<byte[]> avroRecords = Lists.newArrayList();
-            for (JsonValue json : ((JsonArray) jsonObject)) {
-                avroRecords.addAll(entityMapper.toAvroBinaryRecord((JsonObject) json));
+        public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
+            return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
+                                                                .map(record -> JsonAvroEntityMapper.serialize(record, entityMapper.getSchema()))
+                                                                .collect(Collectors.toList()));
+        }
+        
+        
+        @Override
+        public ImmutableList<GenericRecord> toAvroRecord(JsonParser jsonParser) {
+
+            // check initial state
+            if (jsonParser.next() != Event.START_ARRAY) {
+                throw new IllegalStateException("START_ARRAY event excepted");
             }
+
             
-            return ImmutableList.copyOf(avroRecords); 
+            final List<GenericRecord> avroRecords = Lists.newArrayList();
+            
+            
+            while (jsonParser.hasNext()) {
+                switch (jsonParser.next()) {
+
+                
+                case END_ARRAY:
+                    return ImmutableList.copyOf(avroRecords);
+
+                case START_OBJECT:
+                    avroRecords.add(entityMapper.toSingleAvroRecord(jsonParser));
+                    break;
+                    
+                default:
+                    System.out.println("");
+                }
+            }
+
+            
+            throw new IllegalStateException("END_ARRAY event is missing");
+            
         }
 
+        
         @Override
         public String toString() {
             return "[" + entityMapper.toString() + "\r\n]";

@@ -30,7 +30,6 @@ import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -110,7 +109,6 @@ public class KafkaResource implements Closeable {
 
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
         
-        
         final ImmutableList<byte[]> avroMessages = avroSchemaRegistry.getJsonToAvroMapper(contentType)
                                                                      .map(mapper -> mapper.toAvroBinaryRecord(Json.createReader(jsonObjectStream).readObject()))
                                                                      .orElseThrow(BadRequestException::new);  
@@ -134,15 +132,6 @@ public class KafkaResource implements Closeable {
             return CompletableFuture.completedFuture(sentIds);
             
         } else {
-         
-            try { 
-                RecordMetadata meta = kafkaProducer.send(new ProducerRecord<String, byte[]>(topic, kafkaMessages.get(0))).get();
-                System.out.println(meta);
-            }  catch (Throwable t) {
-                t.printStackTrace();
-            }
-
-            
             return kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessages.get(0)))
                                 .thenApply(metadata -> ImmutableList.<KafkaMessageId>builder()
                                                                     .addAll(sentIds)

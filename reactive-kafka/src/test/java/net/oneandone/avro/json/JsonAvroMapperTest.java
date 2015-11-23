@@ -118,7 +118,6 @@ public class JsonAvroMapperTest {
         public int code = 99;
         public long ref = 3444349l;
         public float factor;
-        public String [] array = new String[] { "1", "2", "3" };
         public double size = 5.6;
         public String optionaldate;
         public String emailaddress;

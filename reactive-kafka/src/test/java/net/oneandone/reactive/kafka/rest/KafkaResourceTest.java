@@ -18,7 +18,6 @@ import org.jboss.resteasy.plugins.providers.jackson.ResteasyJacksonProvider;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableMap;
@@ -27,7 +26,6 @@ import net.oneandone.reactive.kafka.EmbeddedKafka;
 import net.oneandone.reactive.kafka.EmbeddedZookeeper;
 
 
-@Ignore
 public class KafkaResourceTest {
 
     private static WebContainer server;

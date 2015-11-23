@@ -3,6 +3,7 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.File;
+
 import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
@@ -27,7 +28,7 @@ import net.oneandone.reactive.kafka.EmbeddedKafka;
 import net.oneandone.reactive.kafka.EmbeddedZookeeper;
 
 
-@Ignore
+
 public class KafkaResourceTest {
 
     private static WebContainer server;
@@ -78,6 +79,11 @@ public class KafkaResourceTest {
 
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent+json =="));
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsend+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsend.list+json =="));
+        
     }
    
         
@@ -127,6 +133,31 @@ public class KafkaResourceTest {
                              .get(String.class);      
         System.out.println(event);
     } 
+    
+
+    
+    @Test
+    public void testEnqueueWithIdl() throws Exception {
+
+        // submit event
+        Response resp = client.target(server.getBaseUrl() + "/topics/mytopic/events")
+                              .request()
+                              .post(Entity.entity(new MailSentEvent("44545453"), 
+                                    "application/vnd.example.mail.mailsent+json"));
+        
+        Assert.assertTrue((resp.getStatus() / 100) == 2);
+        String uri = resp.getHeaderString("location");
+        Assert.assertNotNull(uri);
+        resp.close();
+
+        
+        // and check if submitted
+        String event = client.target(uri)
+                             .request(MediaType.APPLICATION_JSON)
+                             .get(String.class);      
+        System.out.println(event);
+    } 
+    
     
 
     
@@ -181,6 +212,21 @@ public class KafkaResourceTest {
         
         public String principalname;
         public AuthenticationScheme scheme;
+    }
+    
+    
+
+    @XmlRootElement
+    public static class MailSentEvent {
+        public String id;
+        public String date = Instant.now().toString();
+        
+
+        public MailSentEvent() { }
+
+        public MailSentEvent(String id) {
+            this.id = id;
+        }
     }
    
 }

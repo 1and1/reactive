@@ -1,32 +1,40 @@
 package net.oneandone.avro.json;
 
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import java.util.Optional;
 
 import javax.json.Json;
 import javax.json.JsonObject;
+import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
 import javax.json.JsonString;
+import javax.json.JsonValue;
 import javax.json.stream.JsonParser;
 import javax.json.stream.JsonParser.Event;
 
+import org.apache.avro.compiler.idl.Idl;
+import org.apache.avro.compiler.idl.ParseException;
 import org.apache.avro.generic.GenericRecord;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.io.Closeables;
 
 
 
@@ -83,14 +91,12 @@ public class AvroSchemaRegistry {
         // avro json schema? 
         if (schemaURI.getPath().endsWith(".avsc")) {
             try (InputStream is = schemaURI.toURL().openStream()) {
-                final JsonReader reader = Json.createReader(is);
-                jsonSchemas = ImmutableList.of(reader.readObject());
+                jsonSchemas = ImmutableList.of(Json.createReader(is).readObject());
             }
             
         // avro idl?                
         } else if (schemaURI.getPath().endsWith(".avdl")) {
-            // jsonSchemas = idlToJson.idlToJsonSchemaList(schemaURI);
-            return ImmutableMap.of();
+            jsonSchemas = idlToJson.idlToJsonSchemaList(schemaURI);
         
         // unknown!
         } else {
@@ -179,7 +185,6 @@ public class AvroSchemaRegistry {
     private static final class IdlToJson {
         
         public ImmutableList<JsonObject> idlToJsonSchemaList(URI idlUrl) {
-/*            
             InputStream is = null;
             Idl parser = null;
             try {
@@ -188,17 +193,27 @@ public class AvroSchemaRegistry {
                 
                 final String idl = parser.CompilationUnit().toString(true);
                 final JsonReader reader = Json.createReader(new ByteArrayInputStream(idl.getBytes(Charsets.UTF_8)));
-                final JsonObject idlJsonSchema = reader.readObject();
                 
-                final List<JsonNode> result = Lists.newArrayList();
-                for (JsonValue typeJson : idlJsonSchema.getJsonArray("types")) {
-                    JsonValue namespaceJson = ((JsonObject) typeJson).get("namespace");
+                
+                List<JsonObject> jsonSchemas = Lists.newArrayList();
+                JsonObject idlJson =  reader.readObject();
+                String namespace = idlJson.getString("namespace");
+                
+                for (JsonValue recordJson : idlJson.getJsonArray("types")) {
+                    JsonObjectBuilder builder = Json.createObjectBuilder();
+                
+                    if (!((JsonObject) recordJson).containsKey("namespace")) {
+                        builder.add("namespace", namespace);
+                    }
                     
-                    ((ObjectNode) typeNode).put("namespace", idlNode.get("namespace"));
-                    result.add(typeNode);
+                    for (Entry<String, JsonValue> nameValuePair : ((JsonObject) recordJson).entrySet()) {
+                        builder.add(nameValuePair.getKey(), nameValuePair.getValue());
+                    }
+                    
+                    jsonSchemas.add(builder.build());
                 }
                 
-                return ImmutableList.copyOf(result);
+                return ImmutableList.copyOf(jsonSchemas);
                 
             } catch (ParseException | IOException pe) {
                 throw new RuntimeException(pe);
@@ -209,13 +224,7 @@ public class AvroSchemaRegistry {
                     Closeables.close(parser, true);
                 } catch (IOException ignore) { }
             }
-        */
-            
-            return ImmutableList.of();
         }            
     }
-
- 
-    
 }
 

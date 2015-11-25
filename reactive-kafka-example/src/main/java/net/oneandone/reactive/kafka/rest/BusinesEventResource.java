@@ -28,7 +28,6 @@ import javax.ws.rs.core.UriInfo;
 
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -37,24 +36,23 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 
-import net.oneandone.avro.json.AvroSchemaRegistry; 
 import net.oneandone.avro.json.JsonAvroMapper;
+import net.oneandone.avro.json.schemaregistry.AvroSchemaRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.rest.container.ResultConsumer;
  
 
 
 
-@Component
 @Path("/")
-public class KafkaResource {
+public class BusinesEventResource {
     
     private final AvroSchemaRegistry avroSchemaRegistry; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     
 
     @Autowired
-    public KafkaResource(CompletableKafkaProducer<String, byte[]> kafkaProducer, AvroSchemaRegistry avroSchemaRegistry) {
+    public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer, AvroSchemaRegistry avroSchemaRegistry) {
         this.kafkaProducer = kafkaProducer;
         this.avroSchemaRegistry = avroSchemaRegistry;
     }

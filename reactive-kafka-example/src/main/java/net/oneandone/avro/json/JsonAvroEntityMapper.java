@@ -1,8 +1,6 @@
 package net.oneandone.avro.json;
 
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.StringWriter;
 import java.util.AbstractMap;
 import java.util.function.BiConsumer;
@@ -22,10 +20,7 @@ import javax.json.stream.JsonParser.Event;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.io.Encoder;
-import org.apache.avro.io.EncoderFactory;
 
 
 import com.google.common.collect.ImmutableList;
@@ -35,7 +30,7 @@ import com.google.common.collect.ImmutableSet;
 
 
 
-class JsonAvroEntityMapper implements JsonAvroMapper {
+public class JsonAvroEntityMapper implements JsonAvroMapper {
         
     private final Schema schema;
     private final JsonObject jsonSchema;
@@ -57,7 +52,7 @@ class JsonAvroEntityMapper implements JsonAvroMapper {
     @Override
     public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
         return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
-                                                            .map(record -> serialize(record, getSchema()))
+                                                            .map(record -> Avros.serializeAvroMessage(record, getSchema()))
                                                             .collect(Collectors.toList()));
     }
     
@@ -72,23 +67,7 @@ class JsonAvroEntityMapper implements JsonAvroMapper {
     }
 
     
-    static byte[] serialize(GenericRecord avroMessage, Schema schema) {
-        
-        try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
-            final Encoder encoder = EncoderFactory.get().binaryEncoder(os, null); 
-
-            final GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<GenericRecord>(schema); 
-            writer.write(avroMessage, encoder); 
-            encoder.flush(); 
-            return os.toByteArray(); 
-            
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
-    }
-    
-    
-    GenericRecord toSingleAvroRecord(JsonParser jsonParser) {
+    public GenericRecord toSingleAvroRecord(JsonParser jsonParser) {
         return jsonObjectToAvroWriter.apply(jsonParser);
     }
     

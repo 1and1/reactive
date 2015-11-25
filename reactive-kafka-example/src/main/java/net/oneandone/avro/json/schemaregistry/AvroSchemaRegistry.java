@@ -1,4 +1,4 @@
-package net.oneandone.avro.json;
+package net.oneandone.avro.json.schemaregistry;
 
 
 import java.io.ByteArrayInputStream;
@@ -36,6 +36,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
+import net.oneandone.avro.json.Avros;
+import net.oneandone.avro.json.JsonAvroEntityMapper;
+import net.oneandone.avro.json.JsonAvroMapper;
+
 
 
 
@@ -49,11 +53,11 @@ public class AvroSchemaRegistry {
 
     
     
-    public AvroSchemaRegistry() {
-        final File dir = new File("src" + File.separator + "main" + File.separator + "resources" + File.separator + "schemas");
-        reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(dir.listFiles()).stream()
-                                                                                         .map(file -> file.toURI())
-                                                                                         .collect(Collectors.toList())));
+    public AvroSchemaRegistry(File schemaDir) {
+        System.out.println(schemaDir.getAbsolutePath());
+        reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(schemaDir.listFiles()).stream()
+                                                                                               .map(file -> file.toURI())
+                                                                                               .collect(Collectors.toList())));
     } 
         
     
@@ -137,7 +141,7 @@ public class AvroSchemaRegistry {
         @Override
         public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
             return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
-                                                                .map(record -> JsonAvroEntityMapper.serialize(record, entityMapper.getSchema()))
+                                                                .map(record -> Avros.serializeAvroMessage(record, entityMapper.getSchema()))
                                                                 .collect(Collectors.toList()));
         }
         

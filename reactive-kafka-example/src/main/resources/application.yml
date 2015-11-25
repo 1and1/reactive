@@ -1,9 +1,7 @@
 
-kafka:
-  server: notset 
----
 
-spring:
-  profiles: test
-kafka:
-  server: localhost:8553
+schemaregistry: 
+       path: src/main/resources/schemas
+
+eventbus:
+       bootstrapservers: localhost:8553

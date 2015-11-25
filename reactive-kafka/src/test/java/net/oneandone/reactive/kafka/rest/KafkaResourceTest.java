@@ -28,7 +28,7 @@ import net.oneandone.reactive.kafka.EmbeddedKafka;
 import net.oneandone.reactive.kafka.EmbeddedZookeeper;
 
 
-
+@Ignore
 public class KafkaResourceTest {
 
     private static WebContainer server;

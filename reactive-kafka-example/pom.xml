@@ -4,11 +4,11 @@
 	<modelVersion>4.0.0</modelVersion>
 
 
-    <parent>
-        <groupId>net.oneandone.reactive</groupId>
-        <artifactId>reactive-parent</artifactId>
-        <version>0.11-SNAPSHOT</version>
-    </parent>
+	<parent>
+		<groupId>net.oneandone.reactive</groupId>
+		<artifactId>reactive-parent</artifactId>
+		<version>0.11-SNAPSHOT</version>
+	</parent>
 
 
 	<artifactId>reactive-kafka-example</artifactId>
@@ -73,11 +73,28 @@
 		</dependency>
 
 		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<version>${spring-boot-version}</version>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
 			<version>4.12</version>
 			<scope>test</scope>
 		</dependency>
+
+
+		<dependency>
+			<groupId>net.oneandone.reactive</groupId>
+			<artifactId>reactive-kafka-test</artifactId>
+			<version>0.11-SNAPSHOT</version>
+			<scope>test</scope>
+		</dependency>
+
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>

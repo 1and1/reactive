@@ -1,4 +1,4 @@
-package net.oneandone.avro.json;
+package net.oneandone.reactive.kafka.rest;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -27,6 +27,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
+
+import net.oneandone.avro.json.JsonAvroEntityMapper;
 
 
 

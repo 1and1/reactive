@@ -1,0 +1,34 @@
+{
+    "namespace": "example.event",
+    "type": "record",
+    "name": "myevent",
+    "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "valid", "type": [ "null", "boolean" ]},
+        {"name": "code", "type": "int"},
+        {"name": "ref", "type": "long"},
+        {"name": "factor", "type": "float", "default" : 10},
+        {"name": "size", "type": "double"},
+        {"name": "timestamp", "type": "string"},
+        {"name": "emailaddress", "type": "string"},
+        {"name": "optionaldate", "type":["null", "string"]},
+        {"name": "operation", "type": { "type":"enum", "name":"operation", "symbols" : ["ADDED", "REMOVED", "UPDATED"]}},
+        {"name": "eventSource", "type": {
+                                         "type": "record",
+                                         "name": "source",
+                                         "fields": [
+                                                    {"name": "id", "type": "string"}
+                                                   ] 
+                                        }},
+        {"name": "context", "type": [ "null", {
+                                         "type": "record",
+                                         "namespace": "example.event",
+                                         "name": "ctx",
+                                         "fields": [
+                                                    {"name": "ctxid", "type": "string"}
+                                                   ] 
+                                        }] }                                        
+    ]
+}
+
+

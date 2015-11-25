@@ -1,0 +1,9 @@
+
+kafka:
+  server: notset 
+---
+
+spring:
+  profiles: test
+kafka:
+  server: localhost:8553

@@ -31,3 +31,7 @@
 /reactive-kafka-test/.classpath
 /reactive-kafka/users.avro
 /reactive-kafka/test.avro
+/reactive-kafka-example/.project
+/reactive-kafka-example/.settings
+/reactive-kafka-example/target
+/reactive-kafka-example/.classpath

@@ -1,0 +1,9 @@
+
+@namespace("example.mail")
+protocol Simple {
+
+    record mailsend {
+        string id;
+        string date;
+    }    
+}

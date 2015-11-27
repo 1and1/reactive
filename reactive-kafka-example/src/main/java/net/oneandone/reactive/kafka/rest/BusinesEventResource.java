@@ -2,12 +2,12 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.InputStream;
+
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
@@ -15,7 +15,7 @@ import java.util.concurrent.CompletableFuture;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
-
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
@@ -33,10 +33,8 @@ import javax.ws.rs.core.UriInfo;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.reactivestreams.Publisher;
-import org.reactivestreams.Subscriber;
+import org.glassfish.jersey.internal.util.Base64;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.google.common.base.Charsets;
@@ -44,7 +42,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.io.BaseEncoding;
 
 import jersey.repackaged.com.google.common.collect.Lists;
@@ -53,6 +50,7 @@ import net.oneandone.avro.json.JsonAvroMapper;
 import net.oneandone.avro.json.SchemaName;
 import net.oneandone.avro.json.schemaregistry.JasonAvroMapperRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
+import net.oneandone.reactive.kafka.rest.KafkaSource.TopicMessage;
 import net.oneandone.reactive.pipe.Pipes;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -66,12 +64,15 @@ public class BusinesEventResource {
     
     private final JasonAvroMapperRegistry jsonAvroMapperRegistry; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
+    private final KafkaSourceFactory<String, byte[]> kafkaSourceFactory;
     
 
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
+                                KafkaSourceFactory<String, byte[]> kafkaSourceFactory,
                                 JasonAvroMapperRegistry jsonAvroMapperRegistry) {
         this.kafkaProducer = kafkaProducer;
+        this.kafkaSourceFactory = kafkaSourceFactory;
         this.jsonAvroMapperRegistry = jsonAvroMapperRegistry;
     }
     
@@ -131,6 +132,27 @@ public class BusinesEventResource {
                                                                                                              : uriBuilder.path(ids.get(0).serialize()).build()).build())
                 .whenComplete(ResultConsumer.writeTo(response));
     }
+    
+
+    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages) {
+        return sendAsync(topic, kafkaMessages, ImmutableList.of());
+    }
+    
+     
+    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages, ImmutableList<KafkaMessageId> sentIds) {
+        
+        if (kafkaMessages.isEmpty()) {
+            return CompletableFuture.completedFuture(sentIds);
+            
+        } else {
+            return kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessages.get(0)))
+                                .thenApply(metadata -> ImmutableList.<KafkaMessageId>builder()
+                                                                    .addAll(sentIds)
+                                                                    .add(new KafkaMessageId(metadata.partition(), metadata.offset())).build())
+                                .thenCompose(newSentIds -> sendAsync(topic, kafkaMessages.subList(1,  kafkaMessages.size()), newSentIds));
+        }
+    }
+    
 
     
     
@@ -165,9 +187,12 @@ public class BusinesEventResource {
     private class Data {
         private final SchemaName schemaName;
         private final GenericRecord avroRecord;
+        private final ImmutableMap<Integer, Long> consumedOffsets;
         
-        public Data(byte[] message) {
-            ByteBuffer buffer = ByteBuffer.wrap(message);
+        public Data(TopicMessage<String, byte[]> message) {
+            this.consumedOffsets = message.getConsumedOffsets();
+            
+            ByteBuffer buffer = ByteBuffer.wrap(message.getRecord().value());
             int headerLength = buffer.getInt();
             
             byte[] headerBytes = new byte[headerLength];
@@ -181,25 +206,6 @@ public class BusinesEventResource {
         }
     }
     
-    
-    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages) {
-        return sendAsync(topic, kafkaMessages, ImmutableList.of());
-    }
-    
-     
-    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages, ImmutableList<KafkaMessageId> sentIds) {
-        
-        if (kafkaMessages.isEmpty()) {
-            return CompletableFuture.completedFuture(sentIds);
-            
-        } else {
-            return kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessages.get(0)))
-                                .thenApply(metadata -> ImmutableList.<KafkaMessageId>builder()
-                                                                    .addAll(sentIds)
-                                                                    .add(new KafkaMessageId(metadata.partition(), metadata.offset())).build())
-                                .thenCompose(newSentIds -> sendAsync(topic, kafkaMessages.subList(1,  kafkaMessages.size()), newSentIds));
-        }
-    }
     
     
 
@@ -237,34 +243,55 @@ public class BusinesEventResource {
     @Produces("text/event-stream")
     public void produceStream(@PathParam("topic") String topic,
                               @HeaderParam("Last-Event-Id") String lastEventId,
+                              @QueryParam("q.event.eq") @DefaultValue("*/*") MediaType acceptedEventtype, 
                               @Context HttpServletRequest req,
                               @Context HttpServletResponse resp,
                               @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
-        Subscriber<ServerSentEvent> subscriber = new ServletSseSubscriber(req, resp, Duration.ofSeconds(5));
-
-        
-        Map<String, Object> props = Maps.newHashMap();
-        props.put("bootstrap.servers", "localhost:8553");
-        props.put("group.id", "test");
-        props.put("session.timeout.ms", "30000");
-        props.put("key.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-        props.put("value.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-        props.put("zookeeper.connect", "localhost:8653");
-        
-        
-        Publisher<ConsumerRecord<String, byte[]>> publisher = new KafkaSource<>(topic, ImmutableMap.copyOf(props));
-
-        Pipes.source(publisher)
-             .map(record -> new Data(record.value()))
+   
+        Pipes.source(kafkaSourceFactory.newKafkaSource(topic))   // kafka source
+             .map(record -> new Data(record))
              .map(data -> ServerSentEvent.newEvent()
+                                         .id(TopicMessageId.from(data.consumedOffsets).toString())
                                          .event(jsonAvroMapperRegistry.getJsonToAvroMapper(data.schemaName).get().getMimeType())
                                          .data(jsonAvroMapperRegistry.getJsonToAvroMapper(data.schemaName).get().toJson(data.avroRecord).toString()))
-             .consume(subscriber);
+             .filter(event -> acceptedEventtype.isCompatible(MediaType.valueOf(event.getEvent().orElse("*/*"))))
+             .consume(new ServletSseSubscriber(req, resp, Duration.ofSeconds(30)));  // sse target
         
     }
 
+    
+    
+    private static final class TopicMessageId {
+        private final String id;
+        
+        private TopicMessageId(String id) {
+            this.id = id;
+        }
+
+        
+        public static final TopicMessageId from(ImmutableMap<Integer, Long> consumedOffsets) {
+            return new TopicMessageId(Base64.encodeAsString(Joiner.on(" ")
+                                                                  .withKeyValueSeparator(":")
+                                                                  .join(consumedOffsets)));
+        }
+        
+        public ImmutableMap<Integer, Long> getConsumedOffsets() {
+            return ImmutableMap.copyOf(Splitter.on(" ")
+                                               .withKeyValueSeparator(":")
+                                               .split(Base64.decodeAsString(id)).entrySet()
+                                                                                .stream()
+                                                                                .collect(Collectors.toMap(k -> Integer.parseInt(k.getKey()),
+                                                                                                          v -> Long.parseLong(v.getValue()))));
+        }
+        
+        
+        @Override
+        public String toString() {
+            return id;
+        }
+    }
     
     
 

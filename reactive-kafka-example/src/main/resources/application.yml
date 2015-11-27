@@ -9,3 +9,4 @@ schemaregistry:
 
 eventbus:
        bootstrapservers: localhost:8553
+       zookeeper: localhost:8653

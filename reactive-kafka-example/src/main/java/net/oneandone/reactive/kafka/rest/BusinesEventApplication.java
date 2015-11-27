@@ -3,6 +3,7 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.File;
+import java.util.Map;
 
 import org.glassfish.jersey.server.ResourceConfig;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import net.oneandone.avro.json.schemaregistry.JasonAvroMapperRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
@@ -24,7 +26,10 @@ public class BusinesEventApplication extends ResourceConfig {
     
     @Value("${eventbus.bootstrapservers}")
     private String bootstrapservers;
-    
+
+    @Value("${eventbus.zookeeper}")
+    private String zookeeperConnect;
+
     @Value("${schemaregistry.path}")
     private String schemaRegistryPath;
     
@@ -41,6 +46,20 @@ public class BusinesEventApplication extends ResourceConfig {
                                                               "key.serializer", org.apache.kafka.common.serialization.ByteArraySerializer.class,
                                                               "value.serializer", org.apache.kafka.common.serialization.ByteArraySerializer.class));
     }
+    
+    
+    
+    @Bean
+    public KafkaSourceFactory<String, byte[]> kafkaSourceFactory() {
+        Map<String, Object> props = Maps.newHashMap();
+        props.put("bootstrap.servers", bootstrapservers);
+        props.put("zookeeper.connect", zookeeperConnect);
+        props.put("key.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        props.put("value.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        
+        return new KafkaSourceFactory<String, byte[]>(ImmutableMap.copyOf(props));
+    }
+    
     
  
     

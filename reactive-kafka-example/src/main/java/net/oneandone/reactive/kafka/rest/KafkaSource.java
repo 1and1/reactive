@@ -47,7 +47,7 @@ import com.google.common.collect.Queues;
 
 
 
-public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
+public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, V>> {
     
     // properties
     private final ImmutableMap<String, Object> properties;
@@ -80,7 +80,7 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
      * @return the new source instance
      * @throws ConnectException if an connect error occurs
      */
-    public ReactiveSource<ConsumerRecord<K, V>> open() throws ConnectException {
+    public ReactiveSource<KafkaSource.TopicMessage<K, V>> open() throws ConnectException {
         return Utils.get(openAsync());
     } 
 
@@ -88,14 +88,14 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
     /**
      * @return the new source instance future
      */
-    public CompletableFuture<ReactiveSource<ConsumerRecord<K, V>>> openAsync() {
+    public CompletableFuture<ReactiveSource<KafkaSource.TopicMessage<K, V>>> openAsync() {
         return ReactiveSource.subscribeAsync(this);
     }
     
     
     
     @Override
-    public void subscribe(Subscriber<? super ConsumerRecord<K, V>> subscriber) {
+    public void subscribe(Subscriber<? super KafkaSource.TopicMessage<K, V>> subscriber) {
         // https://github.com/reactive-streams/reactive-streams-jvm#1.9
         if (subscriber == null) {  
             throw new NullPointerException("subscriber is null");
@@ -108,7 +108,7 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
     
     private static class ConsumerSubscription<K, V> implements Subscription {
         
-        private final SubscriberNotifier<ConsumerRecord<K, V>> subscriberNotifier; 
+        private final SubscriberNotifier<KafkaSource.TopicMessage<K, V>> subscriberNotifier; 
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
         private final InboundBuffer inboundBuffer;
@@ -116,7 +116,7 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
         
         private ConsumerSubscription(String topic, 
                                      ImmutableMap<String, Object> properties, 
-                                     Subscriber<? super ConsumerRecord<K, V>> subscriber) {
+                                     Subscriber<? super KafkaSource.TopicMessage<K, V>> subscriber) {
 
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
@@ -175,15 +175,15 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
         
 
         private class InboundBuffer implements Runnable {
-            private final Queue<ConsumerRecord<K, V>> bufferedRecords = Queues.newConcurrentLinkedQueue();
-            private final Consumer<ConsumerRecord<K, V>> recordConsumer;
+            private final Queue<KafkaSource.TopicMessage<K, V>> bufferedRecords = Queues.newConcurrentLinkedQueue();
+            private final Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer;
             
             private final KafkaConsumer<K, V> consumer;
 
             private final AtomicInteger numPendingRequested = new AtomicInteger(0);
 
             
-            public InboundBuffer(KafkaConsumer<K, V> consumer, Consumer<ConsumerRecord<K, V>> recordConsumer) {
+            public InboundBuffer(KafkaConsumer<K, V> consumer, Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer) {
                 this.consumer = consumer;
                 this.recordConsumer = recordConsumer;
             }
@@ -194,15 +194,25 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
             }
             
 
-            public void onRecord(ConsumerRecord<K, V> record) {
-                bufferedRecords.add(record);
+            public ImmutableMap<Integer, Long> onRecords(ConsumerRecords<K, V> records) {
+                Map<Integer, Long> consumedOffsets = Maps.newHashMap();
+                
+                for (ConsumerRecord<K, V> record : records) {
+                    consumedOffsets.put(record.partition(), record.offset());
+                    bufferedRecords.add(new TopicMessage<>(ImmutableMap.copyOf(consumedOffsets), record));
+                }
+                
                 process();
+                
+                return ImmutableMap.copyOf(consumedOffsets); 
             }
             
             private void process() {
                 while (numPendingRequested.get() > 0) {
-                    ConsumerRecord<K, V> record = bufferedRecords.poll();
-                    if (record != null) {
+                    KafkaSource.TopicMessage<K, V> record = bufferedRecords.poll();
+                    if (record == null) {
+                        return;
+                    } else {
                         recordConsumer.accept(record);
                         numPendingRequested.decrementAndGet();
                     }
@@ -212,14 +222,35 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
             
             @Override
             public void run() {
-                
                 while (true) {
-                    ConsumerRecords<K, V> records = consumer.poll(1000);
-                    for (ConsumerRecord<K, V> record : records) {
-                        onRecord(record);
+                    ConsumerRecords<K, V> records = consumer.poll(100);
+                    if (!records.isEmpty()) {
+                        onRecords(records);
                     }
                 }
             }
+        }
+    }
+    
+    
+    
+    
+    public static class TopicMessage<K, V> {
+        
+        private final ImmutableMap<Integer, Long> consumedOffsets;
+        private final ConsumerRecord<K, V> record;
+        
+        public TopicMessage(ImmutableMap<Integer, Long> consumedOffsets, ConsumerRecord<K, V> record) {
+            this.consumedOffsets = consumedOffsets;
+            this.record = record;
+        }
+
+        public ImmutableMap<Integer, Long> getConsumedOffsets() {
+            return consumedOffsets;
+        }
+
+        public ConsumerRecord<K, V> getRecord() {
+            return record;
         }
     }
 }  

@@ -188,8 +188,12 @@ public class KafkaResourceTest {
         resp.close();
 
         
+
+
         System.out.println("curl -i " + uri + "/topics/topicAA/events");
-        
+        System.out.println("\r\n");
+        System.out.println("curl -i -XPOST -H\"Content-Type:  application/vnd.example.event.customerdatachanged+json\" -d'{\"header\":{\"eventId\":\"0a427ee7-6332-4927-af9a-fb51f2bca10a\",\"timestamp\":\"2015-11-27T09:47:48.088Z\"},\"accountid\":\"545r455443445\"}' http://localhost:8080/topics/topicAA/events");
+
 
         resp = client.target(uri + "/topics/topicAA/events")
                      .request()

@@ -23,7 +23,6 @@ public interface JsonAvroMapper {
     
     SchemaName getSchemaName();
     
-    
     String getMimeType();
     
     /** 

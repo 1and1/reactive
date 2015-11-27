@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -16,45 +15,40 @@ import javax.json.Json;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
-import javax.json.JsonString;
 import javax.json.JsonValue;
-import javax.json.stream.JsonParser;
-import javax.json.stream.JsonParser.Event;
 
 import org.apache.avro.compiler.idl.Idl;
 import org.apache.avro.compiler.idl.ParseException;
-import org.apache.avro.generic.GenericRecord;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
-import net.oneandone.avro.json.Avros;
+import net.oneandone.avro.json.JsonAvroCollectionMapper;
 import net.oneandone.avro.json.JsonAvroEntityMapper;
 import net.oneandone.avro.json.JsonAvroMapper;
+import net.oneandone.avro.json.SchemaName;
 
 
 
 
 
-public class AvroSchemaRegistry {
+public class JasonAvroMapperRegistry {
     
-    private static final Logger LOG = LoggerFactory.getLogger(AvroSchemaRegistry.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JasonAvroMapperRegistry.class);
     private static final IdlToJson idlToJson = new IdlToJson();
     
-    private volatile ImmutableMap<String, JsonAvroMapper> jsonToAvroWriters = ImmutableMap.of();
+    private volatile ImmutableMap<String, JsonAvroMapper> jsonAvroMapperByMimeType = ImmutableMap.of();
+    private volatile ImmutableMap<SchemaName, JsonAvroMapper> jsonAvroMapperBySchemaName = ImmutableMap.of();
 
     
     
-    public AvroSchemaRegistry(File schemaDir) {
-        System.out.println(schemaDir.getAbsolutePath());
+    public JasonAvroMapperRegistry(File schemaDir) {
         reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(schemaDir.listFiles()).stream()
                                                                                                .map(file -> file.toURI())
                                                                                                .collect(Collectors.toList())));
@@ -64,34 +58,36 @@ public class AvroSchemaRegistry {
     
     public void reloadSchemadefintions(ImmutableList<URI> schemafileUris) {
         
-        final Map<String, JsonAvroMapper> newJsonToAvroWriters = Maps.newHashMap();
-        
+        List<JsonAvroMapper> mappers = Lists.newArrayList();
         for (URI fileUri : schemafileUris) {
             try {
-                newJsonToAvroWriters.putAll(createMappers(fileUri));
+                mappers.addAll(createMappers(fileUri));
             } catch (IOException ioe) {
                 LOG.warn("error loading avro schema " + fileUri, ioe);
             }
         }
-        
-        jsonToAvroWriters = ImmutableMap.copyOf(newJsonToAvroWriters);
+
+        this.jsonAvroMapperByMimeType =  ImmutableMap.copyOf(mappers.stream().collect(Collectors.toMap(JsonAvroMapper::getMimeType, (JsonAvroMapper m) -> m)));
+        this.jsonAvroMapperBySchemaName =  ImmutableMap.copyOf(mappers.stream().collect(Collectors.toMap(JsonAvroMapper::getSchemaName, (JsonAvroMapper m) -> m)));
     }
     
  
     public ImmutableMap<String, JsonAvroMapper> getRegisteredMapper() {
-        return jsonToAvroWriters;
+        return jsonAvroMapperByMimeType;
     }
     
     public Optional<JsonAvroMapper> getJsonToAvroMapper(String mimeType) {
-        return Optional.ofNullable(jsonToAvroWriters.get(mimeType));
+        return Optional.ofNullable(jsonAvroMapperByMimeType.get(mimeType));
+    }
+
+    public Optional<JsonAvroMapper> getJsonToAvroMapper(SchemaName schemaName) {
+        return Optional.ofNullable(jsonAvroMapperBySchemaName.get(schemaName));
     }
     
-
     
-    private ImmutableMap<String, JsonAvroMapper> createMappers(URI schemaURI) throws IOException {
+    private ImmutableList<JsonAvroMapper> createMappers(URI schemaURI) throws IOException {
         
         final ImmutableList<JsonObject> jsonSchemas;
-        
         // avro json schema? 
         if (schemaURI.getPath().endsWith(".avsc")) {
             try (InputStream is = schemaURI.toURL().openStream()) {
@@ -105,85 +101,22 @@ public class AvroSchemaRegistry {
         // unknown!
         } else {
             LOG.info("unsupported schema file " + schemaURI + " found (supported type: .asvc and .avdl)");
-            return ImmutableMap.of();
+            return ImmutableList.of();
         }
         
 
-        Map<String, JsonAvroMapper> mappers = Maps.newHashMap();
+        List<JsonAvroMapper> mappers = Lists.newArrayList();
         for (JsonObject jsonSchema : jsonSchemas) {
-           
-            final String type = "application/vnd." + Joiner.on(".").join( ((JsonString) jsonSchema.get("namespace")).getString(),  
-                                                                          ((JsonString) jsonSchema.get("name")).getString());
-            
-            // entity mapper 
-            final JsonAvroEntityMapper entityMapper = JsonAvroEntityMapper.createrMapper(jsonSchema);
-            mappers.put(type + "+json", JsonAvroEntityMapper.createrMapper(jsonSchema));
-            
-            // collection mapper
-            final JsonAvroCollectionMapper collectionMapper = new JsonAvroCollectionMapper(entityMapper);
-            mappers.put(type + ".list+json", collectionMapper);
+            JsonAvroEntityMapper entityMapper = JsonAvroEntityMapper.createrMapper(jsonSchema);
+            mappers.add(entityMapper);
+            mappers.add(new JsonAvroCollectionMapper(entityMapper));
         }
 
-        return ImmutableMap.copyOf(mappers);
+        return ImmutableList.copyOf(mappers);
     }
     
 
-    private static final class JsonAvroCollectionMapper implements JsonAvroMapper {
-        
-        private final JsonAvroEntityMapper entityMapper;
     
-        
-        public JsonAvroCollectionMapper(JsonAvroEntityMapper entityMapper) {
-            this.entityMapper = entityMapper;
-        }
-        
-        
-        @Override
-        public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
-            return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
-                                                                .map(record -> Avros.serializeAvroMessage(record, entityMapper.getSchema()))
-                                                                .collect(Collectors.toList()));
-        }
-        
-        
-        @Override
-        public ImmutableList<GenericRecord> toAvroRecord(JsonParser jsonParser) {
-
-            // check initial state
-            if (jsonParser.next() != Event.START_ARRAY) {
-                throw new IllegalStateException("START_ARRAY event excepted");
-            }
-
-            
-            final List<GenericRecord> avroRecords = Lists.newArrayList();
-            
-            
-            while (jsonParser.hasNext()) {
-                
-                switch (jsonParser.next()) {
-
-                case END_ARRAY:
-                    return ImmutableList.copyOf(avroRecords);
-
-                case START_OBJECT:
-                    avroRecords.add(entityMapper.toSingleAvroRecord(jsonParser));
-                    break;
-                    
-                default:
-                }
-            }
-
-            throw new IllegalStateException("END_ARRAY event is missing");
-        }
-
-        
-        @Override
-        public String toString() {
-            return "[" + entityMapper.toString() + "\r\n]";
-        }
-    }
-    
-
     
     
     private static final class IdlToJson {
@@ -229,6 +162,6 @@ public class AvroSchemaRegistry {
                 } catch (IOException ignore) { }
             }
         }            
-    }
+    }    
 }
 

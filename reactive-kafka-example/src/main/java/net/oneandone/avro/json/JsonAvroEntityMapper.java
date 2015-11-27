@@ -2,7 +2,6 @@ package net.oneandone.avro.json;
 
 
 import java.io.StringWriter;
-import java.util.AbstractMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -10,6 +9,7 @@ import java.util.stream.Collectors;
 import javax.json.Json;
 import javax.json.JsonArray;
 import javax.json.JsonObject;
+import javax.json.JsonObjectBuilder;
 import javax.json.JsonString;
 import javax.json.JsonValue;
 import javax.json.JsonWriter;
@@ -21,11 +21,13 @@ import javax.json.stream.JsonParser.Event;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.util.Utf8;
 
-
+import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+
 
 
 
@@ -35,14 +37,35 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
     private final Schema schema;
     private final JsonObject jsonSchema;
     private final JsonObjectToAvroRecordWriter jsonObjectToAvroWriter;
+    private final AvroRecordToJsonObjectWriter avroRecordToJsonObjectWriter; 
+    private final SchemaName schemaName;
+    private final String mimeType;
     
     
-    private JsonAvroEntityMapper(JsonObject jsonSchema, JsonObjectToAvroRecordWriter jsonObjectToAvroMapper) {
+    private JsonAvroEntityMapper(String namespace, 
+                                 String name,
+                                 JsonObject jsonSchema,
+                                 JsonObjectToAvroRecordWriter jsonObjectToAvroMapper,
+                                 AvroRecordToJsonObjectWriter avroRecordToJsonObjectWriter) {
         this.jsonSchema = jsonSchema;
         this.schema = new Schema.Parser().parse(jsonSchema.toString());
         this.jsonObjectToAvroWriter = jsonObjectToAvroMapper;
+        this.avroRecordToJsonObjectWriter = avroRecordToJsonObjectWriter;
+        
+        this.schemaName = new SchemaName(namespace, name);
+        this.mimeType  = "application/vnd." + Joiner.on(".").join(schemaName.getNamespace(), schemaName.getName()) + "+json";
+    }
+
+    @Override
+    public SchemaName getSchemaName() {
+        return schemaName;
     }
     
+    @Override
+    public String getMimeType() { 
+        return mimeType;
+    }
+
     
     public Schema getSchema() {
         return schema;
@@ -72,9 +95,9 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
     }
     
     
-    public String toJsonObject(GenericRecord avroRecord) {
-        // NOT YET IMPLEMENTED 
-        return null;
+    @Override
+    public JsonObject toJson(GenericRecord avroRecord) {
+        return avroRecordToJsonObjectWriter.apply(avroRecord);
     }
     
     
@@ -109,18 +132,22 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
         }  
          
         
-        AvroWriters avroWriters = AvroWriters.create();
+        Writers writers = Writers.create();
         final JsonArray schemaFields = jsonRecordSchema.getJsonArray("fields");
         for (JsonValue schemaField : schemaFields) {
             if (schemaField.getValueType() == JsonValue.ValueType.OBJECT) {
                 final JsonObject jsonObjectSchema = (JsonObject) schemaField;
-                avroWriters = withWriters(namespace, jsonObjectSchema, avroWriters);
+                writers = withWriters(namespace, jsonObjectSchema, writers);
             } else {
                 throw new SchemaException("unexpected value " + schemaField);
             }
         }
         
-        return new JsonAvroEntityMapper(jsonRecordSchema,new JsonObjectToAvroRecordWriter(jsonRecordSchema, avroWriters));
+        return new JsonAvroEntityMapper(namespace, 
+                                        name, 
+                                        jsonRecordSchema,
+                                        new JsonObjectToAvroRecordWriter(jsonRecordSchema, writers),
+                                        new AvroRecordToJsonObjectWriter(writers));
     }
      
   
@@ -128,7 +155,7 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
         
     
      
-    private static AvroWriters withWriters(String parentnamespace, JsonObject jsonObjectSchema, AvroWriters avroWriters) throws SchemaException {
+    private static Writers withWriters(String parentnamespace, JsonObject jsonObjectSchema, Writers avroWriters) throws SchemaException {
         
         if (jsonObjectSchema.containsKey("name")) {
             final String objectFieldname = jsonObjectSchema.getString("name");
@@ -138,7 +165,8 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
             
             // primitive Types
             if (objectFieldTypeValue == JsonValue.ValueType.STRING) {
-                return avroWriters.withWriter(objectFieldname, newpPimitiveWriter(objectFieldname, jsonObjectSchema.getString("type")));
+                return avroWriters.withAvroWriter(objectFieldname, newPimitiveAvroWriter(objectFieldname, jsonObjectSchema.getString("type")))
+                                  .withJsonWriter(newPimitiveJsonWriter(objectFieldname, jsonObjectSchema.getString("type")));
                 
             // union    
             } else if (objectFieldTypeValue == JsonValue.ValueType.ARRAY) {
@@ -153,11 +181,11 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                     // optional record  
                     if (val.getValueType() == JsonValue.ValueType.OBJECT) {
                         final JsonAvroEntityMapper subObjectMapper = createrRecordMapper(parentnamespace, (JsonObject) val); 
-                        return avroWriters.withWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toSingleAvroRecord(jsonParser))); });
+                        return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toSingleAvroRecord(jsonParser))); });
 
                     // optional primitives
                     } else if (val.getValueType() == JsonValue.ValueType.STRING) { 
-                        return avroWriters.withWriter(objectFieldname, newpPimitiveWriter(objectFieldname, ((JsonString) val).getString()));
+                        return avroWriters.withAvroWriter(objectFieldname, newPimitiveAvroWriter(objectFieldname, ((JsonString) val).getString()));
                         
                     } else {
                         throw new SchemaException("unsupported union type " + jsonObjectSchema);
@@ -175,12 +203,13 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                 
                 // enum    
                 if (type.equals("enum")) {
-                    return avroWriters.withWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.VALUE_STRING) avroRecord.put(objectFieldname, jsonParser.getString()); });
+                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.VALUE_STRING) avroRecord.put(objectFieldname, jsonParser.getString()); });
 
                 // object    
                 } else if (type.equals("record")) {
                     final JsonAvroEntityMapper subObjectMapper = createrRecordMapper(parentnamespace, obj); 
-                    return avroWriters.withWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, subObjectMapper.toSingleAvroRecord(jsonParser)); });
+                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, subObjectMapper.toSingleAvroRecord(jsonParser)); })
+                                      .withJsonWriter((avroRecord, jsonBuilder) ->  jsonBuilder.add(objectFieldname, subObjectMapper.toJson((GenericRecord) avroRecord.get(objectFieldname))));
                     
                 } else {
                     throw new SchemaException("unknown type " + jsonObjectSchema);
@@ -198,7 +227,7 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
     
     
     
-    private static BiConsumer<JsonParser, GenericRecord> newpPimitiveWriter(String fieldname, String fieldtype) {
+    private static BiConsumer<JsonParser, GenericRecord> newPimitiveAvroWriter(String fieldname, String fieldtype) {
         
         switch (fieldtype) {
             
@@ -230,23 +259,78 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                 throw new SchemaException("unknown type " + fieldtype);
         }
     }
+    
+    
+    
+    private static BiConsumer<GenericRecord, JsonObjectBuilder> newPimitiveJsonWriter(String fieldname, String fieldtype) {
+        
+        switch (fieldtype) {
+            
+            case "string":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, new String(((Utf8) avroRecord.get(fieldname)).getBytes(), Charsets.UTF_8));
+    
+            case "boolean":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (Boolean) avroRecord.get(fieldname)); 
+    
+            case "int":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (int) avroRecord.get(fieldname));
+    
+            case "long":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (long) avroRecord.get(fieldname));
+    
+            case "float":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (float) avroRecord.get(fieldname));
+                
+            case "double":
+                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (double) avroRecord.get(fieldname));
+    
+            case "bytes":
+                throw new SchemaException(fieldname + " is not yet supported on purpose");
+    
+            case "fixed":
+                throw new SchemaException(fieldname + " is not yet supported on purpose");
+    
+            default:
+                throw new SchemaException("unknown type " + fieldtype);
+        }
+    }
    
+    
+
+    private static class AvroRecordToJsonObjectWriter implements Function<GenericRecord, JsonObject> {
+        
+        private final Writers writers;
+       
+        public AvroRecordToJsonObjectWriter(Writers writers) {
+            this.writers = writers;
+        }
+        
+        public JsonObject apply(GenericRecord avroMessage) {
+            
+            JsonObjectBuilder jsonBuilder = Json.createObjectBuilder();
+            
+            for (BiConsumer<GenericRecord, JsonObjectBuilder> jsonWriter : writers.getJsonWriters()) {
+                jsonWriter.accept(avroMessage, jsonBuilder);
+            }
+            
+            return jsonBuilder.build();
+        };
+    }
 
     
     
     private static class JsonObjectToAvroRecordWriter implements Function<JsonParser, GenericRecord> {
         private final Schema schema;
-        private final AvroWriters avroWriters;
+        private final Writers writers;
        
-        public JsonObjectToAvroRecordWriter(JsonObject schemaString, AvroWriters avroWriters) {
+        public JsonObjectToAvroRecordWriter(JsonObject schemaString, Writers writers) {
             this.schema = new Schema.Parser().parse(schemaString.toString());
-            this.avroWriters = avroWriters;
+            this.writers = writers;
         }
       
       
         @Override
         public GenericRecord apply(JsonParser jsonParser) {
-
             final GenericRecord avroRecord = new GenericData.Record(schema);
             
             while (jsonParser.hasNext()) {
@@ -254,8 +338,8 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                 switch (jsonParser.next()) {
                 
                     case KEY_NAME:
-                        avroWriters.get(jsonParser.getString())     // get the registered writer (or EMPTY writer)
-                                   .accept(jsonParser, avroRecord); // write to avro record 
+                        writers.getAvroWriter(jsonParser.getString())     // get the registered writer (or EMPTY writer)
+                               .accept(jsonParser, avroRecord);           // write to avro record 
                         break;
     
                     case END_OBJECT:
@@ -273,33 +357,44 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
 
 
     
-    private static final class AvroWriters extends AbstractMap<String, BiConsumer<JsonParser, GenericRecord>> {
+    private static final class Writers {
         
-        private static final BiConsumer<JsonParser, GenericRecord> EMPTY_WRITER = (jsonValue, record) -> { };
-        private final ImmutableMap<String, BiConsumer<JsonParser, GenericRecord>> writers;
+        private static final BiConsumer<JsonParser, GenericRecord> EMPTY_AVRO_WRITER = (jsonValue, record) -> { };
+        private final ImmutableMap<String, BiConsumer<JsonParser, GenericRecord>> avroWriters;
+       
+        private final ImmutableList<BiConsumer<GenericRecord, JsonObjectBuilder>> jsonWriters;
         
-        private AvroWriters(ImmutableMap<String, BiConsumer<JsonParser, GenericRecord>> writers) {
-            this.writers = writers;
+        private Writers(ImmutableMap<String, BiConsumer<JsonParser, GenericRecord>> avroWriters,
+                        ImmutableList<BiConsumer<GenericRecord, JsonObjectBuilder>> jsonWriters) {
+            this.avroWriters = avroWriters;
+            this.jsonWriters = jsonWriters;
         }
 
-        public static AvroWriters create() {
-            return new AvroWriters(ImmutableMap.of());
+        public static Writers create() {
+            return new Writers(ImmutableMap.of(), ImmutableList.of());
         }
         
-        public AvroWriters withWriter(String name, BiConsumer<JsonParser, GenericRecord> writer) {
-            return new AvroWriters(ImmutableMap.<String, BiConsumer<JsonParser, GenericRecord>>builder()
-                                               .putAll(writers)
-                                               .put(name, writer).build());
+        public Writers withAvroWriter(String name, BiConsumer<JsonParser, GenericRecord> avroWriter) {
+            return new Writers(ImmutableMap.<String, BiConsumer<JsonParser, GenericRecord>>builder()
+                                           .putAll(avroWriters)
+                                           .put(name, avroWriter).build(),
+                               jsonWriters);
         }
         
-        public BiConsumer<JsonParser, GenericRecord> get(String name) {
-            final BiConsumer<JsonParser, GenericRecord> writer = writers.get(name);
-            return (writer == null) ? EMPTY_WRITER : writer;
+        public Writers withJsonWriter(BiConsumer<GenericRecord, JsonObjectBuilder> jsonWriter) {
+            return new Writers(avroWriters,
+                               ImmutableList.<BiConsumer<GenericRecord, JsonObjectBuilder>>builder()
+                                           .addAll(jsonWriters)
+                                           .add(jsonWriter).build());
         }
         
-        @Override
-        public ImmutableSet<Entry<String, BiConsumer<JsonParser, GenericRecord>>> entrySet() {  
-            return writers.entrySet();
+        public BiConsumer<JsonParser, GenericRecord> getAvroWriter(String name) {
+            final BiConsumer<JsonParser, GenericRecord> avroWriter = avroWriters.get(name);
+            return (avroWriter == null) ? EMPTY_AVRO_WRITER : avroWriter;
+        }
+        
+        public ImmutableList<BiConsumer<GenericRecord, JsonObjectBuilder>> getJsonWriters() {
+            return jsonWriters;
         }
     }
 }

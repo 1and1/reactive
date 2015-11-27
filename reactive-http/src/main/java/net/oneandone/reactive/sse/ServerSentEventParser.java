@@ -20,7 +20,6 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import com.google.common.base.CharMatcher;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -101,7 +100,7 @@ public class ServerSentEventParser {
                             value = line.substring(idx + 1 , line.length());
                             
                             //  If value starts with a U+0020 SPACE character, remove it from value.
-                            value = CharMatcher.is('\u0020').trimLeadingFrom(value);
+                            value = value.startsWith("\u0020") ? value.substring(1,  value.length()) : value;
                             
                             
                             // if the field name is "id" -> Set the last event ID buffer to the field value.
@@ -115,7 +114,7 @@ public class ServerSentEventParser {
                                 
                             // If the field name is "data"-> Append the field value to the data buffer, then
                             // append a single U+000A LINE FEED (LF) character to the data buffer.
-                            } else if (trimmedField.equalsIgnoreCase("data")) {
+                            } else if (field.equalsIgnoreCase("data")) {
                                 data = append(data, value + '\n');
                             
                             // If the field value consists of only ASCII digits, then interpret the field 

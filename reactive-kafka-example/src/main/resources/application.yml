@@ -1,5 +1,9 @@
 
 
+logging:
+  level:
+    net.oneandone.reactive: WARNING
+
 schemaregistry: 
        path: src/main/resources/schemas
 

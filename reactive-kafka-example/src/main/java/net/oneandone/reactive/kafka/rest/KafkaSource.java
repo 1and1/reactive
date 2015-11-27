@@ -13,18 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.kafka;
+package net.oneandone.reactive.kafka.rest;
 
-
-import java.util.List;
 
 import java.util.Map;
-import java.util.Properties;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
@@ -32,20 +30,20 @@ import net.oneandone.reactive.utils.Utils;
 import net.oneandone.reactive.utils.SubscriberNotifier;
 
 
-import kafka.consumer.ConsumerConfig;
-import kafka.consumer.ConsumerIterator;
-import kafka.consumer.KafkaStream;
-import kafka.javaapi.consumer.ConsumerConnector;
-import kafka.message.MessageAndMetadata;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+
 
 
 
@@ -110,7 +108,6 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
     
     private static class ConsumerSubscription<K, V> implements Subscription {
         
-        private final String topic; 
         private final SubscriberNotifier<ConsumerRecord<K, V>> subscriberNotifier; 
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         
@@ -121,21 +118,22 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
                                      ImmutableMap<String, Object> properties, 
                                      Subscriber<? super ConsumerRecord<K, V>> subscriber) {
 
-            this.topic = topic;
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
-            Properties props = new Properties();
-            props.putAll(properties);
-     
-            ConsumerConfig conf = new ConsumerConfig(props);
-            ConsumerConnector consumer = kafka.consumer.Consumer.createJavaConsumerConnector(conf);
             
-            Map<String, Integer> topicCountMap = Maps.newHashMap();
-            topicCountMap.put(topic, 1);
-            Map<String, List<KafkaStream<byte[], byte[]>>> consumerMap = consumer.createMessageStreams(topicCountMap);
-            List<KafkaStream<byte[], byte[]>> streams = consumerMap.get(topic);
-
-            this.inboundBuffer = new InboundBuffer(streams.get(0), (record) -> subscriberNotifier.notifyOnNext(record));
+            Map<String, Object> props = Maps.newHashMap(properties); 
+            props.put("enable.auto.commit", "false");
+            
+            KafkaConsumer<K, V> consumer = new KafkaConsumer<>(ImmutableMap.copyOf(props));
+            
+            ImmutableList<TopicPartition> partitions = ImmutableList.copyOf(consumer.partitionsFor(topic)
+                                                                                    .stream()
+                                                                                    .map(partition -> new TopicPartition(topic, partition.partition()))
+                                                                                    .collect(Collectors.toList()));
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions.toArray(new TopicPartition[partitions.size()]));
+            
+            this.inboundBuffer = new InboundBuffer(consumer, (record) -> subscriberNotifier.notifyOnNext(record));
             Thread t = new Thread(inboundBuffer);
             t.setDaemon(true);
             t.start(); 
@@ -180,15 +178,13 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
             private final Queue<ConsumerRecord<K, V>> bufferedRecords = Queues.newConcurrentLinkedQueue();
             private final Consumer<ConsumerRecord<K, V>> recordConsumer;
             
-            private final KafkaStream<byte[], byte[]> stream;
-            private final ConsumerIterator<byte[], byte[]> it;
+            private final KafkaConsumer<K, V> consumer;
 
             private final AtomicInteger numPendingRequested = new AtomicInteger(0);
 
             
-            public InboundBuffer(KafkaStream<byte[], byte[]> stream, Consumer<ConsumerRecord<K, V>> recordConsumer) {
-                this.stream = stream;
-                this.it = stream.iterator();
+            public InboundBuffer(KafkaConsumer<K, V> consumer, Consumer<ConsumerRecord<K, V>> recordConsumer) {
+                this.consumer = consumer;
                 this.recordConsumer = recordConsumer;
             }
 
@@ -206,21 +202,22 @@ public class KafkaSource<K, V> implements Publisher<ConsumerRecord<K, V>> {
             private void process() {
                 while (numPendingRequested.get() > 0) {
                     ConsumerRecord<K, V> record = bufferedRecords.poll();
-                    if (record == null) {
-                        return;
-                    } else {
+                    if (record != null) {
                         recordConsumer.accept(record);
                         numPendingRequested.decrementAndGet();
                     }
                 }
             }
-            
+             
             
             @Override
             public void run() {
+                
                 while (true) {
-                    MessageAndMetadata<byte[], byte[]> mam = it.next();
-                    onRecord(new ConsumerRecord<>(topic, 0, null, null, 0l));
+                    ConsumerRecords<K, V> records = consumer.poll(1000);
+                    for (ConsumerRecord<K, V> record : records) {
+                        onRecord(record);
+                    }
                 }
             }
         }

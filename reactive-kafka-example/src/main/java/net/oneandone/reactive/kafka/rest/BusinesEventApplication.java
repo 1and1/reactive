@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Bean;
 
 import com.google.common.collect.ImmutableMap;
 
-import net.oneandone.avro.json.schemaregistry.AvroSchemaRegistry;
+import net.oneandone.avro.json.schemaregistry.JasonAvroMapperRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 
 
@@ -42,9 +42,12 @@ public class BusinesEventApplication extends ResourceConfig {
                                                               "value.serializer", org.apache.kafka.common.serialization.ByteArraySerializer.class));
     }
     
+ 
+    
+    
     @Bean
-    public AvroSchemaRegistry avroSchemaRegistry() {
-        return new AvroSchemaRegistry(new File(schemaRegistryPath));
+    public JasonAvroMapperRegistry jsonAvroMapperRegistry() {
+        return new JasonAvroMapperRegistry(new File(schemaRegistryPath));
     }
     
     

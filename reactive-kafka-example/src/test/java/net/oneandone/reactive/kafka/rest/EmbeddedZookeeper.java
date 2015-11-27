@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.kafka;
+package net.oneandone.reactive.kafka.rest;
 
 
 import java.io.File;
@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.Random;
 
-import kafka.utils.Utils;
 
 import org.apache.zookeeper.server.NIOServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
@@ -64,8 +63,18 @@ public class EmbeddedZookeeper {
      */ 
     public void shutdown() {
         factory.shutdown();
-        Utils.rm(snapshotDir);
-        Utils.rm(logDir);
+        deleteDir(snapshotDir);
+        deleteDir(logDir);
+    }
+    
+    private void deleteDir(File file) {
+        File[] contents = file.listFiles();
+        if (contents != null) {
+            for (File f : contents) {
+                deleteDir(f);
+            }
+        }
+        file.delete();
     }
     
     public String getConnection() {

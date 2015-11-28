@@ -52,19 +52,28 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
     private final SseOutboundChannel channel;
 
     
-    
+
     public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp) {
-        this(req, resp, Duration.ofSeconds(25));
+        this(req, resp, (String) null);
+    }   
+
+    
+    public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp, String initalComment) {
+        this(req, resp, Duration.ofSeconds(25), initalComment);
     }   
 
     
     public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp, Duration keepAlivePeriod) {
+        this(req, resp, keepAlivePeriod, null);
+    }
+    
+    public ServletSseSubscriber(HttpServletRequest req, HttpServletResponse resp, Duration keepAlivePeriod, String initalComment) {
         if (!req.isAsyncStarted()) {
             req.startAsync().setTimeout(Long.MAX_VALUE);  // tomcat 7 default is 30 sec 
         }
         
         try {
-            this.channel = new SseOutboundChannel(resp.getOutputStream(), error -> onError(error), keepAlivePeriod);
+            this.channel = new SseOutboundChannel(resp.getOutputStream(), error -> onError(error), keepAlivePeriod, initalComment);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }

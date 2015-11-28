@@ -3,7 +3,6 @@ package net.oneandone.reactive.kafka.rest;
 import java.io.InputStream;
 
 import java.net.URI;
-import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
@@ -181,17 +180,20 @@ public class BusinesEventResource {
                                       @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
-
+        
         final Schema readerSchema = (acceptedEventtype == null) ? null
                                                                 : jsonAvroMapperRegistry.getJsonToAvroMapper(acceptedEventtype)
                                                                                         .orElseThrow(BadRequestException::new)
                                                                                         .getSchema();
+
+        final String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
+                                                                 : "stream opened. emitting " + acceptedEventtype + " event types only";
         
         // open a reactive stream
-        Pipes.from(kafkaSourceFactory.newKafkaSource(topic))                          
+        Pipes.from(kafkaSourceFactory.newKafkaSource(topic))      
              .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
              .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()))
-             .to(new ServletSseSubscriber(req, resp, Duration.ofSeconds(30)));  
+             .to(new ServletSseSubscriber(req, resp, prologComment));  
     }
 
    

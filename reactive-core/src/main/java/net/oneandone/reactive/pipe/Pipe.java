@@ -32,7 +32,7 @@ import org.reactivestreams.Subscriber;
  */
 public interface Pipe<T> {
     
-    
+  
     /**
      * maps the elements 
      * @param fn  the mapping function

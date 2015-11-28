@@ -56,13 +56,24 @@ class SseOutboundChannel  {
     private final Consumer<Throwable> errorConsumer;
 
 
+
+    public SseOutboundChannel(ServletOutputStream out, 
+                              Consumer<Throwable> errorConsumer) {
+        this(out, errorConsumer, null);
+    }
     
-    public SseOutboundChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer) {
-        this(out, errorConsumer, DEFAULT_KEEP_ALIVE_PERIOD);
+    public SseOutboundChannel(ServletOutputStream out, 
+                              Consumer<Throwable> errorConsumer, 
+                              String intialComment) {
+        this(out, errorConsumer, DEFAULT_KEEP_ALIVE_PERIOD, intialComment);
     }
 
+
     
-    public SseOutboundChannel(ServletOutputStream out, Consumer<Throwable> errorConsumer, Duration keepAlivePeriod) {
+    public SseOutboundChannel(ServletOutputStream out, 
+                             Consumer<Throwable> errorConsumer, 
+                             Duration keepAlivePeriod,
+                             String intialComment) {
         this.errorConsumer = errorConsumer;
         this.out = out;
         out.setWriteListener(new ServletWriteListener());
@@ -71,7 +82,7 @@ class SseOutboundChannel  {
         LOG.debug("[" + id + "] opened");
         
         // start the keep alive emitter 
-        new KeepAliveEmitter(this, keepAlivePeriod).start();
+        new KeepAliveEmitter(this, keepAlivePeriod, intialComment).start();
     }
 
     
@@ -198,15 +209,19 @@ class SseOutboundChannel  {
         private final ScheduledExecutorService executor = ScheduledExceutor.common();
         private final SseOutboundChannel channel;
         private final Duration keepAlivePeriod;
+        private final String initalComment;
         
         
-        public KeepAliveEmitter(SseOutboundChannel channel, Duration keepAlivePeriod) {
+        public KeepAliveEmitter(SseOutboundChannel channel, Duration keepAlivePeriod, String comment) {
             this.channel = channel;
             this.keepAlivePeriod = keepAlivePeriod;
+            this.initalComment = (comment == null) ? "start server event streaming (keep alive period=" + keepAlivePeriod.getSeconds() + " sec)"
+                                                   : comment;
+            
         }
         
         public void start() {
-            writeAsync(ServerSentEvent.newEvent().comment("start server event streaming (keep alive period=" + keepAlivePeriod.getSeconds() + " sec)"));
+            writeAsync(ServerSentEvent.newEvent().comment(initalComment));
             executor.schedule(() -> scheduleNextKeepAliveEvent(), (int) (keepAlivePeriod.getSeconds() * 0.5), TimeUnit.SECONDS);
         }
         

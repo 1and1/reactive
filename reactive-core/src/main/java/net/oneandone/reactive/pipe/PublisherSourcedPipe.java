@@ -52,7 +52,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
 
     
     @Override
-    public void consume(Subscriber<? super T> subscriber) {
+    public void to(Subscriber<? super T> subscriber) {
         publisher.subscribe(subscriber);
     }
     
@@ -69,7 +69,7 @@ class PublisherSourcedPipe<T> implements Pipe<T> {
     
     @Override
     public void consume(Consumer<? super T> consumer, Consumer<? super Throwable> errorConsumer, Consumer<Void> completeConsumer) {
-        consume(new ConsumerAdapter<>(consumer, errorConsumer, completeConsumer));        
+        to(new ConsumerAdapter<>(consumer, errorConsumer, completeConsumer));        
     }
     
     private static final class ConsumerAdapter<E> implements Subscriber<E> {

@@ -106,7 +106,7 @@ public class KafkaResourceTest {
         // submit event
         Response resp = client.target(uri + "/topics/mytopic/events")
                               .request()
-                              .post(Entity.entity(new CustomerChangedEvent("44545453"), 
+                              .post(Entity.entity(new CustomerChangedEvent(44545453), 
                                     "application/vnd.example.event.customerdatachanged+json"));
         
         Assert.assertTrue((resp.getStatus() / 100) == 2);
@@ -131,7 +131,7 @@ public class KafkaResourceTest {
         // submit event
         Response resp = client.target(uri + "/topics/mytopic/events")
                               .request()
-                              .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent("44545453"), new CustomerChangedEvent("454502") },
+                              .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent(44545453), new CustomerChangedEvent(454502) },
                                     "application/vnd.example.event.customerdatachanged.list+json"));
         
         Assert.assertTrue((resp.getStatus() / 100) == 2);
@@ -181,7 +181,7 @@ public class KafkaResourceTest {
         // submit event
         Response resp = client.target(uri + "/topics/topicAA/events")
                               .request()
-                              .post(Entity.entity(new CustomerChangedEvent("44545453x"), 
+                              .post(Entity.entity(new CustomerChangedEvent(44545453), 
                                     "application/vnd.example.event.customerdatachanged+json"));
         String eventUri = resp.getHeaderString("location");
         Assert.assertNotNull(eventUri);
@@ -191,13 +191,14 @@ public class KafkaResourceTest {
 
 
         System.out.println("curl -i " + uri + "/topics/topicAA/events");
+        System.out.println("curl -i \"http://localhost:8080/topics/topicAA/events?q.event.eq=application%2Fvnd.example.event.customerdatachanged-v2%2Bjson\"");
         System.out.println("\r\n");
         System.out.println("curl -i -XPOST -H\"Content-Type:  application/vnd.example.event.customerdatachanged+json\" -d'{\"header\":{\"eventId\":\"0a427ee7-6332-4927-af9a-fb51f2bca10a\",\"timestamp\":\"2015-11-27T09:47:48.088Z\"},\"accountid\":\"545r455443445\"}' http://localhost:8080/topics/topicAA/events");
 
 
         resp = client.target(uri + "/topics/topicAA/events")
                      .request()
-                     .post(Entity.entity(new CustomerChangedEvent("545r455443445"), 
+                     .post(Entity.entity(new CustomerChangedEvent(544554434), 
                                          "application/vnd.example.event.customerdatachanged+json"));
         eventUri = resp.getHeaderString("location");
         Assert.assertNotNull(eventUri);
@@ -214,16 +215,31 @@ public class KafkaResourceTest {
     @XmlRootElement 
     public static class CustomerChangedEvent {
         public Header header = new Header();
-        public String accountid;
+        public int accountid;
         
         public CustomerChangedEvent() { }
     
          
-        public CustomerChangedEvent(String accountid) {
+        public CustomerChangedEvent(int accountid) {
             this.accountid = accountid;
         }
     }
 
+    
+
+    
+    @XmlRootElement 
+    public static class CustomerChangedEventV2 {
+        public Header header = new Header();
+        public long accountid;
+        
+        public CustomerChangedEventV2() { }
+    
+         
+        public CustomerChangedEventV2(long accountid) {
+            this.accountid = accountid;
+        }
+    }
     
     
   

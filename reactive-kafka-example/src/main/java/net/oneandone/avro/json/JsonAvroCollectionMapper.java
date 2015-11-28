@@ -2,7 +2,6 @@ package net.oneandone.avro.json;
 
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 import javax.json.JsonObject;
 import javax.json.stream.JsonParser;
@@ -22,13 +21,16 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
         
     private final JsonAvroEntityMapper entityMapper;
     private final String mimeType;
-    private final SchemaName schemaName;
 
     
     public JsonAvroCollectionMapper(JsonAvroEntityMapper entityMapper) {
         this.entityMapper = entityMapper;
-        this.schemaName = new SchemaName(entityMapper.getSchemaName().getNamespace(), entityMapper.getSchemaName().getName() + "_list");
-        this.mimeType  = "application/vnd." + Joiner.on(".").join(schemaName.getNamespace(), schemaName.getName()) + ".list+json";
+        this.mimeType  = "application/vnd." + Joiner.on(".").join(entityMapper.getSchema().getNamespace(), entityMapper.getSchema().getName()) + ".list+json";
+    }
+    
+    @Override
+    public boolean isCollectionMapper() {
+        return true;
     }
     
     @Override
@@ -37,20 +39,8 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
     }
     
     @Override
-    public SchemaName getSchemaName() {
-        return schemaName;
-    }
-
-    @Override
     public String getMimeType() {
         return mimeType;
-    }
-    
-    @Override
-    public ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser) {
-        return ImmutableList.copyOf(toAvroRecord(jsonParser).stream()
-                                                            .map(record -> Avros.serializeAvroMessage(record, entityMapper.getSchema()))
-                                                            .collect(Collectors.toList()));
     }
     
     

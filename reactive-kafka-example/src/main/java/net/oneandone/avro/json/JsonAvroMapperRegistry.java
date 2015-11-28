@@ -1,4 +1,4 @@
-package net.oneandone.avro.json.schemaregistry;
+package net.oneandone.avro.json;
 
 
 import java.io.ByteArrayInputStream;
@@ -17,6 +17,7 @@ import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
 import javax.json.JsonValue;
 
+import org.apache.avro.Schema;
 import org.apache.avro.compiler.idl.Idl;
 import org.apache.avro.compiler.idl.ParseException;
 
@@ -29,26 +30,21 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.io.Closeables;
 
-import net.oneandone.avro.json.JsonAvroCollectionMapper;
-import net.oneandone.avro.json.JsonAvroEntityMapper;
-import net.oneandone.avro.json.JsonAvroMapper;
-import net.oneandone.avro.json.SchemaName;
 
 
 
 
-
-public class JasonAvroMapperRegistry {
+public class JsonAvroMapperRegistry {
     
-    private static final Logger LOG = LoggerFactory.getLogger(JasonAvroMapperRegistry.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JsonAvroMapperRegistry.class);
     private static final IdlToJson idlToJson = new IdlToJson();
     
     private volatile ImmutableMap<String, JsonAvroMapper> jsonAvroMapperByMimeType = ImmutableMap.of();
-    private volatile ImmutableMap<SchemaName, JsonAvroMapper> jsonAvroMapperBySchemaName = ImmutableMap.of();
+    private volatile ImmutableMap<String, JsonAvroMapper> jsonAvroMapperBySchemaName = ImmutableMap.of();
 
     
     
-    public JasonAvroMapperRegistry(File schemaDir) {
+    public JsonAvroMapperRegistry(File schemaDir) {
         reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(schemaDir.listFiles()).stream()
                                                                                                .map(file -> file.toURI())
                                                                                                .collect(Collectors.toList())));
@@ -67,8 +63,11 @@ public class JasonAvroMapperRegistry {
             }
         }
 
-        this.jsonAvroMapperByMimeType =  ImmutableMap.copyOf(mappers.stream().collect(Collectors.toMap(JsonAvroMapper::getMimeType, (JsonAvroMapper m) -> m)));
-        this.jsonAvroMapperBySchemaName =  ImmutableMap.copyOf(mappers.stream().collect(Collectors.toMap(JsonAvroMapper::getSchemaName, (JsonAvroMapper m) -> m)));
+        this.jsonAvroMapperByMimeType =  ImmutableMap.copyOf(mappers.stream()
+                                                                    .collect(Collectors.toMap(JsonAvroMapper::getMimeType, (JsonAvroMapper m) -> m)));
+        this.jsonAvroMapperBySchemaName =  ImmutableMap.copyOf(mappers.stream()
+                                                                      .filter(entry -> !entry.isCollectionMapper())
+                                                                      .collect(Collectors.toMap((m) -> (m.getSchema().getNamespace() + "." + m.getSchema().getName()), (m) -> m)));
     }
     
  
@@ -79,9 +78,14 @@ public class JasonAvroMapperRegistry {
     public Optional<JsonAvroMapper> getJsonToAvroMapper(String mimeType) {
         return Optional.ofNullable(jsonAvroMapperByMimeType.get(mimeType));
     }
+    
+    public Optional<JsonAvroMapper> getJsonToAvroMapper(Schema schema) {
+        return getJsonToAvroMapper(schema.getNamespace(), schema.getName());
+    }
 
-    public Optional<JsonAvroMapper> getJsonToAvroMapper(SchemaName schemaName) {
-        return Optional.ofNullable(jsonAvroMapperBySchemaName.get(schemaName));
+
+    public Optional<JsonAvroMapper> getJsonToAvroMapper(String namespace, String name) {
+        return Optional.ofNullable(jsonAvroMapperBySchemaName.get(namespace + "." + name));
     }
     
     

@@ -9,6 +9,10 @@ public class SchemaException extends RuntimeException {
 
     private static final long serialVersionUID = -3894104697627836613L;
 
+    
+    public SchemaException() {
+    }
+    
     public SchemaException(String reason) {
         super(reason);
     } 

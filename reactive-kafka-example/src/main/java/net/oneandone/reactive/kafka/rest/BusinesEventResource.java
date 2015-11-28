@@ -1,10 +1,8 @@
 package net.oneandone.reactive.kafka.rest;
 
-
 import java.io.InputStream;
 
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -15,7 +13,6 @@ import java.util.concurrent.CompletableFuture;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
-import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
@@ -44,25 +41,24 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 
-import jersey.repackaged.com.google.common.collect.Lists;
-import net.oneandone.avro.json.Avros;
+import net.oneandone.avro.json.JsonAvroMapperRegistry;
+import net.oneandone.avro.json.SchemaException;
 import net.oneandone.avro.json.JsonAvroMapper;
-import net.oneandone.avro.json.SchemaName;
-import net.oneandone.avro.json.schemaregistry.JasonAvroMapperRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
-import net.oneandone.reactive.kafka.rest.KafkaSource.TopicMessage;
 import net.oneandone.reactive.pipe.Pipes;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
- 
+import net.oneandone.reactive.utils.Pair;
+
+
 
 
 
 @Path("/")
 public class BusinesEventResource {
     
-    private final JasonAvroMapperRegistry jsonAvroMapperRegistry; 
+    private final JsonAvroMapperRegistry jsonAvroMapperRegistry; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     private final KafkaSourceFactory<String, byte[]> kafkaSourceFactory;
     
@@ -70,7 +66,7 @@ public class BusinesEventResource {
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
                                 KafkaSourceFactory<String, byte[]> kafkaSourceFactory,
-                                JasonAvroMapperRegistry jsonAvroMapperRegistry) {
+                                JsonAvroMapperRegistry jsonAvroMapperRegistry) {
         this.kafkaProducer = kafkaProducer;
         this.kafkaSourceFactory = kafkaSourceFactory;
         this.jsonAvroMapperRegistry = jsonAvroMapperRegistry;
@@ -91,7 +87,6 @@ public class BusinesEventResource {
     @Path("/topics")
     @Produces("application/vnd.ui.mam.eventservice.topic.list+json")
     public TopicsRepresentation getTopics(@Context UriInfo uriInfo, @QueryParam("q.topic.name.eq") String topicname) {
-        
         return new TopicsRepresentation(LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().build()).build(),
                                         ImmutableList.of(getTopic(uriInfo, topicname))); 
     }
@@ -102,7 +97,6 @@ public class BusinesEventResource {
     @Path("/topics/{topicname}")
     @Produces("application/vnd.ui.mam.eventservice.topic+json")
     public TopicRepresentation getTopic(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
-        
         return new TopicRepresentation(LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().path(topicname).build())
                                                    .withHref("events", uriInfo.getAbsolutePathBuilder().path(topicname).path("events").build())
                                                    .withHref("schemas", uriInfo.getAbsolutePathBuilder().path(topicname).path("schemas").build())
@@ -120,20 +114,18 @@ public class BusinesEventResource {
                         @Suspended AsyncResponse response) throws BadRequestException {
 
         final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
-        
-        
+         
         final ImmutableList<byte[]> avroMessages = jsonAvroMapperRegistry.getJsonToAvroMapper(contentType)
-                                                                         .map(mapper -> serialize(mapper.getSchemaName(),
-                                                                                                  mapper.toAvroBinaryRecord(jsonObjectStream)))
+                                                                         .map(mapper -> AvroMessageSerializer.serialize(mapper.getSchema(), mapper.toAvroRecord(jsonObjectStream)))
                                                                          .orElseThrow(BadRequestException::new);  
-
+        
         sendAsync(topic, avroMessages)
                 .thenApply(ids -> Response.created(contentType.toLowerCase(Locale.US).endsWith(".list+json") ? uriBuilder.path("eventviews").path(new ViewId(ids).serialize()).build() 
                                                                                                              : uriBuilder.path(ids.get(0).serialize()).build()).build())
                 .whenComplete(ResultConsumer.writeTo(response));
     }
     
-
+        
     private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages) {
         return sendAsync(topic, kafkaMessages, ImmutableList.of());
     }
@@ -155,63 +147,6 @@ public class BusinesEventResource {
     
 
     
-    
-        
-    // TODO move this to encoder
-    public byte[] serialize(SchemaName schemaName, byte[] msg) {
-        byte[] header = schemaName.toString().getBytes(Charsets.UTF_8);
-        byte[] lengthHeader = ByteBuffer.allocate(4).putInt(header.length).array();
-         
-        byte[] newBytes = new byte[4 + header.length + msg.length];
-        System.arraycopy(lengthHeader, 0, newBytes, 0, lengthHeader.length);
-        System.arraycopy(header, 0, newBytes, lengthHeader.length, header.length);
-        System.arraycopy(msg, 0, newBytes, 4 + header.length, msg.length);
-        
-        return newBytes;
-    }
-    
-    
-    // TODO move this to encoder
-    public ImmutableList<byte[]> serialize(SchemaName schemaName, ImmutableList<byte[]> msgList) {
-        List<byte[]> newMsgList = Lists.newArrayList();
-        
-        for (byte[] msg : msgList) {
-            newMsgList.add(serialize(schemaName, msg));
-        }
-        
-        return ImmutableList.copyOf(newMsgList);
-    }
-    
-    
-    // TODO move this to decoders
-    private class Data {
-        private final SchemaName schemaName;
-        private final GenericRecord avroRecord;
-        private final ImmutableMap<Integer, Long> consumedOffsets;
-        
-        public Data(TopicMessage<String, byte[]> message) {
-            this.consumedOffsets = message.getConsumedOffsets();
-            
-            ByteBuffer buffer = ByteBuffer.wrap(message.getRecord().value());
-            int headerLength = buffer.getInt();
-            
-            byte[] headerBytes = new byte[headerLength];
-            buffer.get(headerBytes);
-            schemaName = SchemaName.valueof(new String(headerBytes, Charsets.UTF_8));
-            Schema schema = jsonAvroMapperRegistry.getJsonToAvroMapper(schemaName).get().getSchema();
-            
-            byte[] msg = new byte[buffer.remaining()];
-            buffer.get(msg);
-            avroRecord = Avros.deserializeAvroMessage(msg, schema);
-        }
-    }
-    
-    
-    
-
-    
-    
-    
     @GET
     @Path("/topics/{topic}/events/{id}")
     public void produce(@PathParam("topic") String topic,
@@ -222,9 +157,6 @@ public class BusinesEventResource {
         response.resume("OK (" + id + ")");
     }
     
-    
-    
-  
     
     @GET
     @Path("/topics/{topic}/eventviews/{viewId}")
@@ -241,38 +173,50 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
-    public void produceStream(@PathParam("topic") String topic,
-                              @HeaderParam("Last-Event-Id") String lastEventId,
-                              @QueryParam("q.event.eq") @DefaultValue("*/*") MediaType acceptedEventtype, 
-                              @Context HttpServletRequest req,
-                              @Context HttpServletResponse resp,
-                              @Suspended AsyncResponse response) {
+    public void produceReactiveStream(@PathParam("topic") String topic,
+                                      @HeaderParam("Last-Event-Id") String lastEventId,
+                                      @QueryParam("q.event.eq") String acceptedEventtype, 
+                                      @Context HttpServletRequest req,
+                                      @Context HttpServletResponse resp,
+                                      @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
-   
-        Pipes.source(kafkaSourceFactory.newKafkaSource(topic))   // kafka source
-             .map(record -> new Data(record))
-             .map(data -> ServerSentEvent.newEvent()
-                                         .id(TopicMessageId.from(data.consumedOffsets).toString())
-                                         .event(jsonAvroMapperRegistry.getJsonToAvroMapper(data.schemaName).get().getMimeType())
-                                         .data(jsonAvroMapperRegistry.getJsonToAvroMapper(data.schemaName).get().toJson(data.avroRecord).toString()))
-             .filter(event -> acceptedEventtype.isCompatible(MediaType.valueOf(event.getEvent().orElse("*/*"))))
-             .consume(new ServletSseSubscriber(req, resp, Duration.ofSeconds(30)));  // sse target
+
+        final Schema readerSchema = (acceptedEventtype == null) ? null
+                                                                : jsonAvroMapperRegistry.getJsonToAvroMapper(acceptedEventtype)
+                                                                                        .orElseThrow(BadRequestException::new)
+                                                                                        .getSchema();
         
+        // open a reactive stream
+        Pipes.from(kafkaSourceFactory.newKafkaSource(topic))                          
+             .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
+             .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()))
+             .to(new ServletSseSubscriber(req, resp, Duration.ofSeconds(30)));  
     }
 
+   
+    private ServerSentEvent toServerSentEvent(ImmutableMap<Integer, Long> consumedOffsets, GenericRecord avroMessage) {
+        JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
+                                                      .orElseThrow(SchemaException::new);
+        
+        return ServerSentEvent.newEvent().id(CompactId.of(consumedOffsets).toString())
+                                         .event(mapper.getMimeType())
+                                         .data(mapper.toJson(avroMessage).toString());
+    }
+    
+   
     
     
-    private static final class TopicMessageId {
+    private static final class CompactId {
         private final String id;
         
-        private TopicMessageId(String id) {
+        private CompactId(String id) {
             this.id = id;
         }
 
         
-        public static final TopicMessageId from(ImmutableMap<Integer, Long> consumedOffsets) {
-            return new TopicMessageId(Base64.encodeAsString(Joiner.on(" ")
+        public static final CompactId of(ImmutableMap<Integer, Long> consumedOffsets) {
+            return new CompactId(Base64.encodeAsString(Joiner.on(" ")
                                                                   .withKeyValueSeparator(":")
                                                                   .join(consumedOffsets)));
         }

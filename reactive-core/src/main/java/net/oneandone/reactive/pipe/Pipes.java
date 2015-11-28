@@ -36,7 +36,7 @@ public class Pipes {
      * @param publisher   the underlying publisher
      * @return a new pipe instance
      */
-    public static <T> Pipe<T> source(Publisher<T> publisher) {
+    public static <T> Pipe<T> from(Publisher<T> publisher) {
         return new PublisherSourcedPipe<>(publisher);
     }
     

@@ -19,35 +19,29 @@ import com.google.common.collect.ImmutableList;
  */
 public interface JsonAvroMapper {
 
+    boolean isCollectionMapper();
+    
     Schema getSchema();
     
-    SchemaName getSchemaName();
     
     String getMimeType();
     
     /** 
      * @param jsonParser  the json parser of the json object to map
-     * @return the avro record
+     * @return the avro record list
      */
     ImmutableList<GenericRecord> toAvroRecord(JsonParser jsonParser);
 
-    
-    /**
-     * @param jsonParser  the json parser of the json object to map
-     * @return the binary avro record
-     */
-    ImmutableList<byte[]> toAvroBinaryRecord(JsonParser jsonParser);
-    
-     
+   
     /**
      * @param is the input stream returning the json object
-     * @return the binary avro record
+     * @return the avro record list
      */
-    default ImmutableList<byte[]> toAvroBinaryRecord(InputStream is) {
-        return toAvroBinaryRecord(Json.createParser(is));
+    default ImmutableList<GenericRecord> toAvroRecord(InputStream is) {
+        return toAvroRecord(Json.createParser(is));
     }
     
-   
+    
     JsonObject toJson(GenericRecord avroRecord);
      
 }

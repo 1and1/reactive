@@ -76,7 +76,7 @@ public interface Pipe<T> {
      * consumes the flow
      * @param subscriber  the subscriber which consumes the flow
      */
-    void consume(Subscriber<? super T> subscriber);
+    void to(Subscriber<? super T> subscriber);
     
     
     /**

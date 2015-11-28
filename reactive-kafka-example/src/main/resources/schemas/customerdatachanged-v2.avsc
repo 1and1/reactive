@@ -1,7 +1,7 @@
 {
   "namespace": "example.event",
   "type": "record",
-  "name": "customerdatachanged",
+  "name": "customerdatachanged_v2",
   "fields": [
         {"name": "header", "type": { "type" : "record",
                                      "name" : "header",
@@ -19,7 +19,7 @@
                                                                                  ]}
                                                 ]                               
                                   }},    
-        {"name": "accountid", "type": "int"}
+        {"name": "accountid", "type": "long"}
     ]
 }
    

@@ -188,8 +188,10 @@ public class BusinesEventResource {
 
         
         // compose greeting message 
-        final String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
-                                                                 : "stream opened. emitting " + acceptedEventtype + " event types only";
+        String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
+                                                           : "stream opened. emitting " + acceptedEventtype + " event types only";
+        prologComment = (lastEventId == null) ? prologComment : prologComment + " with offset id " + lastEventId; 
+        
         
         // configure kafka source
         KafkaSource<String, byte[]> kafkaSource = kafkaSourcePrototype.withTopic(topic); 

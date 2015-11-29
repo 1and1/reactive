@@ -18,6 +18,7 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -42,6 +43,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -55,9 +58,10 @@ import com.google.common.collect.Queues;
 
 
 
-
 public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, V>> {
     
+    private static final Logger LOG = LoggerFactory.getLogger(KafkaSource.class);
+
     // properties
     private final ImmutableMap<String, Object> properties;
     private final ConsumedOffsets consumedOffsets;
@@ -304,6 +308,7 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
     
 
     public static final class ConsumedOffsets {
+        private static final boolean IS_BASE64_ENCODED = false;
         private final ImmutableMap<String, ImmutableMap<Integer, Long>> consumedOffsets;
         
         private ConsumedOffsets(ImmutableMap<String, ImmutableMap<Integer, Long>> consumedOffsets) {
@@ -317,18 +322,31 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
                 return new ConsumedOffsets(ImmutableMap.of());
                 
             } else {
-                String txt = new String(Base64.getUrlDecoder().decode(id), Charsets.UTF_8);
-                
-                Map<String, ImmutableMap<Integer, Long>> result = Maps.newHashMap();
-                for (Entry<String, String> entry : Splitter.on("&").withKeyValueSeparator(":").split(txt).entrySet()) {
-                    result.put(entry.getKey(), ImmutableMap.copyOf(Splitter.on("#").withKeyValueSeparator("=").split(entry.getValue())
-                                                                                                              .entrySet()
-                                                                                                              .stream()
-                                                                                                              .collect(Collectors.toMap(k -> Integer.parseInt(k.getKey()),
-                                                                                                                                        v -> Long.parseLong(v.getValue())))));
+                try {
+                    id = IS_BASE64_ENCODED ? new String(Base64.getUrlDecoder().decode(id), Charsets.UTF_8) 
+                                           : id; 
+                    
+                    
+                    Map<String, ImmutableMap<Integer, Long>> result = Maps.newHashMap();
+                    for (Entry<String, String> entry : Splitter.on("&").withKeyValueSeparator(":").split(id).entrySet()) {
+                        
+                        Map<Integer, Long> topicOffsets = Maps.newHashMap();
+                        List<String> ids = Splitter.on(";").splitToList(entry.getValue());
+                        for (int i = 0; i < ids.size(); i++) {
+                            String l = ids.get(i);
+                            if (!Strings.isNullOrEmpty(l)) {
+                                topicOffsets.put(i, Long.parseLong(l));
+                            }
+                        }
+                        
+                        result.put(entry.getKey(), ImmutableMap.copyOf(topicOffsets));
+                    }
+                    
+                    return new ConsumedOffsets(ImmutableMap.copyOf(result));
+                } catch (IllegalArgumentException ia) {
+                    LOG.debug("can not parse consumed offset id " + id, ia);
+                    return new ConsumedOffsets(ImmutableMap.of());
                 }
-                
-                return new ConsumedOffsets(ImmutableMap.copyOf(result));    
             }
         }
         
@@ -375,15 +393,33 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
         
         @Override
         public String toString() {
-            Map<String, String> topicOffsets = Maps.newHashMap();
+            
+            
+            Map<String, String> topics = Maps.newHashMap();
             for (Entry<String, ImmutableMap<Integer, Long>> entry : consumedOffsets.entrySet()) {
-                topicOffsets.put(entry.getKey(), Joiner.on("#")
-                                                       .withKeyValueSeparator("=")
-                                                       .join(entry.getValue()));
+             
+                List<String> offsets = Lists.newArrayList();
+                Map<Integer, Long> topicOffsets = entry.getValue();
+                
+                List<Integer> ids = Lists.newArrayList(topicOffsets.keySet());
+                Collections.sort(ids);
+                
+                for (int i = 0; i <= ids.get(ids.size() - 1); i++) {
+                    Long offset = topicOffsets.get(i);
+                    if (offset == null) {
+                        offsets.add("");
+                    } else {
+                        offsets.add(offset.toString());
+                    }
+                }
+                
+                topics.put(entry.getKey(), Joiner.on(";").join(offsets));
             }
-
-            String txt = Joiner.on("&").withKeyValueSeparator(":").join(topicOffsets);
-            return Base64.getUrlEncoder().encodeToString(txt.getBytes(Charsets.UTF_8));
+            
+            String id = Joiner.on("&").withKeyValueSeparator(":").join(topics);
+            
+            return  (IS_BASE64_ENCODED) ? Base64.getUrlEncoder().encodeToString(id.getBytes(Charsets.UTF_8)) 
+                                        : id;
         }
     }
 }  

@@ -2,7 +2,6 @@ package net.oneandone.reactive.kafka.rest;
 
 import java.io.File;
 import java.time.Instant;
-import java.util.Random;
 import java.util.UUID;
 
 import javax.ws.rs.client.Client;
@@ -22,6 +21,7 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableMap;
 
 
+@Ignore
 public class KafkaResourceTest {
     
     private static EmbeddedZookeeper zookeeper;

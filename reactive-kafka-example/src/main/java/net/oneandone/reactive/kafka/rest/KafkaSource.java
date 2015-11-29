@@ -16,12 +16,17 @@
 package net.oneandone.reactive.kafka.rest;
 
 
+
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -29,8 +34,6 @@ import net.oneandone.reactive.ConnectException;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.utils.Utils;
 import net.oneandone.reactive.utils.SubscriberNotifier;
-
-
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -40,9 +43,12 @@ import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -54,19 +60,19 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
     
     // properties
     private final ImmutableMap<String, Object> properties;
-    private final ImmutableMap<Integer, Long> consumedOffsets;
-    private final ImmutableSet<String> topics; 
+    private final ConsumedOffsets consumedOffsets;
+    private final ImmutableList<String> topics; 
 
     
     
     public KafkaSource(ImmutableMap<String, Object> properties) {
-        this(ImmutableSet.of(), properties, ImmutableMap.of());
+        this(ImmutableList.of(), properties, ConsumedOffsets.valueOf(""));
     }
 
 
-    private KafkaSource(ImmutableSet<String> topics,
+    private KafkaSource(ImmutableList<String> topics,
                         ImmutableMap<String, Object> properties,
-                        ImmutableMap<Integer, Long> consumedOffsets) {
+                        ConsumedOffsets consumedOffsets) {
         this.topics = topics;
         this.properties = properties;
         this.consumedOffsets = consumedOffsets;
@@ -74,7 +80,7 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
 
 
     public KafkaSource<K, V> withTopic(String topic) {
-        return new KafkaSource<>(ImmutableSet.<String>builder().addAll(topics).add(topic).build(),
+        return new KafkaSource<>(ImmutableList.<String>builder().addAll(topics).add(topic).build(),
                                  this.properties,
                                  this.consumedOffsets);
     }
@@ -88,7 +94,7 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
     }
 
     
-    public KafkaSource<K, V> withConsumedOffsets(ImmutableMap<Integer, Long> consumedOffsets) {
+    public KafkaSource<K, V> withConsumedOffsets(ConsumedOffsets consumedOffsets) {
         return new KafkaSource<>(this.topics,
                                  this.properties,
                                  consumedOffsets);
@@ -135,30 +141,40 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
         private final InboundBuffer inboundBuffer;
 
         
-        private ConsumerSubscription(ImmutableSet<String> topics, 
+        private ConsumerSubscription(ImmutableList<String> topics, 
                                      ImmutableMap<String, Object> properties, 
-                                     ImmutableMap<Integer, Long> consumedOffsets,
+                                     ConsumedOffsets consumedOffsets,
                                      Subscriber<? super KafkaSource.TopicMessage<K, V>> subscriber) {
 
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
             
             KafkaConsumer<K, V> consumer = new KafkaConsumer<>(ImmutableMap.copyOf(properties));
+        
             
             ImmutableList<TopicPartition> partitions = getTopicPartitions(topics, consumer);
             consumer.assign(partitions);
-            consumer.seekToBeginning(partitions.toArray(new TopicPartition[partitions.size()]));
+        
+            for (TopicPartition partition : partitions) {
+                Optional<Long> offset = consumedOffsets.getOffSet(partition.topic(), partition.partition());
+                if (offset.isPresent()) {
+                    consumer.seek(partition, offset.get() + 1);
+                } else {
+                    consumer.seekToBeginning(partition);
+                }
+            }
+             
             
-            this.inboundBuffer = new InboundBuffer(consumer, (record) -> subscriberNotifier.notifyOnNext(record));
+            this.inboundBuffer = new InboundBuffer(consumedOffsets, consumer, (record) -> subscriberNotifier.notifyOnNext(record));
             Thread t = new Thread(inboundBuffer);
             t.setDaemon(true);
             t.start(); 
             
             subscriberNotifier.start();
         }
- 
         
-        private static <K, V> ImmutableList<TopicPartition> getTopicPartitions(ImmutableSet<String> topics, KafkaConsumer<K, V> consumer) {
+        
+        private static <K, V> ImmutableList<TopicPartition> getTopicPartitions(ImmutableList<String> topics, KafkaConsumer<K, V> consumer) {
             List<TopicPartition> partitions = Lists.newArrayList();
             for (String topic : topics) {
                 partitions.addAll(consumer.partitionsFor(topic)
@@ -169,7 +185,8 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
 
             return ImmutableList.copyOf(partitions);
         }
-     
+        
+                
         
         @Override
         public void cancel() {
@@ -208,10 +225,13 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             
             private final KafkaConsumer<K, V> consumer;
 
+            private final AtomicReference<ConsumedOffsets> consumedOffsets;
+            
             private final AtomicInteger numPendingRequested = new AtomicInteger(0);
 
             
-            public InboundBuffer(KafkaConsumer<K, V> consumer, Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer) {
+            public InboundBuffer(ConsumedOffsets consumedOffsets, KafkaConsumer<K, V> consumer, Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer) {
+                this.consumedOffsets = new AtomicReference<>(consumedOffsets);
                 this.consumer = consumer;
                 this.recordConsumer = recordConsumer;
             }
@@ -222,17 +242,15 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             }
             
 
-            public ImmutableMap<Integer, Long> onRecords(ConsumerRecords<K, V> records) {
-                Map<Integer, Long> consumedOffsets = Maps.newHashMap();
+            public void onRecords(ConsumerRecords<K, V> records) {
                 
                 for (ConsumerRecord<K, V> record : records) {
-                    consumedOffsets.put(record.partition(), record.offset());
-                    bufferedRecords.add(new TopicMessage<>(ImmutableMap.copyOf(consumedOffsets), record));
+                    ConsumedOffsets newConsumedOffsets = consumedOffsets.get().withOffset(record.topic(), record.partition(), record.offset());
+                    this.consumedOffsets.set(newConsumedOffsets);
+                    bufferedRecords.add(new TopicMessage<>(newConsumedOffsets, record));
                 }
                 
                 process();
-                
-                return ImmutableMap.copyOf(consumedOffsets); 
             }
             
             private void process() {
@@ -265,20 +283,107 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
     
     public static class TopicMessage<K, V> {
         
-        private final ImmutableMap<Integer, Long> consumedOffsets;
+        private final ConsumedOffsets consumedOffsets;
         private final ConsumerRecord<K, V> record;
         
-        public TopicMessage(ImmutableMap<Integer, Long> consumedOffsets, ConsumerRecord<K, V> record) {
+        public TopicMessage(ConsumedOffsets consumedOffsets, ConsumerRecord<K, V> record) {
             this.consumedOffsets = consumedOffsets;
             this.record = record;
         }
 
-        public ImmutableMap<Integer, Long> getConsumedOffsets() {
+        public ConsumedOffsets getConsumedOffsets() {
             return consumedOffsets;
         }
 
         public ConsumerRecord<K, V> getRecord() {
             return record;
+        }
+    }
+    
+    
+    
+
+    public static final class ConsumedOffsets {
+        private final ImmutableMap<String, ImmutableMap<Integer, Long>> consumedOffsets;
+        
+        private ConsumedOffsets(ImmutableMap<String, ImmutableMap<Integer, Long>> consumedOffsets) {
+            this.consumedOffsets = consumedOffsets;
+        }
+
+        
+        public static final ConsumedOffsets valueOf(String id) {
+
+            if (Strings.isNullOrEmpty(id)) {
+                return new ConsumedOffsets(ImmutableMap.of());
+                
+            } else {
+                String txt = new String(Base64.getUrlDecoder().decode(id), Charsets.UTF_8);
+                
+                Map<String, ImmutableMap<Integer, Long>> result = Maps.newHashMap();
+                for (Entry<String, String> entry : Splitter.on("&").withKeyValueSeparator(":").split(txt).entrySet()) {
+                    result.put(entry.getKey(), ImmutableMap.copyOf(Splitter.on("#").withKeyValueSeparator("=").split(entry.getValue())
+                                                                                                              .entrySet()
+                                                                                                              .stream()
+                                                                                                              .collect(Collectors.toMap(k -> Integer.parseInt(k.getKey()),
+                                                                                                                                        v -> Long.parseLong(v.getValue())))));
+                }
+                
+                return new ConsumedOffsets(ImmutableMap.copyOf(result));    
+            }
+        }
+        
+        
+        public static final ConsumedOffsets of(ImmutableMap<String, ImmutableMap<Integer, Long>> consumedOffsets) {
+            return new ConsumedOffsets(consumedOffsets);
+        }
+        
+        
+        public ImmutableMap<String, ImmutableMap<Integer, Long>> getConsumedOffsets() {
+            return consumedOffsets;
+        }
+        
+        
+        public Optional<Long> getOffSet(String topic, int partition) {
+            ImmutableMap<Integer, Long> partitionOffsets = consumedOffsets.get(topic);
+            if (partitionOffsets != null) {
+                Long offset = partitionOffsets.get(partition);
+                if (offset != null) {
+                    return Optional.of(offset);
+                }
+            }
+            
+            return Optional.empty();
+        }
+        
+        
+        public ConsumedOffsets withOffset(String topic, int partition, long offset) {
+            ImmutableMap<Integer, Long> partitionOffsets = consumedOffsets.get(topic);
+            if (partitionOffsets == null) {
+                partitionOffsets = ImmutableMap.of(partition, offset);
+            } else {
+                Map<Integer, Long> map = Maps.newHashMap(partitionOffsets);
+                map.put(partition, offset);
+                partitionOffsets = ImmutableMap.copyOf(map);
+            }
+            
+            
+            Map<String, ImmutableMap<Integer, Long>> map = Maps.newHashMap(consumedOffsets);
+            map.put(topic, partitionOffsets);
+            return new ConsumedOffsets(ImmutableMap.copyOf(map));
+        }
+        
+        
+        @Override
+        public String toString() {
+            Map<String, String> topicOffsets = Maps.newHashMap();
+            for (Entry<String, ImmutableMap<Integer, Long>> entry : consumedOffsets.entrySet()) {
+                topicOffsets.put(entry.getKey(), Joiner.on("#")
+                                                       .withKeyValueSeparator("=")
+                                                       .join(entry.getValue()));
+            }
+
+            String txt = Joiner.on("&").withKeyValueSeparator(":").join(topicOffsets);
+            return Base64.getUrlEncoder().encodeToString(txt.getBytes(Charsets.UTF_8));
         }
     }
 }  

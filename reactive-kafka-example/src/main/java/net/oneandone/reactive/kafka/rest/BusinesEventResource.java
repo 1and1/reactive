@@ -30,7 +30,6 @@ import javax.ws.rs.core.UriInfo;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.glassfish.jersey.internal.util.Base64;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.google.common.base.Charsets;
@@ -44,6 +43,7 @@ import net.oneandone.avro.json.JsonAvroMapperRegistry;
 import net.oneandone.avro.json.SchemaException;
 import net.oneandone.avro.json.JsonAvroMapper;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
+import net.oneandone.reactive.kafka.rest.KafkaSource.ConsumedOffsets;
 import net.oneandone.reactive.pipe.Pipes;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -173,7 +173,7 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
     public void produceReactiveStream(@PathParam("topic") String topic,
-                                      @HeaderParam("Last-Event-Id") CompactId lastEventId,
+                                      @HeaderParam("Last-Event-Id") ConsumedOffsets lastEventId,
                                       @QueryParam("q.event.eq") String acceptedEventtype, 
                                       @Context HttpServletRequest req,
                                       @Context HttpServletResponse resp,
@@ -193,7 +193,7 @@ public class BusinesEventResource {
         
         // configure kafka source
         KafkaSource<String, byte[]> kafkaSource = kafkaSourcePrototype.withTopic(topic); 
-        kafkaSource = (lastEventId == null) ? kafkaSource : kafkaSource.withConsumedOffsets(lastEventId.getConsumedOffsets()); 
+        kafkaSource = (lastEventId == null) ? kafkaSource : kafkaSource.withConsumedOffsets(lastEventId); 
         
         // and open a reactive stream
         Pipes.from(kafkaSource)      
@@ -203,51 +203,16 @@ public class BusinesEventResource {
     }
 
    
-    private ServerSentEvent toServerSentEvent(ImmutableMap<Integer, Long> consumedOffsets, GenericRecord avroMessage) {
+    private ServerSentEvent toServerSentEvent(ConsumedOffsets consumedOffsets, GenericRecord avroMessage) {
         JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
                                                       .orElseThrow(SchemaException::new);
         
-        return ServerSentEvent.newEvent().id(CompactId.of(consumedOffsets).toString())
+        return ServerSentEvent.newEvent().id(consumedOffsets.toString())
                                          .event(mapper.getMimeType())
                                          .data(mapper.toJson(avroMessage).toString());
     }
     
    
-    
-    
-    public static final class CompactId {
-        private final String id;
-        
-        private CompactId(String id) {
-            this.id = id;
-        }
-
-        public static final CompactId valueOf(String id) {
-            return new CompactId(id);
-        }
-        
-        
-        public static final CompactId of(ImmutableMap<Integer, Long> consumedOffsets) {
-            return new CompactId(Base64.encodeAsString(Joiner.on(" ")
-                                                                  .withKeyValueSeparator(":")
-                                                                  .join(consumedOffsets)));
-        }
-        
-        public ImmutableMap<Integer, Long> getConsumedOffsets() {
-            return ImmutableMap.copyOf(Splitter.on(" ")
-                                               .withKeyValueSeparator(":")
-                                               .split(Base64.decodeAsString(id)).entrySet()
-                                                                                .stream()
-                                                                                .collect(Collectors.toMap(k -> Integer.parseInt(k.getKey()),
-                                                                                                          v -> Long.parseLong(v.getValue()))));
-        }
-        
-        
-        @Override
-        public String toString() {
-            return id;
-        }
-    }
     
     
 

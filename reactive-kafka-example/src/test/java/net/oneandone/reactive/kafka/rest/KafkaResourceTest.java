@@ -22,7 +22,6 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableMap;
 
 
-@Ignore
 public class KafkaResourceTest {
     
     private static EmbeddedZookeeper zookeeper;
@@ -47,6 +46,7 @@ public class KafkaResourceTest {
         kafka = new EmbeddedKafka(ImmutableMap.<String, String>builder().put("broker.id", "149")
                                                                         .put("port", Integer.toString(kafkaPort))
                                                                         .put("reserved.broker.max.id", "1000")
+                                                                        .put("num.partitions", "3")
                                                                         .put("log.dirs", new File("kafkalog").getAbsolutePath())
                                                                         .put("zookeeper.connect", "localhost:" + zookeeperPort).build());
         kafka.start();

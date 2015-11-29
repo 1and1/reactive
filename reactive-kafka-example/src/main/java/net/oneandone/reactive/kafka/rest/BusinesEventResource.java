@@ -59,15 +59,15 @@ public class BusinesEventResource {
     
     private final JsonAvroMapperRegistry jsonAvroMapperRegistry; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
-    private final KafkaSourceFactory<String, byte[]> kafkaSourceFactory;
+    private final KafkaSource<String, byte[]> kafkaSourcePrototype;
     
 
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
-                                KafkaSourceFactory<String, byte[]> kafkaSourceFactory,
+                                KafkaSource<String, byte[]> kafkaSourcePrototype,
                                 JsonAvroMapperRegistry jsonAvroMapperRegistry) {
         this.kafkaProducer = kafkaProducer;
-        this.kafkaSourceFactory = kafkaSourceFactory;
+        this.kafkaSourcePrototype = kafkaSourcePrototype;
         this.jsonAvroMapperRegistry = jsonAvroMapperRegistry;
     }
     
@@ -173,7 +173,7 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
     public void produceReactiveStream(@PathParam("topic") String topic,
-                                      @HeaderParam("Last-Event-Id") String lastEventId,
+                                      @HeaderParam("Last-Event-Id") CompactId lastEventId,
                                       @QueryParam("q.event.eq") String acceptedEventtype, 
                                       @Context HttpServletRequest req,
                                       @Context HttpServletResponse resp,
@@ -186,11 +186,17 @@ public class BusinesEventResource {
                                                                                         .orElseThrow(BadRequestException::new)
                                                                                         .getSchema();
 
+        
+        // compose greeting message 
         final String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
                                                                  : "stream opened. emitting " + acceptedEventtype + " event types only";
         
-        // open a reactive stream
-        Pipes.from(kafkaSourceFactory.newKafkaSource(topic))      
+        // configure kafka source
+        KafkaSource<String, byte[]> kafkaSource = kafkaSourcePrototype.withTopic(topic); 
+        kafkaSource = (lastEventId == null) ? kafkaSource : kafkaSource.withConsumedOffsets(lastEventId.getConsumedOffsets()); 
+        
+        // and open a reactive stream
+        Pipes.from(kafkaSource)      
              .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
              .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()))
              .to(new ServletSseSubscriber(req, resp, prologComment));  
@@ -209,13 +215,17 @@ public class BusinesEventResource {
    
     
     
-    private static final class CompactId {
+    public static final class CompactId {
         private final String id;
         
         private CompactId(String id) {
             this.id = id;
         }
 
+        public static final CompactId valueOf(String id) {
+            return new CompactId(id);
+        }
+        
         
         public static final CompactId of(ImmutableMap<Integer, Long> consumedOffsets) {
             return new CompactId(Base64.encodeAsString(Joiner.on(" ")

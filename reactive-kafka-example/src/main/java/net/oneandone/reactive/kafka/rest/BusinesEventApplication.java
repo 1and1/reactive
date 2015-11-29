@@ -50,14 +50,14 @@ public class BusinesEventApplication extends ResourceConfig {
     
     
     @Bean
-    public KafkaSourceFactory<String, byte[]> kafkaSourceFactory() {
+    public KafkaSource<String, byte[]> kafkaSource() {
         Map<String, Object> props = Maps.newHashMap();
         props.put("bootstrap.servers", bootstrapservers);
         props.put("zookeeper.connect", zookeeperConnect);
         props.put("key.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         props.put("value.deserializer", org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         
-        return new KafkaSourceFactory<String, byte[]>(ImmutableMap.copyOf(props));
+        return new KafkaSource<String, byte[]>(ImmutableMap.copyOf(props));
     }
     
     

@@ -16,6 +16,7 @@
 package net.oneandone.reactive.kafka.rest;
 
 
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
@@ -41,6 +42,8 @@ import org.reactivestreams.Subscription;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
@@ -51,29 +54,47 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
     
     // properties
     private final ImmutableMap<String, Object> properties;
-    private final String topic; 
-    
+    private final ImmutableMap<Integer, Long> consumedOffsets;
+    private final ImmutableSet<String> topics; 
 
-    public KafkaSource(String topic, ImmutableMap<String, Object> properties) {
-        this.topic = topic;
+    
+    
+    public KafkaSource(ImmutableMap<String, Object> properties) {
+        this(ImmutableSet.of(), properties, ImmutableMap.of());
+    }
+
+
+    private KafkaSource(ImmutableSet<String> topics,
+                        ImmutableMap<String, Object> properties,
+                        ImmutableMap<Integer, Long> consumedOffsets) {
+        this.topics = topics;
         this.properties = properties;
+        this.consumedOffsets = consumedOffsets;
     }
 
-    
-    
-    public KafkaSource(String topic) {
-        this(topic, ImmutableMap.of());
+
+    public KafkaSource<K, V> withTopic(String topic) {
+        return new KafkaSource<>(ImmutableSet.<String>builder().addAll(topics).add(topic).build(),
+                                 this.properties,
+                                 this.consumedOffsets);
     }
-
     
     
-
     
     public KafkaSource<K, V> withProperty(String name, Object value) {
-        return new KafkaSource<>(this.topic,
-                                 ImmutableMap.<String, Object>builder().putAll(properties).put(name, value).build());
+        return new KafkaSource<>(this.topics,
+                                 ImmutableMap.<String, Object>builder().putAll(properties).put(name, value).build(),
+                                 this.consumedOffsets);
+    }
+
+    
+    public KafkaSource<K, V> withConsumedOffsets(ImmutableMap<Integer, Long> consumedOffsets) {
+        return new KafkaSource<>(this.topics,
+                                 this.properties,
+                                 consumedOffsets);
     }
     
+
     
     
     /**
@@ -101,7 +122,7 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             throw new NullPointerException("subscriber is null");
         }
         
-        new ConsumerSubscription<K, V>(topic, properties, subscriber);
+        new ConsumerSubscription<K, V>(topics, properties, consumedOffsets, subscriber);
     }
     
     
@@ -114,22 +135,17 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
         private final InboundBuffer inboundBuffer;
 
         
-        private ConsumerSubscription(String topic, 
+        private ConsumerSubscription(ImmutableSet<String> topics, 
                                      ImmutableMap<String, Object> properties, 
+                                     ImmutableMap<Integer, Long> consumedOffsets,
                                      Subscriber<? super KafkaSource.TopicMessage<K, V>> subscriber) {
 
             this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
 
             
-            Map<String, Object> props = Maps.newHashMap(properties); 
-            props.put("enable.auto.commit", "false");
+            KafkaConsumer<K, V> consumer = new KafkaConsumer<>(ImmutableMap.copyOf(properties));
             
-            KafkaConsumer<K, V> consumer = new KafkaConsumer<>(ImmutableMap.copyOf(props));
-            
-            ImmutableList<TopicPartition> partitions = ImmutableList.copyOf(consumer.partitionsFor(topic)
-                                                                                    .stream()
-                                                                                    .map(partition -> new TopicPartition(topic, partition.partition()))
-                                                                                    .collect(Collectors.toList()));
+            ImmutableList<TopicPartition> partitions = getTopicPartitions(topics, consumer);
             consumer.assign(partitions);
             consumer.seekToBeginning(partitions.toArray(new TopicPartition[partitions.size()]));
             
@@ -141,6 +157,18 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             subscriberNotifier.start();
         }
  
+        
+        private static <K, V> ImmutableList<TopicPartition> getTopicPartitions(ImmutableSet<String> topics, KafkaConsumer<K, V> consumer) {
+            List<TopicPartition> partitions = Lists.newArrayList();
+            for (String topic : topics) {
+                partitions.addAll(consumer.partitionsFor(topic)
+                                          .stream()
+                                          .map(partition -> new TopicPartition(topic, partition.partition()))
+                                          .collect(Collectors.toList()));
+            };
+
+            return ImmutableList.copyOf(partitions);
+        }
      
         
         @Override

@@ -198,6 +198,11 @@ public class SubscriberNotifier<T> {
         public void sendTo(Subscriber<? super T> subscriber) {
             subscriber.onNext(t);
         }
+        
+        @Override
+        public String toString() {
+            return t.toString();
+        }
     }
     
     

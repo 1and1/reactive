@@ -2,7 +2,7 @@
 @namespace("example.mail")
 protocol Simple {
 
-    record mailsend {
+    record mailsent {
         string id;
         string date;
     }    

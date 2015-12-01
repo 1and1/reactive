@@ -1,8 +1,10 @@
 
-
 logging:
   level:
     net.oneandone.reactive: WARNING
+    kafka: OFF
+    org: OFF
+
 
 schemaregistry: 
        path: src/main/resources/schemas

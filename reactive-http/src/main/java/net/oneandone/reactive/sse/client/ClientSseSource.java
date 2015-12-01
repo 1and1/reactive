@@ -83,7 +83,17 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
         this.numPrefetchedElements = numPrefetchedElements;
         this.connectionTimeout = connectionTimeout;
     }
-
+    
+    
+    
+    /**
+     * constructor
+     * @param uri  the uri 
+     */
+    public ClientSseSource(String uri) {
+        this(URI.create(uri));
+    }
+    
     
     /**
      * constructor

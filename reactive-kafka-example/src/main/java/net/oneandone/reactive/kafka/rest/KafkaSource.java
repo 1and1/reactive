@@ -27,7 +27,6 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -228,14 +227,15 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             private final Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer;
             
             private final KafkaConsumer<K, V> consumer;
-
-            private final AtomicReference<ConsumedOffsets> consumedOffsets;
-            
             private final AtomicInteger numPendingRequested = new AtomicInteger(0);
+            
+            private final Object processingLock = new Object();
+            private ConsumedOffsets consumedOffsets;
 
+            
             
             public InboundBuffer(ConsumedOffsets consumedOffsets, KafkaConsumer<K, V> consumer, Consumer<KafkaSource.TopicMessage<K, V>> recordConsumer) {
-                this.consumedOffsets = new AtomicReference<>(consumedOffsets);
+                this.consumedOffsets = consumedOffsets;
                 this.consumer = consumer;
                 this.recordConsumer = recordConsumer;
             }
@@ -249,22 +249,28 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
             public void onRecords(ConsumerRecords<K, V> records) {
                 
                 for (ConsumerRecord<K, V> record : records) {
-                    ConsumedOffsets newConsumedOffsets = consumedOffsets.get().withOffset(record.topic(), record.partition(), record.offset());
-                    this.consumedOffsets.set(newConsumedOffsets);
+                    ConsumedOffsets newConsumedOffsets = consumedOffsets.withOffset(record.topic(), record.partition(), record.offset());
+                    this.consumedOffsets = newConsumedOffsets;
+                    
                     bufferedRecords.add(new TopicMessage<>(newConsumedOffsets, record));
                 }
                 
                 process();
             }
             
+            
             private void process() {
+                
                 while (numPendingRequested.get() > 0) {
-                    KafkaSource.TopicMessage<K, V> record = bufferedRecords.poll();
-                    if (record == null) {
-                        return;
-                    } else {
-                        recordConsumer.accept(record);
-                        numPendingRequested.decrementAndGet();
+                    
+                    synchronized (processingLock) {
+                        KafkaSource.TopicMessage<K, V> record = bufferedRecords.poll();
+                        if (record == null) {
+                            return;
+                        } else {
+                            recordConsumer.accept(record);
+                            numPendingRequested.decrementAndGet();
+                        }
                     }
                 }
             }
@@ -301,6 +307,11 @@ public class KafkaSource<K, V> implements Publisher<KafkaSource.TopicMessage<K, 
 
         public ConsumerRecord<K, V> getRecord() {
             return record;
+        }
+        
+        @Override
+        public String toString() {
+            return consumedOffsets.toString();
         }
     }
     

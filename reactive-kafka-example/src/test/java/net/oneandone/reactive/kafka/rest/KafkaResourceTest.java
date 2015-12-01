@@ -1,9 +1,13 @@
 package net.oneandone.reactive.kafka.rest;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
+import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
+import javax.json.Json;
 import javax.ws.rs.client.Client;
 
 import javax.ws.rs.client.ClientBuilder;
@@ -19,6 +23,13 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
+import com.google.common.io.CharSource;
+
+import net.oneandone.reactive.ReactiveSource;
+import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.sse.client.ClientSseSource;
+
 
 
 @Ignore
@@ -68,25 +79,28 @@ public class KafkaResourceTest {
 
     
     @Test
-    public void simpleTest() {
+    public void testAllScenarios() throws IOException {
         
-        Client client = ClientBuilder.newClient(); 
         
-        String uri = "http://localhost:8080/topics/mytopic/schemas";
-        System.out.println(uri);
+        String topicName = "test" + new Random().nextInt(9999999); 
         
-        client.target(uri).request().get(String.class);
         
-        client.close();
-    }
-    
-    
-    
-    @Test
-    public void testFetchMetaData() throws Exception {
+        
+        ///////////////////////
+        // (1) first fetch meta data
+        
+        
+        // request topic info
+        String topic = client.target(uri + "/topics/" + topicName)
+                             .request()
+                             .get(String.class);
+
+        Assert.assertTrue(topic.contains("/topics/" + topicName + "/schemas"));
+        
+       
 
         // request all schemas
-        String metaData = client.target(uri + "/topics/mytopic/schemas")
+        String metaData = client.target(uri + "/topics/" + topicName + "/schemas")
                                 .request(MediaType.TEXT_PLAIN)
                                 .get(String.class);
 
@@ -94,121 +108,126 @@ public class KafkaResourceTest {
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent.list+json =="));
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged+json =="));
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged.list+json =="));
-        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsend+json =="));
-        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsend.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsent+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsent.list+json =="));
         
-    }
-   
         
-    @Test
-    public void testEnqueue() throws Exception {
-
-        // submit event
-        Response resp = client.target(uri + "/topics/mytopic/events")
+        
+        
+        
+        
+        
+        ///////////////////////
+        // (2) submit events
+        
+        
+        
+        
+        // submit event based on avro schema
+        Response resp = client.target(uri + "/topics/" + topicName + "/events")
                               .request()
-                              .post(Entity.entity(new CustomerChangedEvent(44545453), 
-                                    "application/vnd.example.event.customerdatachanged+json"));
-        
+                              .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"));
+
         Assert.assertTrue((resp.getStatus() / 100) == 2);
-        String uri = resp.getHeaderString("location");
-        Assert.assertNotNull(uri);
+        String resourceUri = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri);
         resp.close();
 
-        
+
         // and check if submitted
-        String event = client.target(uri)
+        String event = client.target(resourceUri)
                              .request(MediaType.APPLICATION_JSON)
                              .get(String.class);      
-        System.out.println(event);
-    } 
-    
-    
-    
-    
-    @Test
-    public void testEnqueueBatch() throws Exception {
-
-        // submit event
-        Response resp = client.target(uri + "/topics/mytopic/events")
-                              .request()
-                              .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent(44545453), new CustomerChangedEvent(454502) },
-                                    "application/vnd.example.event.customerdatachanged.list+json"));
+ //       System.out.println(event);
         
-        Assert.assertTrue((resp.getStatus() / 100) == 2);
-        String uri = resp.getHeaderString("location");
-        Assert.assertNotNull(uri);
-        resp.close();
-
         
-        // and check if submitted
-        String event = client.target(uri)
-                             .request(MediaType.APPLICATION_JSON)
-                             .get(String.class);      
-        System.out.println(event);
-    } 
-    
-
-    
-    @Test
-    public void testEnqueueWithIdl() throws Exception {
-
-        // submit event
-        Response resp = client.target(uri + "/topics/mytopic/events")
-                              .request()
-                              .post(Entity.entity(new MailSentEvent("44545453"), 
-                                    "application/vnd.example.mail.mailsent+json"));
         
-        Assert.assertTrue((resp.getStatus() / 100) == 2);
-        String uri = resp.getHeaderString("location");
-        Assert.assertNotNull(uri);
-        resp.close();
-
         
-        // and check if submitted
-        String event = client.target(uri)
-                             .request(MediaType.APPLICATION_JSON)
-                             .get(String.class);      
-        System.out.println(event);
-    } 
-    
-    
-
-        
-    @Test
-    public void testConsuming() throws Exception {
-        
-                
-        // submit event
-        Response resp = client.target(uri + "/topics/topicAA/events")
-                              .request()
-                              .post(Entity.entity(new CustomerChangedEvent(44545453), 
-                                    "application/vnd.example.event.customerdatachanged+json"));
-        String eventUri = resp.getHeaderString("location");
-        Assert.assertNotNull(eventUri);
-        resp.close();
-
-        
-
-
-        System.out.println("curl -i " + uri + "/topics/topicAA/events");
-        System.out.println("curl -i \"http://localhost:8080/topics/topicAA/events?q.event.eq=application%2Fvnd.example.event.customerdatachanged-v2%2Bjson\"");
-        System.out.println("\r\n");
-        System.out.println("curl -i -XPOST -H\"Content-Type:  application/vnd.example.event.customerdatachanged+json\" -d'{\"header\":{\"eventId\":\"0a427ee7-6332-4927-af9a-fb51f2bca10a\",\"timestamp\":\"2015-11-27T09:47:48.088Z\"},\"accountid\":\"545r455443445\"}' http://localhost:8080/topics/topicAA/events");
-
-
-        resp = client.target(uri + "/topics/topicAA/events")
+        // submit event based on avro idl
+        resp = client.target(uri + "/topics/" + topicName + "/events")
                      .request()
-                     .post(Entity.entity(new CustomerChangedEvent(544554434), 
-                                         "application/vnd.example.event.customerdatachanged+json"));
-        eventUri = resp.getHeaderString("location");
-        Assert.assertNotNull(eventUri);
+                     .post(Entity.entity(new MailSentEvent("4454545z3"), "application/vnd.example.mail.mailsent+json"));
+        
+        Assert.assertTrue((resp.getStatus() / 100) == 2);
+        resourceUri = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri);
         resp.close();
 
+        
+        // and check if submitted
+        event = client.target(resourceUri)
+                      .request(MediaType.APPLICATION_JSON)
+                      .get(String.class);      
+//        System.out.println(event);
+        
+        
+        
+        
+        
+        // submit batch event
+        resp = client.target(uri + "/topics/" + topicName + "/events")
+                     .request()
+                     .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent(5555), new CustomerChangedEvent(4544) }, "application/vnd.example.event.customerdatachanged.list+json"));
+        
+        Assert.assertTrue((resp.getStatus() / 100) == 2);
+        resourceUri = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri);
+        resp.close();
 
-    } 
-    
+        
+        // and check if submitted
+        event = client.target(resourceUri)
+                      .request(MediaType.APPLICATION_JSON)
+                      .get(String.class);      
+//        System.out.println(event);
+        
+        
+        
+        
+        
+        
+        ///////////////////////
+        // (3) consume events
+            
+      
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").open();    
+        reactiveSource.read();
+        reactiveSource.read();
+        reactiveSource.read();
+        ServerSentEvent sse = reactiveSource.read();
+        
+        String lastEventId = sse.getId().get();
 
+        
+        // submit 2 more events
+        client.target(uri + "/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(2234334), "application/vnd.example.event.customerdatachanged+json"), String .class);
+        client.target(uri + "/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(223323), "application/vnd.example.event.customerdatachanged+json"), String .class);
+        reactiveSource.read();
+        reactiveSource.read();
+        reactiveSource.close();
+        
+        
+        Set<Integer> receivedIds = Sets.newHashSet(2234334, 223323);
+        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
+        ServerSentEvent sse1 = reactiveSource.read();
+        String json = sse1.getData().get();
+        receivedIds.remove(Json.createReader(CharSource.wrap(json).openStream()).readObject().getInt("accountid"));
+        
+        ServerSentEvent sse2 = reactiveSource.read();
+        json = sse2.getData().get(); 
+        receivedIds.remove(Json.createReader(CharSource.wrap(json).openStream()).readObject().getInt("accountid"));
+
+        Assert.assertTrue(receivedIds.isEmpty());
+        
+        
+        
+        System.out.println("done");
+    }
     
+    
+ 
+
+ 
     
     
     

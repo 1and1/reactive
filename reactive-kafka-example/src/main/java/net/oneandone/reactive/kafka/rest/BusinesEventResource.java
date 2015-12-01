@@ -2,12 +2,16 @@ package net.oneandone.reactive.kafka.rest;
 
 import java.io.InputStream;
 
+
+
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -24,10 +28,10 @@ import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericData.Record;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,11 +48,12 @@ import net.oneandone.avro.json.SchemaException;
 import net.oneandone.avro.json.JsonAvroMapper;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.rest.KafkaSource.ConsumedOffsets;
-import net.oneandone.reactive.pipe.Pipes;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
 import net.oneandone.reactive.utils.Pair;
+import rx.Observable;
+import rx.RxReactiveStreams;
 
 
 
@@ -96,9 +101,11 @@ public class BusinesEventResource {
     @Path("/topics/{topicname}")
     @Produces("application/vnd.ui.mam.eventservice.topic+json")
     public TopicRepresentation getTopic(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
-        return new TopicRepresentation(LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().path(topicname).build())
-                                                   .withHref("events", uriInfo.getAbsolutePathBuilder().path(topicname).path("events").build())
-                                                   .withHref("schemas", uriInfo.getAbsolutePathBuilder().path(topicname).path("schemas").build())
+        final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
+        
+        return new TopicRepresentation(LinksBuilder.newLinksBuilder(topicPath)
+                                                   .withHref("events", topicPath + "/events")
+                                                   .withHref("schemas", topicPath + "/schemas")
                                                    .build(),
                                        topicname);
     }
@@ -107,20 +114,22 @@ public class BusinesEventResource {
     @POST
     @Path("/topics/{topic}/events")
     public void consume(@Context UriInfo uriInfo,
-                        @PathParam("topic") String topic,
+                        @PathParam("topic") String topicname,
                         @HeaderParam("Content-Type") String contentType, 
                         InputStream jsonObjectStream,
                         @Suspended AsyncResponse response) throws BadRequestException {
 
-        final UriBuilder uriBuilder = uriInfo.getAbsolutePathBuilder();
+        final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
+        
          
         final ImmutableList<byte[]> avroMessages = jsonAvroMapperRegistry.getJsonToAvroMapper(contentType)
                                                                          .map(mapper -> AvroMessageSerializer.serialize(mapper.getSchema(), mapper.toAvroRecord(jsonObjectStream)))
                                                                          .orElseThrow(BadRequestException::new);  
         
-        sendAsync(topic, avroMessages)
-                .thenApply(ids -> Response.created(contentType.toLowerCase(Locale.US).endsWith(".list+json") ? uriBuilder.path("eventviews").path(new ViewId(ids).serialize()).build() 
-                                                                                                             : uriBuilder.path(ids.get(0).serialize()).build()).build())
+        sendAsync(topicname, avroMessages)
+                .thenApply(ids -> contentType.toLowerCase(Locale.US).endsWith(".list+json") ? (topicPath + "/eventviews/" + new ViewId(ids).serialize()) 
+                                                                                            : (topicPath + "/events/" + ids.get(0).serialize()))
+                .thenApply(uri -> Response.created(URI.create(uri)).build())
                 .whenComplete(ResultConsumer.writeTo(response));
     }
     
@@ -192,18 +201,20 @@ public class BusinesEventResource {
                                                            : "stream opened. emitting " + acceptedEventtype + " event types only";
         prologComment = (lastEventId == null) ? prologComment : prologComment + " with offset id " + lastEventId; 
         
+
         
         // configure kafka source
         KafkaSource<String, byte[]> kafkaSource = kafkaSourcePrototype.withTopic(topic); 
         kafkaSource = (lastEventId == null) ? kafkaSource : kafkaSource.withConsumedOffsets(lastEventId); 
-        
-        // and open a reactive stream
-        Pipes.from(kafkaSource)      
-             .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
-             .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()))
-             .to(new ServletSseSubscriber(req, resp, prologComment));  
-    }
 
+        Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSource)
+                                                           .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
+                                                           .filter(pair -> FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap())).test(pair.getSecond()))
+                                                           .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
+        RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));
+    }
+    
+    
    
     private ServerSentEvent toServerSentEvent(ConsumedOffsets consumedOffsets, GenericRecord avroMessage) {
         JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
@@ -234,6 +245,81 @@ public class BusinesEventResource {
     
     
     
+    
+    private static final class FilterCondition implements Predicate<GenericRecord> {
+
+        
+        public static Predicate<GenericRecord> valueOf(ImmutableMap<String, String[]> filterParams) {
+
+            Predicate<GenericRecord> filter = (record) -> true;
+            
+            
+            for (Entry<String, String[]> entry : filterParams.entrySet()) {
+                if (entry.getKey().startsWith("q.data.")) {
+                    for (String value : entry.getValue()) {
+                        
+                        filter = filter.and(newFilterCondition(entry.getKey(), value));
+                    }
+                }
+            }
+            
+            return filter;
+        }
+        
+        
+        private static final Predicate<GenericRecord> newFilterCondition(String condition, String value) {
+            String name = condition.substring("q.data.".length(), condition.lastIndexOf("."));
+            
+            if (condition.endsWith(".eq")) {
+                return (record) -> read(name, record).map(obj -> obj.toString().equals(value))
+                                                     .orElse(false);
+                
+            } else if (condition.endsWith(".ne")) {
+                return (record) -> read(name, record).map(obj -> !obj.toString().equals(value))
+                                                     .orElse(false);
+
+            } else if (condition.endsWith(".in")) {
+                ImmutableList<String> values = ImmutableList.copyOf(Splitter.on(",").trimResults().splitToList(value));
+                return (record) -> read(name, record).map(obj -> values.contains(obj.toString()))
+                                                     .orElse(false);
+
+            } else if (condition.endsWith(".gt")) {
+                return (record) -> read(name, record).map(obj -> obj.toString().compareTo(value) > 0)
+                                                     .orElse(false);
+                
+            } else if (condition.endsWith(".lt")) {
+                return (record) -> read(name, record).map(obj -> obj.toString().compareTo(value) < 0)
+                                                     .orElse(false);
+
+            } else {
+                return (record) -> true;
+            }
+        }
+        
+        
+        private static Optional<Object> read(String dotSeparatedName, GenericRecord record) {
+            Optional<Object> result = Optional.empty();
+            
+            for (String namePart : Splitter.on(".").trimResults().splitToList(dotSeparatedName)) {
+                Object obj = record.get(namePart);
+                if (obj instanceof Record) {
+                    record = (Record) obj;
+                } else {
+                    result = Optional.of(obj);
+                }
+            }
+            
+            return result;
+        }
+        
+        @Override
+        public boolean test(GenericRecord genericRecord) {
+            return true;
+        }
+        
+    }
+    
+
     
     public static final class KafkaMessageId {
         private final static String SEPARATOR = "-";  
@@ -315,9 +401,18 @@ public class BusinesEventResource {
         private LinksBuilder(ImmutableMap<String, Object> links) {
             this.links = links;
         }
+        
+        
+        public static LinksBuilder newLinksBuilder(String selfHref) {
+            return newLinksBuilder(URI.create(selfHref));
+        }
 
         public static LinksBuilder newLinksBuilder(URI selfHref) {
             return new LinksBuilder(ImmutableMap.of()).withHref("self", selfHref);
+        }
+        
+        public LinksBuilder withHref(String name, String href) {
+            return withHref(name, URI.create(href));
         }
         
         public LinksBuilder withHref(String name, URI href) {

@@ -55,13 +55,13 @@ public class JsonAvroMapperTest {
             MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "566");
         event.emailaddress = null;
         
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecords(toJsonParser(event)));
     }
 
     
     @Test
     public void testValid() throws Exception {
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecords(toJsonParser(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
     }
     
     
@@ -70,7 +70,7 @@ public class JsonAvroMapperTest {
     public void testValidWithNullRecord() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecords(toJsonParser(event)));
     }
     
    
@@ -79,7 +79,7 @@ public class JsonAvroMapperTest {
     public void testInValidEnumValue() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ILLEGAL, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroRecord(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroRecords(toJsonParser(event)));
     }
     
     

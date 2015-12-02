@@ -88,22 +88,20 @@ public class BusinesEventResource {
     }
     
 
+    
     @GET
     @Path("/")
     @Produces(MediaType.APPLICATION_JSON)
     public Object getRoot(@Context UriInfo uriInfo) {
-        return ImmutableMap.of("_links", LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().build())
-                                                     .withHref("topics", uriInfo.getBaseUriBuilder().path("topics").build())
-                                                     .build());
+        return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withRelativeHref("topics").build());
     }
     
-        
+    
     @GET
     @Path("/topics")
     @Produces("application/vnd.ui.mam.eventservice.topic.list+json")
     public TopicsRepresentation getTopics(@Context UriInfo uriInfo, @QueryParam("q.topic.name.eq") String topicname) {
-        return new TopicsRepresentation(LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().build()).build(),
-                                        ImmutableList.of(getTopic(uriInfo, topicname))); 
+        return new TopicsRepresentation(uriInfo, "topics", ImmutableList.of(getTopic(uriInfo, topicname))); 
     }
     
     
@@ -112,15 +110,25 @@ public class BusinesEventResource {
     @Path("/topics/{topicname}")
     @Produces("application/vnd.ui.mam.eventservice.topic+json")
     public TopicRepresentation getTopic(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
-        final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
-        
-        return new TopicRepresentation(LinksBuilder.newLinksBuilder(topicPath)
-                                                   .withHref("events", topicPath + "/events")
-                                                   .withHref("schemas", topicPath + "/schemas")
-                                                   .build(),
-                                       topicname);
+        return new TopicRepresentation(uriInfo, "topics", topicname);
     }
         
+  
+
+    @GET
+    @Path("/topics/{topic}/schemas")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String getRegisteredSchematas() {
+        
+        final StringBuilder builder = new StringBuilder();
+        for (Entry<String, JsonAvroMapper> entry : jsonAvroMapperRegistry.getRegisteredMapper().entrySet()) {
+            builder.append("== " + entry.getKey() + " ==\r\n");
+            builder.append(entry.getValue() + "\r\n\r\n\r\n");
+        }
+        return builder.toString();
+    }
+    
+    
     
     @POST
     @Path("/topics/{topic}/events")
@@ -130,26 +138,24 @@ public class BusinesEventResource {
                         InputStream jsonObjectStream,
                         @Suspended AsyncResponse response) throws BadRequestException {
 
+         
+        final ImmutableList<byte[]> binaryAvroMessages = jsonAvroMapperRegistry.getJsonToAvroMapper(contentType)
+                                                                               .map(mapper -> mapper.toAvroRecords(jsonObjectStream))
+                                                                               .map(avroMessages -> AvroMessageSerializer.serialize(avroMessages))
+                                                                               .orElseThrow(BadRequestException::new);  
+        
+        
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
         
-         
-        final ImmutableList<byte[]> avroMessages = jsonAvroMapperRegistry.getJsonToAvroMapper(contentType)
-                                                                         .map(mapper -> AvroMessageSerializer.serialize(mapper.getSchema(), mapper.toAvroRecord(jsonObjectStream)))
-                                                                         .orElseThrow(BadRequestException::new);  
-        
-        sendAsync(topicname, avroMessages)
+        sendAsync(topicname, binaryAvroMessages, ImmutableList.of())
                 .thenApply(ids -> contentType.toLowerCase(Locale.US).endsWith(".list+json") ? (topicPath + "/eventcollections/" + KafkaMessageId.toString(ids)) 
                                                                                             : (topicPath + "/events/" + ids.get(0).toString()))
                 .thenApply(uri -> Response.created(URI.create(uri)).build())
                 .whenComplete(ResultConsumer.writeTo(response));
     }
     
-        
-    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages) {
-        return sendAsync(topic, kafkaMessages, ImmutableList.of());
-    }
+         
     
-     
     private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<byte[]> kafkaMessages, ImmutableList<KafkaMessageId> sentIds) {
         
         if (kafkaMessages.isEmpty()) {
@@ -180,24 +186,27 @@ public class BusinesEventResource {
             
             KafkaMessage<String, byte[]> msg = reactiveSource.read(Duration.ofSeconds(3));
             
-            final Schema readerSchema = (readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())) ? null
-                                                                 : jsonAvroMapperRegistry.getJsonToAvroMapper(readerMimeType.toString())
-                                                                                         .orElseThrow(BadRequestException::new)
-                                                                                         .getSchema();
+            final Schema readerSchema = isApplicationWildcardType(readerMimeType) ? null
+                                                                                  : jsonAvroMapperRegistry.getJsonToAvroMapper(readerMimeType.toString())
+                                                                                                         .orElseThrow(BadRequestException::new)
+                                                                                                         .getSchema();
             
             GenericRecord avroMessage = AvroMessageSerializer.deserialize(msg.value(), jsonAvroMapperRegistry, readerSchema);
             
             
             JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
                                                           .orElseThrow(SchemaException::new);
-            JsonObject json = mapper.toJson(avroMessage);
             
-            
-            response.resume(Response.ok(json.toString().getBytes(Charsets.UTF_8)).type(mapper.getMimeType()).build());
+            response.resume(Response.ok(mapper.toBinaryJson(avroMessage))
+                                    .type(mapper.getMimeType()).build());
         }
     }
     
     
+    
+    private boolean isApplicationWildcardType(MediaType readerMimeType) {
+        return (readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype()));
+    }
 
     
     
@@ -262,22 +271,18 @@ public class BusinesEventResource {
 
         resp.setContentType("text/event-stream");
 
-        Predicate<GenericRecord> filter = FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap()));
-        
-        
-        final Schema readerSchema = (acceptedEventtype == null) ? null
-                                                                : jsonAvroMapperRegistry.getJsonToAvroMapper(acceptedEventtype)
-                                                                                        .orElseThrow(BadRequestException::new)
-                                                                                        .getSchema();
-
         
         // compose greeting message 
-        String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
-                                                           : "stream opened. emitting " + acceptedEventtype + " event types only";
+        String prologComment = "stream opened. emitting " + ((acceptedEventtype == null) ? "all event types" : acceptedEventtype + " event types only");
         prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + KafkaMessageId.valuesOf(consumedOffsets); 
-        
 
-        // configure kafka source
+        
+        Predicate<GenericRecord> filter = FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap()));
+        final Schema readerSchema = (acceptedEventtype == null) ? null : jsonAvroMapperRegistry.getJsonToAvroMapper(acceptedEventtype)
+                                                                                               .orElseThrow(BadRequestException::new)
+                                                                                               .getSchema();   
+        
+        // establish reactive response stream 
         Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
                                                            .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.value(), jsonAvroMapperRegistry, readerSchema)))
                                                            .filter(pair -> filter.test(pair.getSecond()))
@@ -299,25 +304,7 @@ public class BusinesEventResource {
    
     
     
-
-    @GET
-    @Path("/topics/{topic}/schemas")
-    @Produces(MediaType.TEXT_PLAIN)
-    public String getRegisteredSchematas() {
-        final StringBuilder builder = new StringBuilder();
-        
-        for (Entry<String, JsonAvroMapper> entry : jsonAvroMapperRegistry.getRegisteredMapper().entrySet()) {
-            builder.append("== " + entry.getKey() + " ==\r\n");
-            builder.append(entry.getValue() + "\r\n\r\n\r\n");
-        }
-        
-        return builder.toString();
-    }
-    
-    
-    
-    
-    private static final class FilterCondition implements Predicate<GenericRecord> {
+    private static final class FilterCondition {
 
         
         public static Predicate<GenericRecord> valueOf(ImmutableMap<String, String[]> filterParams) {
@@ -386,75 +373,5 @@ public class BusinesEventResource {
             
             return result;
         }
-        
-        @Override
-        public boolean test(GenericRecord genericRecord) {
-            return true;
-        }
-        
-    }
-    
-    
-    
-    private static final class LinksBuilder {
-        
-        private final ImmutableMap<String, Object> links; 
-        
-        private LinksBuilder(ImmutableMap<String, Object> links) {
-            this.links = links;
-        }
-        
-        
-        public static LinksBuilder newLinksBuilder(String selfHref) {
-            return newLinksBuilder(URI.create(selfHref));
-        }
-
-        public static LinksBuilder newLinksBuilder(URI selfHref) {
-            return new LinksBuilder(ImmutableMap.of()).withHref("self", selfHref);
-        }
-        
-        public LinksBuilder withHref(String name, String href) {
-            return withHref(name, URI.create(href));
-        }
-        
-        public LinksBuilder withHref(String name, URI href) {
-            return new LinksBuilder(ImmutableMap.<String, Object>builder()
-                                                .putAll(links)
-                                                .put(name, ImmutableMap.of("href", href.toString()))
-                                                .build());
-        }
-        
-        
-        public ImmutableMap<String, Object> build() {
-            return links;
-        }
-    }
-    
-    
-    public static final class TopicRepresentation {
-        
-        public ImmutableMap<String, Object> _links; 
-        public String name;
-        
-        public TopicRepresentation() {  }
-        
-        public TopicRepresentation(ImmutableMap<String, Object> _links, String name) {
-            this._links = _links;
-            this.name = name;
-        }
-    }
-    
-    
-    public static final class TopicsRepresentation {
-        
-        public ImmutableMap<String, Object> _links; 
-        public List<TopicRepresentation> _elements;
-        
-        public TopicsRepresentation() {  }
-        
-        public TopicsRepresentation(ImmutableMap<String, Object> _links, List<TopicRepresentation> _elements) {
-            this._links = _links;
-            this._elements = _elements;
-        }
-    }
+    }    
 }

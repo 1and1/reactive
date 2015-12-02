@@ -45,7 +45,7 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
     
     
     @Override
-    public ImmutableList<GenericRecord> toAvroRecord(JsonParser jsonParser) {
+    public ImmutableList<GenericRecord> toAvroRecords(JsonParser jsonParser) {
 
         // check initial state
         if (jsonParser.next() != Event.START_ARRAY) {
@@ -64,7 +64,7 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
                 return ImmutableList.copyOf(avroRecords);
 
             case START_OBJECT:
-                avroRecords.add(entityMapper.toSingleAvroRecord(jsonParser));
+                avroRecords.addAll(entityMapper.toAvroRecords(jsonParser));
                 break;
                 
             default:

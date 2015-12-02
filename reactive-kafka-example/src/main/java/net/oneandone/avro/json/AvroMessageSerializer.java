@@ -27,7 +27,8 @@ public class AvroMessageSerializer {
 
     private AvroMessageSerializer() { }
     
-    public static ImmutableList<byte[]> serialize(Schema schema, ImmutableList<GenericRecord> avroMessages) {
+    
+    public static ImmutableList<byte[]> serialize(ImmutableList<GenericRecord> avroMessages) {
         
         List<byte[]> serializedRecords = com.google.common.collect.Lists.newArrayList();
         
@@ -35,11 +36,11 @@ public class AvroMessageSerializer {
             try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
                 final Encoder encoder = EncoderFactory.get().binaryEncoder(os, null); 
 
-                final GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<GenericRecord>(schema); 
+                final GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<GenericRecord>(avroMessage.getSchema()); 
                 writer.write(avroMessage, encoder); 
                 encoder.flush(); 
                 
-                serializedRecords.add(withHeader(schema, os.toByteArray())); 
+                serializedRecords.add(withHeader(avroMessage.getSchema(), os.toByteArray())); 
                 
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);

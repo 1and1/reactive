@@ -17,6 +17,7 @@ package net.oneandone.reactive;
 
 
 import java.io.Closeable;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -34,6 +35,9 @@ public interface ReactiveSource<T> extends Closeable {
     
     T read();
 
+    
+    T read(Duration timeout);
+    
     
     void consume(Consumer<T> consumer);
 

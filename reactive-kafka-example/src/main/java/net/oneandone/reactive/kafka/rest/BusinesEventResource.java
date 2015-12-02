@@ -1,21 +1,29 @@
 package net.oneandone.reactive.kafka.rest;
 
+import java.io.IOException;
+
+
 import java.io.InputStream;
 
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
+import javax.json.Json;
+import javax.json.JsonArray;
+import javax.json.JsonArrayBuilder;
+import javax.json.JsonObject;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
@@ -37,17 +45,20 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.io.BaseEncoding;
 
+import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.avro.json.JsonAvroMapperRegistry;
 import net.oneandone.avro.json.SchemaException;
+import net.oneandone.avro.json.AvroMessageSerializer;
 import net.oneandone.avro.json.JsonAvroMapper;
+import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
-import net.oneandone.reactive.kafka.rest.KafkaSource.ConsumedOffsets;
+import net.oneandone.reactive.kafka.KafkaMessage;
+import net.oneandone.reactive.kafka.KafkaMessageId;
+import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
@@ -82,7 +93,7 @@ public class BusinesEventResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Object getRoot(@Context UriInfo uriInfo) {
         return ImmutableMap.of("_links", LinksBuilder.newLinksBuilder(uriInfo.getAbsolutePathBuilder().build())
-                                                     .withHref("topics", uriInfo.getAbsolutePathBuilder().path("topics").build())
+                                                     .withHref("topics", uriInfo.getBaseUriBuilder().path("topics").build())
                                                      .build());
     }
     
@@ -127,8 +138,8 @@ public class BusinesEventResource {
                                                                          .orElseThrow(BadRequestException::new);  
         
         sendAsync(topicname, avroMessages)
-                .thenApply(ids -> contentType.toLowerCase(Locale.US).endsWith(".list+json") ? (topicPath + "/eventviews/" + new ViewId(ids).serialize()) 
-                                                                                            : (topicPath + "/events/" + ids.get(0).serialize()))
+                .thenApply(ids -> contentType.toLowerCase(Locale.US).endsWith(".list+json") ? (topicPath + "/eventcollections/" + KafkaMessageId.toString(ids)) 
+                                                                                            : (topicPath + "/events/" + ids.get(0).toString()))
                 .thenApply(uri -> Response.created(URI.create(uri)).build())
                 .whenComplete(ResultConsumer.writeTo(response));
     }
@@ -159,21 +170,82 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/events/{id}")
     public void produce(@PathParam("topic") String topic,
                         @PathParam("id") KafkaMessageId id,
-                        @Suspended AsyncResponse response) {
+                        @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                        @Suspended AsyncResponse response) throws IOException {
         
-        // To be implemented
-        response.resume("OK (" + id + ")");
+        
+        try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+                                                                                               .filter(ImmutableList.of(id))
+                                                                                               .open()) {
+            
+            KafkaMessage<String, byte[]> msg = reactiveSource.read(Duration.ofSeconds(3));
+            
+            final Schema readerSchema = (readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())) ? null
+                                                                 : jsonAvroMapperRegistry.getJsonToAvroMapper(readerMimeType.toString())
+                                                                                         .orElseThrow(BadRequestException::new)
+                                                                                         .getSchema();
+            
+            GenericRecord avroMessage = AvroMessageSerializer.deserialize(msg.value(), jsonAvroMapperRegistry, readerSchema);
+            
+            
+            JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
+                                                          .orElseThrow(SchemaException::new);
+            JsonObject json = mapper.toJson(avroMessage);
+            
+            
+            response.resume(Response.ok(json.toString().getBytes(Charsets.UTF_8)).type(mapper.getMimeType()).build());
+        }
     }
     
     
+
+    
+    
     @GET
-    @Path("/topics/{topic}/eventviews/{viewId}")
+    @Path("/topics/{topic}/eventcollections/{ids}")
     public void produceView(@PathParam("topic") String topic,
-                            @PathParam("viewId") ViewId id,
-                            @Suspended AsyncResponse response) {
+                            @PathParam("ids") String ids,
+                            @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                            @Suspended AsyncResponse response) throws IOException {
         
-        // To be implemented
-        response.resume("OK (" + id + ")");
+        
+        try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+                                                                                               .filter(KafkaMessageId.valuesOf(ids))
+                                                                                               .open()) {
+
+            JsonArrayBuilder builder = Json.createArrayBuilder();
+            
+            List<KafkaMessageId> identifiers = Lists.newArrayList(KafkaMessageId.valuesOf(ids));
+
+            String mimetype = MediaType.APPLICATION_JSON;
+            
+            while (!identifiers.isEmpty()) {
+                KafkaMessage<String, byte[]> msg = reactiveSource.read(Duration.ofSeconds(3));
+                
+                final Schema readerSchema = (readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())) ? null
+                                                                     : jsonAvroMapperRegistry.getJsonToAvroMapper(readerMimeType.toString())
+                                                                                             .orElseThrow(BadRequestException::new)
+                                                                                             .getSchema();
+                
+                GenericRecord avroMessage = AvroMessageSerializer.deserialize(msg.value(), jsonAvroMapperRegistry, readerSchema);
+                
+                
+                KafkaMessageId id = KafkaMessageId.valueOf(msg.partition(), msg.offset());
+                if (identifiers.contains(id)) {
+                    JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
+                                                                  .orElseThrow(SchemaException::new);
+                    JsonObject json = mapper.toJson(avroMessage);
+                    builder.add(json);
+                    
+                    identifiers.remove(KafkaMessageId.valueOf(msg.partition(), msg.offset()));
+                    mimetype = mapper.getMimeType();
+                }                
+            }
+
+            
+            JsonArray jsonArray = builder.build();
+            response.resume(Response.ok(jsonArray.toString().getBytes(Charsets.UTF_8)).type(mimetype).build());
+        }
     }
     
     
@@ -182,13 +254,16 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
     public void produceReactiveStream(@PathParam("topic") String topic,
-                                      @HeaderParam("Last-Event-Id") ConsumedOffsets lastEventId,
+                                      @HeaderParam("Last-Event-Id") String consumedOffsets,
                                       @QueryParam("q.event.eq") String acceptedEventtype, 
                                       @Context HttpServletRequest req,
                                       @Context HttpServletResponse resp,
                                       @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
+
+        Predicate<GenericRecord> filter = FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap()));
+        
         
         final Schema readerSchema = (acceptedEventtype == null) ? null
                                                                 : jsonAvroMapperRegistry.getJsonToAvroMapper(acceptedEventtype)
@@ -199,28 +274,24 @@ public class BusinesEventResource {
         // compose greeting message 
         String prologComment = (acceptedEventtype == null) ? "stream opened. emitting all event types"
                                                            : "stream opened. emitting " + acceptedEventtype + " event types only";
-        prologComment = (lastEventId == null) ? prologComment : prologComment + " with offset id " + lastEventId; 
+        prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + KafkaMessageId.valuesOf(consumedOffsets); 
         
 
-        
         // configure kafka source
-        KafkaSource<String, byte[]> kafkaSource = kafkaSourcePrototype.withTopic(topic); 
-        kafkaSource = (lastEventId == null) ? kafkaSource : kafkaSource.withConsumedOffsets(lastEventId); 
-
-        Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSource)
-                                                           .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.getRecord().value(), jsonAvroMapperRegistry, readerSchema)))
-                                                           .filter(pair -> FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap())).test(pair.getSecond()))
+        Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
+                                                           .map(message -> Pair.of(message.getConsumedOffsets(), AvroMessageSerializer.deserialize(message.value(), jsonAvroMapperRegistry, readerSchema)))
+                                                           .filter(pair -> filter.test(pair.getSecond()))
                                                            .map(idMsgPair -> toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
         RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));
     }
     
     
    
-    private ServerSentEvent toServerSentEvent(ConsumedOffsets consumedOffsets, GenericRecord avroMessage) {
+    private ServerSentEvent toServerSentEvent(ImmutableList<KafkaMessageId> consumedOffsets, GenericRecord avroMessage) {
         JsonAvroMapper mapper = jsonAvroMapperRegistry.getJsonToAvroMapper(avroMessage.getSchema())
                                                       .orElseThrow(SchemaException::new);
         
-        return ServerSentEvent.newEvent().id(consumedOffsets.toString())
+        return ServerSentEvent.newEvent().id(KafkaMessageId.toString(consumedOffsets))
                                          .event(mapper.getMimeType())
                                          .data(mapper.toJson(avroMessage).toString());
     }
@@ -302,10 +373,14 @@ public class BusinesEventResource {
             
             for (String namePart : Splitter.on(".").trimResults().splitToList(dotSeparatedName)) {
                 Object obj = record.get(namePart);
-                if (obj instanceof Record) {
-                    record = (Record) obj;
+                if (obj == null) {
+                    break;
                 } else {
-                    result = Optional.of(obj);
+                    if (obj instanceof Record) {
+                        record = (Record) obj;
+                    } else {
+                        result = Optional.of(obj);
+                    }
                 }
             }
             
@@ -318,79 +393,6 @@ public class BusinesEventResource {
         }
         
     }
-    
-
-    
-    public static final class KafkaMessageId {
-        private final static String SEPARATOR = "-";  
-        private final static BaseEncoding encoding = BaseEncoding.base64Url(); 
-        
-        private final int partition;
-        private final long offset;
-        
-        public KafkaMessageId(int partition, long offset) {
-            this.partition = partition;
-            this.offset = offset;
-        }
-        
-        
-        public static KafkaMessageId valueOf(String txt) {
-            final String decoded = new String(encoding.decode(txt), Charsets.UTF_8);
-            final int idx = decoded.indexOf(SEPARATOR);
-            
-            return new KafkaMessageId(Integer.parseInt(decoded.substring(0, idx)),
-                                      Long.parseLong(decoded.substring(idx + SEPARATOR.length(), decoded.length())));
-        }
-        
-        public int getPartition() {
-            return partition;
-        }
-
-        public long getOffset() {
-            return offset;
-        }
-
-        @Override
-        public String toString() {
-            return "partition=" + partition + " offset=" + offset;
-        }
-        
-        public String serialize() {
-            return encoding.encode((partition + SEPARATOR + offset).getBytes(Charsets.UTF_8));
-        }
-    }
-    
-    
-    
-    
-    public static final class ViewId {
-        
-        private final ImmutableList<KafkaMessageId> ids;
-        
-        
-        public ViewId(ImmutableList<KafkaMessageId> ids) {
-            this.ids = ids;
-        }
-        
-        public ImmutableList<KafkaMessageId> getIds() {
-            return ids;
-        }
-        
-        public static ViewId valueOf(String txt) {
-            return new ViewId(ImmutableList.copyOf(Splitter.on("+").splitToList(txt).stream().map(id -> KafkaMessageId.valueOf(id)).collect(Collectors.toList())));
-        }
-        
-        @Override
-        public String toString() {
-            return Joiner.on(", ").join(ids);
-        }
-        
-        public String serialize() {
-            return Joiner.on("+").join(ids.stream().map(kafkaId -> kafkaId.serialize()).collect(Collectors.toList()));
-        }
-    }
-    
-    
     
     
     

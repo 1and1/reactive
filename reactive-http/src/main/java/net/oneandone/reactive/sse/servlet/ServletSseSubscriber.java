@@ -96,7 +96,7 @@ public class ServletSseSubscriber implements Subscriber<ServerSentEvent> {
 
     @Override
     public void onError(Throwable t) {
-        LOG.debug("error on source stream. stop streaming " + t.getMessage());
+        LOG.debug("error on source stream. stop streaming " + t.toString());
         close();
     }
   

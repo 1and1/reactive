@@ -16,6 +16,7 @@ import com.google.common.collect.Maps;
 
 import net.oneandone.avro.json.JsonAvroMapperRegistry;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
+import net.oneandone.reactive.kafka.KafkaSource;
 
 
 

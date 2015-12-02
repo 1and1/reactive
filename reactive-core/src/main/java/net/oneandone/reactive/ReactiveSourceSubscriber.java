@@ -16,9 +16,12 @@
 package net.oneandone.reactive;
 
 
+import java.time.Duration;
 import java.util.LinkedList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -133,15 +136,19 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
                 source.cancel();
             }
         }
+
         
         
         @Override
         public T read() {
+            return read(Duration.ofMillis(Long.MAX_VALUE));
+        }
+        
+        @Override
+        public T read(Duration timeout) {
             try {
-                return readAsync().get();
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            } catch (ExecutionException e) {
+                return readAsync().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException | ExecutionException | TimeoutException e) {
                 throw new RuntimeException(e.getCause());
             }
         }

@@ -1,6 +1,8 @@
 package net.oneandone.reactive.kafka.rest;
 
 import java.io.File;
+
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Random;
@@ -129,16 +131,16 @@ public class KafkaResourceTest {
                               .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"));
 
         Assert.assertTrue((resp.getStatus() / 100) == 2);
-        String resourceUri = resp.getHeaderString("location");
-        Assert.assertNotNull(resourceUri);
+        String resourceUri1 = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri1);
         resp.close();
 
 
         // and check if submitted
-        String event = client.target(resourceUri)
-                             .request(MediaType.APPLICATION_JSON)
-                             .get(String.class);      
- //       System.out.println(event);
+        String event = client.target(resourceUri1)
+                             .request()
+                             .get(String.class);
+        Assert.assertTrue(event, event.contains("\"accountid\":44545453}"));
         
         
         
@@ -149,16 +151,16 @@ public class KafkaResourceTest {
                      .post(Entity.entity(new MailSentEvent("4454545z3"), "application/vnd.example.mail.mailsent+json"));
         
         Assert.assertTrue((resp.getStatus() / 100) == 2);
-        resourceUri = resp.getHeaderString("location");
-        Assert.assertNotNull(resourceUri);
+        String resourceUri2 = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri2);
         resp.close();
 
         
         // and check if submitted
-        event = client.target(resourceUri)
-                      .request(MediaType.APPLICATION_JSON)
+        event = client.target(resourceUri2)
+                      .request()
                       .get(String.class);      
-//        System.out.println(event);
+        Assert.assertTrue(event, event.contains("\"id\":\"4454545z3\""));
         
         
         
@@ -170,24 +172,38 @@ public class KafkaResourceTest {
                      .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent(5555), new CustomerChangedEvent(4544) }, "application/vnd.example.event.customerdatachanged.list+json"));
         
         Assert.assertTrue((resp.getStatus() / 100) == 2);
-        resourceUri = resp.getHeaderString("location");
-        Assert.assertNotNull(resourceUri);
+        String resourceUri3 = resp.getHeaderString("location");
+        Assert.assertNotNull(resourceUri3);
         resp.close();
 
         
         // and check if submitted
-        event = client.target(resourceUri)
-                      .request(MediaType.APPLICATION_JSON)
+        event = client.target(resourceUri3)
+                      .request()
                       .get(String.class);      
-//        System.out.println(event);
+        Assert.assertTrue(event.contains("\"accountid\":5555}"));       
+        Assert.assertTrue(event.contains("\"accountid\":4544}"));
         
         
-        
+
         
         
         
         ///////////////////////
-        // (3) consume events
+        // (3) consume single event
+
+        // query with newer schema (-> Avro Schema Resolution)
+        event = client.target(resourceUri1)
+                      .request("application/vnd.example.event.customerdatachanged-v2+json")
+                      .get(String.class);      
+        Assert.assertTrue(event.contains("\"accountid\":44545453}"));
+        
+
+       
+        
+        
+        ///////////////////////
+        // (4) consume event stream
             
       
         ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").open();    
@@ -210,14 +226,26 @@ public class KafkaResourceTest {
         Set<Integer> receivedIds = Sets.newHashSet(2234334, 223323);
         reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
         ServerSentEvent sse1 = reactiveSource.read();
-        String json = sse1.getData().get();
-        receivedIds.remove(Json.createReader(CharSource.wrap(json).openStream()).readObject().getInt("accountid"));
+        receivedIds.remove(Json.createReader(CharSource.wrap(sse1.getData().get()).openStream()).readObject().getInt("accountid"));
         
         ServerSentEvent sse2 = reactiveSource.read();
-        json = sse2.getData().get(); 
-        receivedIds.remove(Json.createReader(CharSource.wrap(json).openStream()).readObject().getInt("accountid"));
+        receivedIds.remove(Json.createReader(CharSource.wrap(sse2.getData().get()).openStream()).readObject().getInt("accountid"));
 
+        reactiveSource.close();
+        
         Assert.assertTrue(receivedIds.isEmpty());
+        
+        
+        
+    
+        // consume with filter
+        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334").open();    
+        ServerSentEvent sseF = reactiveSource.read();
+        Assert.assertTrue(sseF.getData().get().contains("\"accountid\":2234334"));
+        
+        reactiveSource.close();
+        
+        
         
         
         

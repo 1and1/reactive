@@ -1,4 +1,4 @@
-package net.oneandone.reactive.kafka.rest;
+package net.oneandone.avro.json;
 
 
 import java.io.ByteArrayOutputStream;
@@ -21,11 +21,9 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 
-import net.oneandone.avro.json.JsonAvroMapperRegistry;
 
 
-
-class AvroMessageSerializer {
+public class AvroMessageSerializer {
 
     private AvroMessageSerializer() { }
     

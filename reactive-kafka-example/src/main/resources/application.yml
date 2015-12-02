@@ -2,8 +2,7 @@
 logging:
   level:
     net.oneandone.reactive: WARNING
-    kafka: OFF
-    org: OFF
+    kafka: WARNING
 
 
 schemaregistry: 

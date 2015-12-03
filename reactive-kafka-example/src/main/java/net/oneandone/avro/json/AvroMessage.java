@@ -67,7 +67,7 @@ public class AvroMessage {
         byte[] headerBytes = new byte[headerLength];
         buffer.get(headerBytes);
         ImmutableList<String> namespaceName = ImmutableList.copyOf(Splitter.on('#').splitToList(new String(headerBytes, Charsets.UTF_8)));
-        Schema writerSchema = jsonAvroMapperRegistry.getJsonToAvroMapper(namespaceName.get(0), namespaceName.get(1)).get().getSchema();
+        Schema writerSchema = jsonAvroMapperRegistry.getSchema(namespaceName.get(0), namespaceName.get(1));
         
         byte[] msg = new byte[buffer.remaining()];
         buffer.get(msg);

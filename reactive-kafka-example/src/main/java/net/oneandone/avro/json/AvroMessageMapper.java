@@ -89,26 +89,28 @@ public class AvroMessageMapper {
     }
     
 
-    public ImmutableList<AvroMessage> toAvroMessages(InputStream jsonObjectStream, String mimeType) {
-        return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessages(Json.createParser(jsonObjectStream)))
-                                            .orElseThrow(SchemaException::new);
-    }
-
     
     public JsonObject toJson(AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(mapper -> mapper.toJson(avroMessage))
                                                            .orElseThrow(SchemaException::new);
     }
+
+    
+
+    public ImmutableList<AvroMessage> toAvroMessages(InputStream jsonObjectStream, String mimeType) {
+        return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessages(Json.createParser(jsonObjectStream)))
+                                            .orElseThrow(SchemaException::new);
+    }
     
     
-    public AvroMessage toAvroMessage(byte[] serialized, MediaType readerMimeType) {
+    public AvroMessage toAvroMessage(byte[] serializedAvroMessage, MediaType readerMimeType) {
         
         if ((readerMimeType == null) || ((readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())))) {
-            return AvroMessage.from(serialized, AvroMessageMapper.this, null);
+            return AvroMessage.from(serializedAvroMessage, AvroMessageMapper.this, null);
             
         } else {
             return getJsonToAvroMapper(readerMimeType.toString()).map(mapper -> mapper.getSchema())
-                                                                 .map(schema -> AvroMessage.from(serialized, AvroMessageMapper.this, schema))
+                                                                 .map(schema -> AvroMessage.from(serializedAvroMessage, AvroMessageMapper.this, schema))
                                                                  .orElseThrow(SchemaException::new);
         }
     }
@@ -122,7 +124,12 @@ public class AvroMessageMapper {
                                                            .orElseThrow(SchemaException::new);
     }
     
+
+    Schema getSchema(String namespace, String name) {
+        return jsonAvroMapperBySchemaName.get(namespace + "." + name).getSchema();
+    }
     
+
 
     
     private Optional<JsonAvroMapper> getJsonToAvroMapper(String mimeType) {
@@ -130,12 +137,7 @@ public class AvroMessageMapper {
     }
     
     private Optional<JsonAvroMapper> getJsonToAvroMapper(Schema schema) {
-        return getJsonToAvroMapper(schema.getNamespace(), schema.getName());
-    }
-
-
-    Optional<JsonAvroMapper> getJsonToAvroMapper(String namespace, String name) {
-        return Optional.ofNullable(jsonAvroMapperBySchemaName.get(namespace + "." + name));
+        return Optional.ofNullable(jsonAvroMapperBySchemaName.get(schema.getNamespace() + "." + schema.getName()));
     }
     
     

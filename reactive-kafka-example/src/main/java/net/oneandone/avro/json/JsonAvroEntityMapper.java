@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableMap;
 
 
 
-public class JsonAvroEntityMapper implements JsonAvroMapper {
+class JsonAvroEntityMapper implements JsonAvroMapper {
         
     private final Schema schema;
     private final JsonObject jsonSchema;

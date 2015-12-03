@@ -16,7 +16,7 @@ import com.google.common.collect.Lists;
 
 
 
-public class JsonAvroCollectionMapper implements JsonAvroMapper {
+class JsonAvroCollectionMapper implements JsonAvroMapper {
         
     private final JsonAvroEntityMapper entityMapper;
     private final String mimeType;

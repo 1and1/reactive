@@ -1,4 +1,4 @@
-package net.oneandone.reactive.kafka.rest;
+package net.oneandone.avro.json;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

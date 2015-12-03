@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Bean;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import net.oneandone.avro.json.JsonAvroMapperRegistry;
+import net.oneandone.avro.json.AvroMessageMapper;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
 
@@ -62,12 +62,10 @@ public class BusinesEventApplication extends ResourceConfig {
     }
     
     
- 
-    
     
     @Bean
-    public JsonAvroMapperRegistry jsonAvroMapperRegistry() {
-        return new JsonAvroMapperRegistry(new File(schemaRegistryPath));
+    public AvroMessageMapper avroMessageMapper() {
+        return new AvroMessageMapper(new File(schemaRegistryPath));
     }
     
     

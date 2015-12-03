@@ -8,7 +8,6 @@ import javax.json.stream.JsonParser;
 import javax.json.stream.JsonParser.Event;
 
 import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericRecord;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -43,17 +42,16 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
         return mimeType;
     }
     
-    
-    @Override
-    public ImmutableList<GenericRecord> toAvroRecords(JsonParser jsonParser) {
 
+    @Override
+    public ImmutableList<AvroMessage> toAvroMessages(JsonParser jsonParser) {
         // check initial state
         if (jsonParser.next() != Event.START_ARRAY) {
             throw new IllegalStateException("START_ARRAY event excepted");
         }
 
         
-        final List<GenericRecord> avroRecords = Lists.newArrayList();
+        final List<AvroMessage> avroMessages = Lists.newArrayList();
         
         
         while (jsonParser.hasNext()) {
@@ -61,10 +59,10 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
             switch (jsonParser.next()) {
 
             case END_ARRAY:
-                return ImmutableList.copyOf(avroRecords);
+                return ImmutableList.copyOf(avroMessages);
 
             case START_OBJECT:
-                avroRecords.addAll(entityMapper.toAvroRecords(jsonParser));
+                avroMessages.addAll(entityMapper.toAvroMessages(jsonParser));
                 break;
                 
             default:
@@ -74,10 +72,10 @@ public class JsonAvroCollectionMapper implements JsonAvroMapper {
         throw new IllegalStateException("END_ARRAY event is missing");
     }
 
-    
+
     @Override
-    public JsonObject toJson(GenericRecord avroRecord) {
-        throw new UnsupportedOperationException("toJson(...)");
+    public JsonObject toJson(AvroMessage avroMessage) {
+        throw new UnsupportedOperationException("toJson(AvroMessage avroMessage)");
     }
     
     @Override

@@ -2,11 +2,13 @@ package net.oneandone.avro.json;
 
 
 import java.io.ByteArrayInputStream;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -16,11 +18,11 @@ import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
 import javax.json.JsonValue;
+import javax.ws.rs.core.MediaType;
 
 import org.apache.avro.Schema;
 import org.apache.avro.compiler.idl.Idl;
 import org.apache.avro.compiler.idl.ParseException;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,15 +30,19 @@ import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
+import net.oneandone.reactive.kafka.KafkaMessageId;
+import net.oneandone.reactive.sse.ServerSentEvent;
 
 
 
 
-public class JsonAvroMapperRegistry {
+
+public class AvroMessageMapper {
     
-    private static final Logger LOG = LoggerFactory.getLogger(JsonAvroMapperRegistry.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AvroMessageMapper.class);
     private static final IdlToJson idlToJson = new IdlToJson();
     
     private volatile ImmutableMap<String, JsonAvroMapper> jsonAvroMapperByMimeType = ImmutableMap.of();
@@ -44,7 +50,7 @@ public class JsonAvroMapperRegistry {
 
     
     
-    public JsonAvroMapperRegistry(File schemaDir) {
+    public AvroMessageMapper(File schemaDir) {
         reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(schemaDir.listFiles()).stream()
                                                                                                .map(file -> file.toURI())
                                                                                                .collect(Collectors.toList())));
@@ -70,23 +76,68 @@ public class JsonAvroMapperRegistry {
                                                                       .collect(Collectors.toMap((m) -> (m.getSchema().getNamespace() + "." + m.getSchema().getName()), (m) -> m)));
     }
     
- 
-    public ImmutableMap<String, JsonAvroMapper> getRegisteredMapper() {
-        return jsonAvroMapperByMimeType;
+
+
+    public ImmutableMap<String, String> getRegisteredSchemas() {
+        Map<String, String> schemas = Maps.newHashMap();
+        
+        for (Entry<String, JsonAvroMapper> entry : jsonAvroMapperByMimeType.entrySet()) {
+            schemas.put(entry.getKey(),entry.getValue().toString());
+        }
+        
+        return ImmutableMap.copyOf(schemas);
     }
     
-    public Optional<JsonAvroMapper> getJsonToAvroMapper(String mimeType) {
+
+    public ImmutableList<AvroMessage> toAvroMessages(InputStream jsonObjectStream, String mimeType) {
+        return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessages(Json.createParser(jsonObjectStream)))
+                                            .orElseThrow(SchemaException::new);
+    }
+
+    
+    public JsonObject toJson(AvroMessage avroMessage) {
+        return getJsonToAvroMapper(avroMessage.getSchema()).map(mapper -> mapper.toJson(avroMessage))
+                                                           .orElseThrow(SchemaException::new);
+    }
+    
+    
+    public AvroMessage toAvroMessage(byte[] serialized, MediaType readerMimeType) {
+        
+        if ((readerMimeType == null) || ((readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())))) {
+            return AvroMessage.from(serialized, AvroMessageMapper.this, null);
+            
+        } else {
+            return getJsonToAvroMapper(readerMimeType.toString()).map(mapper -> mapper.getSchema())
+                                                                 .map(schema -> AvroMessage.from(serialized, AvroMessageMapper.this, schema))
+                                                                 .orElseThrow(SchemaException::new);
+        }
+    }
+    
+
+    public ServerSentEvent toServerSentEvent(ImmutableList<KafkaMessageId> consumedOffsets, AvroMessage avroMessage) {
+        return getJsonToAvroMapper(avroMessage.getSchema()).map(schema -> ServerSentEvent.newEvent()
+                                                                                         .id(KafkaMessageId.toString(consumedOffsets))
+                                                                                         .event(avroMessage.getMimeType().toString())
+                                                                                         .data(toJson(avroMessage).toString()))
+                                                           .orElseThrow(SchemaException::new);
+    }
+    
+    
+
+    
+    private Optional<JsonAvroMapper> getJsonToAvroMapper(String mimeType) {
         return Optional.ofNullable(jsonAvroMapperByMimeType.get(mimeType));
     }
     
-    public Optional<JsonAvroMapper> getJsonToAvroMapper(Schema schema) {
+    private Optional<JsonAvroMapper> getJsonToAvroMapper(Schema schema) {
         return getJsonToAvroMapper(schema.getNamespace(), schema.getName());
     }
 
 
-    public Optional<JsonAvroMapper> getJsonToAvroMapper(String namespace, String name) {
+    Optional<JsonAvroMapper> getJsonToAvroMapper(String namespace, String name) {
         return Optional.ofNullable(jsonAvroMapperBySchemaName.get(namespace + "." + name));
     }
+    
     
     
     private ImmutableList<JsonAvroMapper> createMappers(URI schemaURI) throws IOException {

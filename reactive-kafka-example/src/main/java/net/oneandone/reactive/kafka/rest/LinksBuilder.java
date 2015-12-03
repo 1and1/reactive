@@ -3,6 +3,7 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.net.URI;
+import java.util.Locale;
 
 import javax.ws.rs.core.UriInfo;
 
@@ -30,12 +31,16 @@ public class LinksBuilder {
         return new LinksBuilder(selfHref, ImmutableMap.of()).withHref("self", selfHref);
     }
     
-    public LinksBuilder withRelativeHref(String name) {
-        return withRelativeHref(name, name);
+    public LinksBuilder withHref(String name) {
+        return withHref(name, name);
     }
     
-    public LinksBuilder withRelativeHref(String name, String href) {
-        return withHref(name, URI.create(selfHref.toString() + "/" + href));
+    public LinksBuilder withHref(String name, String href) {
+        if (name.toLowerCase(Locale.US).startsWith("http")) {
+            return withHref(name, URI.create(href));
+        } else {
+            return withHref(name, URI.create(selfHref.toString() + "/" + href));
+        }
     }
     
     public LinksBuilder withHref(String name, URI href) {

@@ -20,8 +20,8 @@ public class TopicRepresentation {
                                         .path(path)
                                         .path(topicname)
                                         .build())
-                         .withRelativeHref("events")
-                         .withRelativeHref("schemas")
+                         .withHref("events")
+                         .withHref("schemas")
                          .build(),
              topicname);
     }

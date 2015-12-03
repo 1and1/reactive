@@ -22,7 +22,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 
 
-
+@Deprecated
 public class AvroMessageSerializer {
 
     private AvroMessageSerializer() { }
@@ -65,7 +65,7 @@ public class AvroMessageSerializer {
     
     
     public static GenericRecord deserialize(byte[] serialized, 
-                                            JsonAvroMapperRegistry jsonAvroMapperRegistry,
+                                            AvroMessageMapper jsonAvroMapperRegistry,
                                             Schema readerSchema) {
         ByteBuffer buffer = ByteBuffer.wrap(serialized);
         int headerLength = buffer.getInt();

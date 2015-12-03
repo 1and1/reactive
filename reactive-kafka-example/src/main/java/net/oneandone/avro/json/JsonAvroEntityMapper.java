@@ -70,19 +70,21 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
     }
     
     @Override
-    public ImmutableList<GenericRecord> toAvroRecords(JsonParser jsonParser) {
-        return ImmutableList.of(toAvroRecord(jsonParser));
+    public ImmutableList<AvroMessage> toAvroMessages(JsonParser jsonParser) {
+        return ImmutableList.of(toAvroMessage(jsonParser));
     }
 
     
-    private GenericRecord toAvroRecord(JsonParser jsonParser) {
-        return jsonObjectToAvroWriter.apply(jsonParser);
+    private AvroMessage toAvroMessage(JsonParser jsonParser) {
+        return AvroMessage.from(jsonObjectToAvroWriter.apply(jsonParser));
     }
     
     
+    
+
     @Override
-    public JsonObject toJson(GenericRecord avroRecord) {
-        return avroRecordToJsonObjectWriter.apply(avroRecord);
+    public JsonObject toJson(AvroMessage avroMessage) {
+        return avroRecordToJsonObjectWriter.apply(avroMessage.getGenericRecord());
     }
     
     
@@ -180,7 +182,7 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                     // optional record  
                     if (val.getValueType() == JsonValue.ValueType.OBJECT) {
                         final JsonAvroEntityMapper subObjectMapper = createrRecordMapper(addNamespaceIfNotPresent((JsonObject) val, jsonObjectSchema)); 
-                        return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toAvroRecord(jsonParser))); });
+                        return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toAvroMessage(jsonParser).getGenericRecord())); });
 
                     // optional primitives
                     } else if (val.getValueType() == JsonValue.ValueType.STRING) { 
@@ -207,8 +209,8 @@ public class JsonAvroEntityMapper implements JsonAvroMapper {
                 // object    
                 } else if (type.equals("record")) {
                     final JsonAvroEntityMapper subObjectMapper = createrRecordMapper(addNamespaceIfNotPresent(obj, jsonObjectSchema)); 
-                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, subObjectMapper.toAvroRecord(jsonParser)); })
-                                      .withJsonWriter((avroRecord, jsonBuilder) ->  jsonBuilder.add(objectFieldname, subObjectMapper.toJson((GenericRecord) avroRecord.get(objectFieldname))));
+                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, subObjectMapper.toAvroMessage(jsonParser).getGenericRecord()); })
+                                      .withJsonWriter((avroRecord, jsonBuilder) ->  jsonBuilder.add(objectFieldname, subObjectMapper.toJson(AvroMessage.from((GenericRecord) avroRecord.get(objectFieldname)))));
                     
                 } else {
                     throw new SchemaException("unknown type " + jsonObjectSchema);

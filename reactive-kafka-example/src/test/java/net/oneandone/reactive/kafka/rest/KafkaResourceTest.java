@@ -3,6 +3,7 @@ package net.oneandone.reactive.kafka.rest;
 import java.io.File;
 
 
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Random;
@@ -12,11 +13,11 @@ import java.util.UUID;
 import javax.json.Json;
 import javax.ws.rs.client.Client;
 
-import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.xml.bind.annotation.XmlRootElement;
+import org.glassfish.jersey.client.JerseyClientBuilder;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -31,6 +32,7 @@ import com.google.common.io.CharSource;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
+
 
 
 @Ignore
@@ -64,9 +66,9 @@ public class KafkaResourceTest {
         kafka.start();
        
         
-        client = ClientBuilder.newClient(); 
+        // Why JerseyClientBuilder?-> force to use jersey (depending on the classpath resteasy client may used instead)
+        client = JerseyClientBuilder.createClient();
     }
-
 
 
     @AfterClass
@@ -133,16 +135,15 @@ public class KafkaResourceTest {
         String resourceUri1 = resp.getHeaderString("location");
         Assert.assertNotNull(resourceUri1);
         resp.close();
-
-
+ 
         // and check if submitted
-        String event = client.target(resourceUri1)
-                             .request()
-                             .get(String.class);
-        Assert.assertTrue(event, event.contains("\"accountid\":44545453}"));
+        CustomerChangedEvent ccEvent = client.target(resourceUri1)
+                                             .request("application/vnd.example.event.customerdatachanged+json")
+                                             .get(CustomerChangedEvent.class);
+        Assert.assertEquals(44545453, ccEvent.accountid);
         
         
-        
+     
         
         // submit event based on avro idl
         resp = client.target(uri + "/topics/" + topicName + "/events")
@@ -156,10 +157,10 @@ public class KafkaResourceTest {
 
         
         // and check if submitted
-        event = client.target(resourceUri2)
-                      .request()
-                      .get(String.class);      
-        Assert.assertTrue(event, event.contains("\"id\":\"4454545z3\""));
+        MailSentEvent msEvent = client.target(resourceUri2)
+                                      .request("*/*")
+                                      .get(MailSentEvent.class);      
+        Assert.assertEquals("4454545z3", msEvent.id);
         
         
         
@@ -177,12 +178,19 @@ public class KafkaResourceTest {
 
         
         // and check if submitted
-        event = client.target(resourceUri3)
-                      .request()
-                      .get(String.class);      
-        Assert.assertTrue(event.contains("\"accountid\":5555}"));       
-        Assert.assertTrue(event.contains("\"accountid\":4544}"));
+        CustomerChangedEvent[] ccEvents = client.target(resourceUri3)
+                                                .request("application/vnd.example.event.customerdatachanged.list+json")
+                                                .get(CustomerChangedEvent[].class);
+        Assert.assertTrue((ccEvents[0].accountid == 5555) || (ccEvents[1].accountid == 5555));
+        Assert.assertTrue((ccEvents[0].accountid == 4544) || (ccEvents[1].accountid == 4544));
         
+        
+        // and check if submitted (with wildcard type)
+        ccEvents = client.target(resourceUri3)
+                                                .request("*/*")
+                                                .get(CustomerChangedEvent[].class);
+        Assert.assertTrue((ccEvents[0].accountid == 5555) || (ccEvents[1].accountid == 5555));
+        Assert.assertTrue((ccEvents[0].accountid == 4544) || (ccEvents[1].accountid == 4544));
         
 
         
@@ -192,10 +200,10 @@ public class KafkaResourceTest {
         // (3) consume single event
 
         // query with newer schema (-> Avro Schema Resolution)
-        event = client.target(resourceUri1)
-                      .request("application/vnd.example.event.customerdatachanged-v2+json")
-                      .get(String.class);      
-        Assert.assertTrue(event.contains("\"accountid\":44545453}"));
+        CustomerChangedEventV2 ccEventV2 = client.target(resourceUri1)
+                                                 .request("application/vnd.example.event.customerdatachanged-v2+json")
+                                                 .get(CustomerChangedEventV2.class);      
+        Assert.assertEquals(44545453, ccEventV2.accountid);
         
 
        
@@ -245,6 +253,7 @@ public class KafkaResourceTest {
         reactiveSource.close();
         
         
+       
         
         
         
@@ -290,7 +299,7 @@ public class KafkaResourceTest {
     
   
     public static class Header {
-        public String eventId = UUID.randomUUID().toString();  // change to timesuuid 
+        public String eventId = UUID.randomUUID().toString().replace("-", ""); 
         public String timestamp = Instant.now().toString();
         public AuthenticationInfo authInfo;
         

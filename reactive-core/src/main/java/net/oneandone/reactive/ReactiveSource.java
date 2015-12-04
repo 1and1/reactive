@@ -42,12 +42,14 @@ public interface ReactiveSource<T> extends Closeable {
     void consume(Consumer<T> consumer);
 
     
+    void close();
+    
+    
     static <T> ReactiveSource<T> subscribe(Publisher<T> publisher) {
-        return Utils.get(subscribeAsync(publisher));
+        return Utils.get(subscribeAsync(publisher)); 
     }
+   
     
-    
-
     static <T> CompletableFuture<ReactiveSource<T>> subscribeAsync(Publisher<T> publisher) {
         CompletableFuture<ReactiveSource<T>> promise = new CompletableFuture<>();
         publisher.subscribe(new ReactiveSourceSubscriber<>(promise));

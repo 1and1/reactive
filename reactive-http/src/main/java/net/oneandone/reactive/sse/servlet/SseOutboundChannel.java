@@ -27,6 +27,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.servlet.ServletOutputStream;
@@ -54,6 +55,7 @@ class SseOutboundChannel  {
     private final Queue<Write> pendingWrites = Lists.newLinkedList();
     private final ServletOutputStream out;
     private final Consumer<Throwable> errorConsumer;
+    private final AtomicBoolean isOpen = new AtomicBoolean(true);
 
 
 
@@ -152,11 +154,13 @@ class SseOutboundChannel  {
  
     
     public void close() {
-        LOG.debug("[" + id + "] closing");
-        try {
-            writeEventAsync(ServerSentEvent.newEvent().comment("stop streaming"));
-            out.close();
-        } catch (IOException ignore) { }
+        if (isOpen.getAndSet(false)) {
+            LOG.debug("[" + id + "] closing");
+            try {
+                writeEventAsync(ServerSentEvent.newEvent().comment("stop streaming"));
+                out.close();
+            } catch (IOException ignore) { }
+        }
     }
     
   

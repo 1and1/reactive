@@ -19,6 +19,7 @@ package net.oneandone.reactive.utils;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import net.oneandone.reactive.utils.ScheduledExceutor;
@@ -35,7 +36,7 @@ public class RetryScheduler {
     
    
     public RetryScheduler() {
-        this(0, 3, 25, 250, 500, 2000, 3000, 4000, 6000);
+        this(0, 3, 25, 250, 500, 2000);
     }
     
     public RetryScheduler(int... delaysMillis) {
@@ -51,7 +52,8 @@ public class RetryScheduler {
             lastDelay = Duration.ZERO;
         } else {
             // no
-            lastDelay = retrySequence.nextDelay(lastDelay);
+            lastDelay = retrySequence.nextDelay(lastDelay)
+                                     .orElseThrow(() -> new RuntimeException("may retries reached"));
         }
         
         lastSchedule = Instant.now();
@@ -76,8 +78,8 @@ public class RetryScheduler {
             lastDelay = Duration.ofMillis(delaysMillis[delaysMillis.length - 1]);
         }
         
-        public Duration nextDelay(Duration previous) {
-            return (delayMap.get(previous) == null) ? previous : delayMap.get(previous);
+        public Optional<Duration> nextDelay(Duration previous) {
+            return Optional.ofNullable(delayMap.get(previous));
         }
         
         public Duration getMaxDelay() {

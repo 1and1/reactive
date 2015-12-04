@@ -2,12 +2,14 @@ package net.oneandone.avro.json;
 
 
 import java.io.ByteArrayOutputStream;
+
 import java.io.IOException;
 
 import java.nio.ByteBuffer;
 
 import javax.ws.rs.core.MediaType;
 
+import org.apache.avro.AvroTypeException;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -17,6 +19,8 @@ import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -27,6 +31,8 @@ import com.google.common.collect.ImmutableList;
 
 
 public class AvroMessage {
+    private static final Logger LOG = LoggerFactory.getLogger(AvroMessage.class);
+    
 
     private final GenericRecord avroMessage;
     
@@ -57,10 +63,7 @@ public class AvroMessage {
     }
     
     
-    static AvroMessage from(byte[] serialized, 
-                                         AvroMessageMapper jsonAvroMapperRegistry,
-                                         Schema readerSchema) {
-
+    static AvroMessage from(byte[] serialized, AvroMessageMapper jsonAvroMapperRegistry, Schema readerSchema) {
         ByteBuffer buffer = ByteBuffer.wrap(serialized);
         int headerLength = buffer.getInt();
         
@@ -84,8 +87,13 @@ public class AvroMessage {
             Decoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
             return reader.read(null, decoder);
         } catch (IOException ioe) {
+            LOG.debug("error occured by deserialize avro record", ioe);
             throw new RuntimeException(ioe);
+        } catch (AvroTypeException ae) {
+            LOG.debug("error occured by  deserialize avro record", ae);
+            throw ae;
         }
+        
     }
 
     
@@ -98,8 +106,8 @@ public class AvroMessage {
             encoder.flush(); 
             
             return withHeader(avroMessage.getSchema(), os.toByteArray()); 
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
+        } catch (IOException | RuntimeException e) {
+            throw new RuntimeException(e);
         }
     }
     

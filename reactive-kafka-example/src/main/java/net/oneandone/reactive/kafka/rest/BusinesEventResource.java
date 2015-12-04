@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
 
 import javax.json.Json;
 import javax.json.JsonArrayBuilder;
-import javax.json.JsonObject;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
@@ -62,6 +61,7 @@ import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
+import net.oneandone.reactive.utils.LinksBuilder;
 import net.oneandone.reactive.utils.Pair;
 import rx.Observable;
 import rx.RxReactiveStreams;
@@ -132,12 +132,11 @@ public class BusinesEventResource {
     
     @POST
     @Path("/topics/{topic}/events")
-    public void consume(@Context UriInfo uriInfo,
-                        @PathParam("topic") String topicname,
-                        @HeaderParam("Content-Type") String contentType, 
-                        InputStream jsonObjectStream,
-                        @Suspended AsyncResponse response) throws BadRequestException {
-
+    public void submitEvent(@Context UriInfo uriInfo,
+                            @PathParam("topic") String topicname,
+                            @HeaderParam("Content-Type") String contentType, 
+                            InputStream jsonObjectStream,
+                            @Suspended AsyncResponse response) throws BadRequestException {
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
 
@@ -177,34 +176,35 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics/{topic}/events/{id}")
-    public void produce(@PathParam("topic") String topic,
-                        @PathParam("id") KafkaMessageId id,
-                        @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
-                        @Suspended AsyncResponse response) throws IOException {
+    public void readEvent(@PathParam("topic") String topic,
+                          @PathParam("id") KafkaMessageId id,
+                          @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                          @Suspended AsyncResponse response) throws IOException {
         
         
-        try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
-                                                                                               .filter(ImmutableList.of(id))
-                                                                                               .open()) {
-            
-            KafkaMessage<String, byte[]> kafkaMessage = reactiveSource.read(Duration.ofSeconds(3));
-
-            AvroMessage avroMessage = avroMessageMapper.toAvroMessage(kafkaMessage.value(), readerMimeType);
-            JsonObject jsonMessage = avroMessageMapper.toJson(avroMessage);
-            
-            response.resume(Response.ok(jsonMessage.toString().getBytes(Charsets.UTF_8))
-                                    .type(avroMessage.getMimeType()).build());
-        }
+        // open kafka source
+        ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+                                                                                          .filter(ImmutableList.of(id))
+                                                                                          .open();
+        
+        // read one message, close source and return result
+        reactiveSource.readAsync()
+                      .thenApply(kafkaMessage -> avroMessageMapper.toAvroMessage(kafkaMessage.value(), readerMimeType))
+                      .thenApply(avroMessage -> Pair.of(avroMessage.getMimeType(), avroMessageMapper.toJson(avroMessage)))
+                      .thenApply(typeJsonMessagePair -> Response.ok(typeJsonMessagePair.getSecond().toString().getBytes(Charsets.UTF_8))
+                                                                .type(typeJsonMessagePair.getFirst())
+                                                                .build())
+                      .whenComplete((resp, error) -> { reactiveSource.close(); ResultConsumer.writeTo(response).accept(resp, error); });
     }
     
     
     
     @GET
     @Path("/topics/{topic}/eventcollections/{ids}")
-    public void produceView(@PathParam("topic") String topic,
-                            @PathParam("ids") String ids,
-                            @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
-                            @Suspended AsyncResponse response) throws IOException {
+    public void readEvents(@PathParam("topic") String topic,
+                           @PathParam("ids") String ids,
+                           @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                           @Suspended AsyncResponse response) throws IOException {
         
         
         try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
@@ -225,9 +225,9 @@ public class BusinesEventResource {
                 if (identifiers.contains(id)) {
                     identifiers.remove(KafkaMessageId.valueOf(msg.partition(), msg.offset()));
 
-                    AvroMessage avroMessage = avroMessageMapper.toAvroMessage(msg.value(), readerMimeType);
+                    AvroMessage avroMessage = avroMessageMapper.toAvroMessage(msg.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")));
                     
-                    mimetypeRef.set(avroMessage.getMimeType());
+                    mimetypeRef.set(MediaType.valueOf(avroMessage.getMimeType().toString().replace("+json", ".list+json")));
                     builder.add(avroMessageMapper.toJson(avroMessage));
                 }
             }
@@ -244,25 +244,32 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
-    public void produceReactiveStream(@PathParam("topic") String topic,
-                                      @HeaderParam("Last-Event-Id") String consumedOffsets,
-                                      @QueryParam("q.event.eq") MediaType readerMimeType, 
-                                      @Context HttpServletRequest req,
-                                      @Context HttpServletResponse resp,
-                                      @Suspended AsyncResponse response) {
+    public void readEventsAsStream(@PathParam("topic") String topic,
+                                   @HeaderParam("Last-Event-Id") String consumedOffsets,
+                                   @Context HttpServletRequest req,
+                                   @Context HttpServletResponse resp,
+                                   @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
+        
+        
+        // parse filter params
+        Predicate<AvroMessage> filterCondition = FilterCondition.from(ImmutableMap.copyOf(req.getParameterMap()));
+        MediaType readerMimeType = (req.getParameter("q.event.eq") == null) ? MediaType.valueOf("*/*")
+                                                                            : MediaType.valueOf(req.getParameter("q.event.eq")); 
 
         
         // compose greeting message 
-        String prologComment = "stream opened. emitting " + ((readerMimeType == null) ? "all event types" : readerMimeType + " event types only");
+        String prologComment = "stream opened. emitting " + readerMimeType + " event types";
         prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + KafkaMessageId.valuesOf(consumedOffsets); 
+        prologComment = (filterCondition == FilterCondition.NO_FILTER) ? prologComment : prologComment + " with filter condition " + filterCondition;
 
         
         // establish reactive response stream 
+        
         final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
                                                                  .map(message -> Pair.of(message.getConsumedOffsets(), avroMessageMapper.toAvroMessage(message.value(), readerMimeType)))
-                                                                 .filter(pair -> FilterCondition.valueOf(ImmutableMap.copyOf(req.getParameterMap())).test(pair.getSecond()))
+                                                                 .filter(pair -> filterCondition.test(pair.getSecond()))
                                                                  .map(idMsgPair -> avroMessageMapper.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
         RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));
     }
@@ -272,9 +279,10 @@ public class BusinesEventResource {
     
     private static final class FilterCondition {
 
+        public static final Predicate<AvroMessage> NO_FILTER = new Condition("", record -> true); 
         
-        public static Predicate<AvroMessage> valueOf(ImmutableMap<String, String[]> filterParams) {
-            Predicate<AvroMessage> filter = (record) -> true;
+        public static Predicate<AvroMessage> from(ImmutableMap<String, String[]> filterParams) {
+            Predicate<AvroMessage> filter = NO_FILTER;
             
             for (Entry<String, String[]> entry : filterParams.entrySet()) {
                 if (entry.getKey().startsWith("q.data.")) {
@@ -293,30 +301,66 @@ public class BusinesEventResource {
             String name = condition.substring("q.data.".length(), condition.lastIndexOf("."));
             
             if (condition.endsWith(".eq")) {
-                return (record) -> read(name, record).map(obj -> obj.toString().equals(value))
-                                                     .orElse(false);
+                return new Condition(condition + "=" + value,
+                                     record -> read(name, record).map(obj -> obj.toString().equals(value))
+                                                                   .orElse(false));
                 
             } else if (condition.endsWith(".ne")) {
-                return (record) -> read(name, record).map(obj -> !obj.toString().equals(value))
-                                                     .orElse(false);
+                return new Condition(condition + "=" + value,
+                                     record -> read(name, record).map(obj -> !obj.toString().equals(value))
+                                                                   .orElse(false));
 
             } else if (condition.endsWith(".in")) {
                 ImmutableList<String> values = ImmutableList.copyOf(Splitter.on(",").trimResults().splitToList(value));
-                return (record) -> read(name, record).map(obj -> values.contains(obj.toString()))
-                                                     .orElse(false);
+                return new Condition(condition + "=" + values, 
+                                     record -> read(name, record).map(obj -> values.contains(obj.toString()))
+                                                                   .orElse(false));
 
             } else if (condition.endsWith(".gt")) {
-                return (record) -> read(name, record).map(obj -> obj.toString().compareTo(value) > 0)
-                                                     .orElse(false);
+                return new Condition(condition + "=" + value,
+                                     record -> read(name, record).map(obj -> obj.toString().compareTo(value) > 0)
+                                                                   .orElse(false));
                 
             } else if (condition.endsWith(".lt")) {
-                return (record) -> read(name, record).map(obj -> obj.toString().compareTo(value) < 0)
-                                                     .orElse(false);
+                return new Condition(condition + "=" + value,
+                                     record -> read(name, record).map(obj -> obj.toString().compareTo(value) < 0)
+                                                                   .orElse(false));
 
             } else {
-                return (record) -> true;
+                throw new BadRequestException("unsupported filter condition" + condition);
             }
         }
+        
+        
+        private static class Condition implements Predicate<AvroMessage> {
+            private final Predicate<AvroMessage> predicate;
+            private final String desc;
+            
+            private Condition(String desc, Predicate<AvroMessage> predicate) {
+                this.desc = desc;
+                this.predicate = predicate;
+            }
+            
+            @Override
+            public boolean test(AvroMessage avroMessage) {
+                return predicate.test(avroMessage);
+            }
+            
+            @Override
+            public Predicate<AvroMessage> and(Predicate<? super AvroMessage> other) {
+                String description = toString();
+                description = ((description.length() > 0) && (!description.endsWith("&")) ? "&" : "") + description;
+                description = description + other.toString();
+                
+                return new Condition(description, predicate.and(other));
+            }
+            
+            @Override
+            public String toString() {
+                return desc;
+            }
+        }
+        
         
         
         private static Optional<Object> read(String dotSeparatedName, AvroMessage avroMessage) {

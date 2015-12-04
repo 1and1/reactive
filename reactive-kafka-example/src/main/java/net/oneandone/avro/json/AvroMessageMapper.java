@@ -102,8 +102,9 @@ public class AvroMessageMapper {
                                             .orElseThrow(SchemaException::new);
     }
     
+   
     
-    public AvroMessage toAvroMessage(byte[] serializedAvroMessage, MediaType readerMimeType) {
+    public AvroMessage toAvroMessage(byte[] serializedAvroMessage, MediaType readerMimeType) throws SchemaException {
         
         if ((readerMimeType == null) || ((readerMimeType.isWildcardType() || (readerMimeType.getType().equalsIgnoreCase("application") && readerMimeType.isWildcardSubtype())))) {
             return AvroMessage.from(serializedAvroMessage, AvroMessageMapper.this, null);

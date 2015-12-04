@@ -8,6 +8,8 @@ import javax.ws.rs.core.UriInfo;
 
 import com.google.common.collect.ImmutableMap;
 
+import net.oneandone.reactive.utils.LinksBuilder;
+
 
 
 

@@ -38,3 +38,5 @@
 /reactive-kafka-example/kafkalog
 /reactive-kafka-example/plain.avro
 /reactive-kafka-example/withDataFileWriter.avro
+/reactive-kafka-example/src/main/resources/schemas/emailsentevent.avsc
+/reactive-kafka-example/src/test/java/net/oneandone/reactive/kafka/rest/EmailSentEventTest.java

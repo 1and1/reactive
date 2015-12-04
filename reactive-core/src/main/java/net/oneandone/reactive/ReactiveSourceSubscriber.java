@@ -48,9 +48,11 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
     
     private final CompletableFuture<ReactiveSource<T>> promise;
     
+    
     public ReactiveSourceSubscriber(CompletableFuture<ReactiveSource<T>> promise) {
         this.promise = promise;
     }
+
     
     @Override
     public void onSubscribe(Subscription subscription) {
@@ -141,7 +143,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         
         @Override
         public T read() {
-            return read(Duration.ofMillis(Long.MAX_VALUE));
+            return read(Duration.ofSeconds(30));
         }
         
         @Override

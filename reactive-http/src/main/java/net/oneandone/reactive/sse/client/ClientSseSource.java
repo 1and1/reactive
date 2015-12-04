@@ -259,7 +259,7 @@ public class ClientSseSource implements Publisher<ServerSentEvent> {
                                                         isFailOnConnectError, 
                                                         numFollowRedirects, 
                                                         connectionTimeout, 
-                                                        (stream) -> { },                          // connect listener
+                                                        (stream) -> { },                         // connect listener
                                                         inboundBuffer,                           // data consumer
                                                         (headers) -> Immutables.join(headers, inboundBuffer.getLastEventId().map(id -> ImmutableMap.of("Last-Event-ID", id)).orElse(ImmutableMap.of())));
             

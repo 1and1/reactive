@@ -28,6 +28,11 @@
 		<!-- spring boot -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+			<version>${spring-boot-version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 			<version>${spring-boot-version}</version>
 		</dependency>
@@ -36,11 +41,7 @@
 			<artifactId>spring-boot-starter-jersey</artifactId>
 			<version>${spring-boot-version}</version>
 		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-actuator</artifactId>
-			<version>${spring-boot-version}</version>
-		</dependency>
+	
 
 		<dependency>
 			<groupId>net.oneandone.reactive</groupId>

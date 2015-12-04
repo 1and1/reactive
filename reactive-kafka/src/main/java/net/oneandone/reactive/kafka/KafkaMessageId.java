@@ -76,7 +76,7 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
     
     
     private String asString() {
-        return partition + ":" + offset;
+        return partition + "_" + offset;
     }
     
     @Override
@@ -86,7 +86,7 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
 
 
     private static KafkaMessageId fromString(String id) {
-        final int idx = id.indexOf(":");
+        final int idx = id.indexOf("_");
         return new KafkaMessageId(Integer.parseInt(id.substring(0, idx)), Long.parseLong(id.substring(idx + 1, id.length())));
     }
 
@@ -118,7 +118,7 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
                                                 .trimResults()    
                                                 .splitToList(decode(ids))
                                                 .stream()
-                                                .map(id -> KafkaMessageId.valueOf(id))
+                                                .map(id -> KafkaMessageId.fromString(id))
                                                 .collect(Collectors.toList()));
         }
     }

@@ -207,6 +207,8 @@ public class BusinesEventResource {
                            @Suspended AsyncResponse response) throws IOException {
         
         
+        // TODO make it more functional, async 
+        
         try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
                                                                                                .filter(KafkaMessageId.valuesOf(ids))
                                                                                                .open()) {
@@ -266,7 +268,6 @@ public class BusinesEventResource {
 
         
         // establish reactive response stream 
-        
         final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
                                                                  .map(message -> Pair.of(message.getConsumedOffsets(), avroMessageMapper.toAvroMessage(message.value(), readerMimeType)))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))

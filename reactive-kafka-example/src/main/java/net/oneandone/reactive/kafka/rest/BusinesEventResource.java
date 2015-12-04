@@ -4,6 +4,7 @@ import java.io.IOException;
 
 
 
+
 import java.io.InputStream;
 
 
@@ -45,12 +46,12 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
-import jersey.repackaged.com.google.common.base.Joiner;
-import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.avro.json.AvroMessageMapper;
 import net.oneandone.avro.json.AvroMessage;
 import net.oneandone.reactive.ReactiveSource;

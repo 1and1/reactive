@@ -29,14 +29,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 
 import net.oneandone.avro.json.AvroMessage;
-import net.oneandone.avro.json.JsonAvroEntityMapper;
 
 
 
 
 public class JsonAvroMapperTest {
 
-    private static JsonAvroEntityMapper mapper;
+    private static AvroMessageMapper mapper;
 
     
     @BeforeClass
@@ -46,7 +45,7 @@ public class JsonAvroMapperTest {
 
         
         JsonReader reader = Json.createReader(new ByteArrayInputStream(schema.getBytes(Charsets.UTF_8)));
-        mapper = JsonAvroEntityMapper.createrMapper(reader.readObject());
+        mapper = AvroMessageMapper.createrMapper(reader.readObject());
     }
 
     

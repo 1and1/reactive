@@ -26,6 +26,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 
 
@@ -57,30 +58,45 @@ public class AvroMessage {
         return serialize(avroMessage);
     }
     
+    @Override
+    public String toString() {
+        return avroMessage.toString();
+    }
     
     static AvroMessage from(GenericRecord avroRecord) {
         return new AvroMessage(avroRecord);
     }
     
     
-    static AvroMessage from(byte[] serialized, AvroMessageMapper jsonAvroMapperRegistry, Schema readerSchema) {
+    static AvroMessage from(byte[] serialized, ImmutableMap<String, Schema> schemaRegistry, ImmutableList<Schema> readerSchemas) {
         ByteBuffer buffer = ByteBuffer.wrap(serialized);
         int headerLength = buffer.getInt();
         
         byte[] headerBytes = new byte[headerLength];
         buffer.get(headerBytes);
         ImmutableList<String> namespaceName = ImmutableList.copyOf(Splitter.on('#').splitToList(new String(headerBytes, Charsets.UTF_8)));
-        Schema writerSchema = jsonAvroMapperRegistry.getSchema(namespaceName.get(0), namespaceName.get(1));
+        Schema writerSchema = schemaRegistry.get(namespaceName.get(0) + "." + namespaceName.get(1));
         
         byte[] msg = new byte[buffer.remaining()];
         buffer.get(msg);
         
-        return new AvroMessage(deserializeAvroMessage(msg, writerSchema, readerSchema));   
+        return new AvroMessage(deserializeAvroMessage(msg, writerSchema, readerSchemas));   
     }
     
     
-    private static GenericRecord deserializeAvroMessage(byte[] bytes, Schema writerSchema, Schema readerSchema) {
+    private static GenericRecord deserializeAvroMessage(byte[] bytes, Schema writerSchema, ImmutableList<Schema> readerSchemas) {
         
+        for (Schema readerSchema : readerSchemas) {
+            try {
+                return deserializeAvroMessage(bytes, writerSchema, readerSchema);
+            } catch (RuntimeException ignore) { }
+        }
+        
+        return deserializeAvroMessage(bytes, writerSchema, (Schema) null);
+    }
+
+
+    private static GenericRecord deserializeAvroMessage(byte[] bytes, Schema writerSchema, Schema readerSchema) {
         try {
             DatumReader<GenericRecord> reader = (readerSchema == null) ? new SpecificDatumReader<GenericRecord>(writerSchema)
                                                                        : new SpecificDatumReader<GenericRecord>(writerSchema, readerSchema) ;
@@ -93,9 +109,10 @@ public class AvroMessage {
             LOG.debug("error occured by  deserialize avro record", ae);
             throw ae;
         }
-        
     }
-
+    
+    
+    
     
     private static byte[] serialize(GenericRecord avroMessage) {
         try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {

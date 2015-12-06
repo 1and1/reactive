@@ -52,7 +52,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
-import net.oneandone.avro.json.AvroMessageMapper;
+import net.oneandone.avro.json.AvroMessageMapperRepoistory;
 import net.oneandone.avro.json.AvroMessage;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
@@ -73,7 +73,7 @@ import rx.RxReactiveStreams;
 @Path("/")
 public class BusinesEventResource {
     
-    private final AvroMessageMapper avroMessageMapper; 
+    private final AvroMessageMapperRepoistory mapperRepository; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     private final KafkaSource<String, byte[]> kafkaSourcePrototype;
 
@@ -82,10 +82,10 @@ public class BusinesEventResource {
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
                                 KafkaSource<String, byte[]> kafkaSourcePrototype,
-                                AvroMessageMapper avroMessageMapper) {
+                                AvroMessageMapperRepoistory avroMessageMapperRepository) {
         this.kafkaProducer = kafkaProducer;
         this.kafkaSourcePrototype = kafkaSourcePrototype;
-        this.avroMessageMapper = avroMessageMapper;
+        this.mapperRepository = avroMessageMapperRepository;
     }
     
 
@@ -120,13 +120,13 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/schemas")
     @Produces(MediaType.TEXT_PLAIN)
     public String getRegisteredSchematas() {
-        return Joiner.on("\r\n").join(avroMessageMapper.getRegisteredSchemas()
-                                                       .entrySet()
-                                                       .stream()
-                                                       .map(entry -> ("== " + entry.getKey() +  
-                                                                      " ==\r\n" + entry.getValue() +
-                                                                      "\r\n\r\n\r\n"))
-                                                       .collect(Collectors.toList()));
+        return Joiner.on("\r\n").join(mapperRepository.getRegisteredSchemas()
+                                                      .entrySet()
+                                                      .stream()
+                                                      .map(entry -> ("== " + entry.getKey() +  
+                                                                     " ==\r\n" + entry.getValue() +
+                                                                     "\r\n\r\n\r\n"))
+                                                      .collect(Collectors.toList()));
     }
     
     
@@ -140,39 +140,36 @@ public class BusinesEventResource {
                             @Suspended AsyncResponse response) throws BadRequestException {
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
-
-        sendAsync(topicname, avroMessageMapper.toAvroMessages(jsonObjectStream, contentType), ImmutableList.of())
-                .thenApply(ids ->  topicPath + (isCollectionType(contentType) ? "/eventcollections/" + KafkaMessageId.toString(ids) 
-                                                                              : "/events/" + ids.get(0).toString()))
-                .thenApply(uri -> Response.created(URI.create(uri)).build())
-                .whenComplete(ResultConsumer.writeTo(response));
-    }
-    
-    
-    private boolean isCollectionType(String contentType) {
-        return contentType.toLowerCase(Locale.US).endsWith(".list+json");
-    }
-         
-    
-    
-    private CompletableFuture<ImmutableList<KafkaMessageId>> sendAsync(String topic, ImmutableList<AvroMessage> kafkaMessages, ImmutableList<KafkaMessageId> sentIds) {
+  
         
-        if (kafkaMessages.isEmpty()) {
-            return CompletableFuture.completedFuture(sentIds);
+        if (isCollectionType(contentType)) {
+            CompletableFuture<ImmutableList<KafkaMessageId>> sendFuture = CompletableFuture.completedFuture(ImmutableList.of());
+            
+            for (AvroMessage avroMessage : mapperRepository.toAvroMessages(jsonObjectStream, contentType.replace(".list+json", "+json"))) {
+                CompletableFuture<ImmutableList<KafkaMessageId>> future = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getData()))    
+                                                                                       .thenApply(metadata -> ImmutableList.of(new KafkaMessageId(metadata.partition(), metadata.offset())));
+
+                sendFuture = sendFuture.thenCombine(future, (ids1, ids2) -> ImmutableList.<KafkaMessageId>builder().addAll(ids1).addAll(ids2).build());
+            }
+
+            sendFuture.thenApply(ids -> topicPath + "/eventcollections/" + KafkaMessageId.toString(ids))
+                      .thenApply(uri -> Response.created(URI.create(uri)).build())
+                      .whenComplete(ResultConsumer.writeTo(response));
+            
             
         } else {
-            return kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topic, kafkaMessages.get(0).getData()))    // enqueue and 
-                                .thenApply(metadata -> ImmutableList.<KafkaMessageId>builder()                           // add the msgid to sent list 
-                                                                    .addAll(sentIds)
-                                                                    .add(new KafkaMessageId(metadata.partition(), 
-                                                                                            metadata.offset()))
-                                                                    .build())
-                                .thenCompose(newSentIds -> sendAsync(topic,                                              // initiate enqueueing the remaining messages 
-                                                                     kafkaMessages.subList(1,  kafkaMessages.size()),  
-                                                                     newSentIds));  
+            kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, mapperRepository.toAvroMessage(jsonObjectStream, contentType).getData()))    
+                         .thenApply(metadata -> new KafkaMessageId(metadata.partition(), metadata.offset()))
+                         .thenApply(id -> topicPath + "/events/" + id)
+                         .thenApply(uri -> Response.created(URI.create(uri)).build())
+                         .whenComplete(ResultConsumer.writeTo(response));;
         }
     }
     
+
+    private boolean isCollectionType(String contentType) {
+        return contentType.toLowerCase(Locale.US).endsWith(".list+json");
+    }
 
     
     @GET
@@ -190,8 +187,8 @@ public class BusinesEventResource {
         
         // read one message, close source and return result
         reactiveSource.readAsync()
-                      .thenApply(kafkaMessage -> avroMessageMapper.toAvroMessage(kafkaMessage.value(), readerMimeType))
-                      .thenApply(avroMessage -> Pair.of(avroMessage.getMimeType(), avroMessageMapper.toJson(avroMessage)))
+                      .thenApply(kafkaMessage -> mapperRepository.toAvroMessage(kafkaMessage.value(), readerMimeType))
+                      .thenApply(avroMessage -> Pair.of(avroMessage.getMimeType(), mapperRepository.toJson(avroMessage)))
                       .thenApply(typeJsonMessagePair -> Response.ok(typeJsonMessagePair.getSecond().toString().getBytes(Charsets.UTF_8))
                                                                 .type(typeJsonMessagePair.getFirst())
                                                                 .build())
@@ -228,10 +225,10 @@ public class BusinesEventResource {
                 if (identifiers.contains(id)) {
                     identifiers.remove(KafkaMessageId.valueOf(msg.partition(), msg.offset()));
 
-                    AvroMessage avroMessage = avroMessageMapper.toAvroMessage(msg.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")));
+                    AvroMessage avroMessage = mapperRepository.toAvroMessage(msg.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")));
                     
                     mimetypeRef.set(MediaType.valueOf(avroMessage.getMimeType().toString().replace("+json", ".list+json")));
-                    builder.add(avroMessageMapper.toJson(avroMessage));
+                    builder.add(mapperRepository.toJson(avroMessage));
                 }
             }
                 
@@ -257,10 +254,11 @@ public class BusinesEventResource {
         
         
         // parse filter params
-        Predicate<AvroMessage> filterCondition = FilterCondition.from(ImmutableMap.copyOf(req.getParameterMap()));
-        MediaType readerMimeType = (req.getParameter("q.event.eq") == null) ? MediaType.valueOf("*/*")
-                                                                            : MediaType.valueOf(req.getParameter("q.event.eq")); 
+        final Predicate<AvroMessage> filterCondition = FilterCondition.from(ImmutableMap.copyOf(req.getParameterMap()));
+        final MediaType readerMimeType = (req.getParameter("q.event.eq") == null) ? MediaType.valueOf("*/*")
+                                                                                  : MediaType.valueOf(req.getParameter("q.event.eq")); 
 
+        ImmutableList<MediaType> readerMimeTypes = ImmutableList.of(readerMimeType);
         
         // compose greeting message 
         String prologComment = "stream opened. emitting " + readerMimeType + " event types";
@@ -270,9 +268,9 @@ public class BusinesEventResource {
         
         // establish reactive response stream 
         final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
-                                                                 .map(message -> Pair.of(message.getConsumedOffsets(), avroMessageMapper.toAvroMessage(message.value(), readerMimeType)))
+                                                                 .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeTypes)))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))
-                                                                 .map(idMsgPair -> avroMessageMapper.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
+                                                                 .map(idMsgPair -> mapperRepository.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
         RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));
     }
     

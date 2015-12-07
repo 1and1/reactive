@@ -41,7 +41,6 @@ import org.reactivestreams.Subscription;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
 
 
@@ -57,7 +56,7 @@ public class KafkaSource<K, V> {
  
     
     public SingleKafkaSource<K, V> withTopic(String topic) {
-        return new SingleKafkaSourceImpl<K, V>(this.properties, topic, ImmutableList.of(), ImmutableList.of());
+        return new SingleKafkaSourceImpl<K, V>(this.properties, topic, new KafkaMessageIdList(), new KafkaMessageIdList());
     }
     
     
@@ -85,10 +84,10 @@ public class KafkaSource<K, V> {
         }
         
         
-        SingleKafkaSource<K, V> fromOffsets(ImmutableList<KafkaMessageId> consumedOffsets); 
+        SingleKafkaSource<K, V> fromOffsets(KafkaMessageIdList consumedOffsets); 
         
         
-        SingleKafkaSource<K, V> filter(ImmutableList<KafkaMessageId> messageIds);
+        SingleKafkaSource<K, V> filter(KafkaMessageIdList messageIds);
     }
     
     
@@ -98,15 +97,15 @@ public class KafkaSource<K, V> {
         
         private final ImmutableMap<String, Object> properties;
         private final String topic; 
-        private final ImmutableList<KafkaMessageId> consumedOffsets;
-        private final ImmutableList<KafkaMessageId> idsToFilter;
+        private final KafkaMessageIdList consumedOffsets;
+        private final KafkaMessageIdList idsToFilter;
 
 
 
         private SingleKafkaSourceImpl(ImmutableMap<String, Object> properties, 
                                       String topic, 
-                                      ImmutableList<KafkaMessageId> consumedOffsets,
-                                      ImmutableList<KafkaMessageId> idsToFilter) {
+                                      KafkaMessageIdList consumedOffsets,
+                                      KafkaMessageIdList idsToFilter) {
             this.properties = properties;
             this.topic = topic;
             this.consumedOffsets = consumedOffsets;
@@ -116,7 +115,7 @@ public class KafkaSource<K, V> {
         
         
         @Override
-        public SingleKafkaSourceImpl<K, V> fromOffsets(ImmutableList<KafkaMessageId> consumedOffsets) {
+        public SingleKafkaSourceImpl<K, V> fromOffsets(KafkaMessageIdList consumedOffsets) {
             return new SingleKafkaSourceImpl<>(this.properties,         
                                                this.topic, 
                                                consumedOffsets,
@@ -125,7 +124,7 @@ public class KafkaSource<K, V> {
 
         
         @Override
-        public SingleKafkaSourceImpl<K, V> filter(ImmutableList<KafkaMessageId> idsToFilter) {
+        public SingleKafkaSourceImpl<K, V> filter(KafkaMessageIdList idsToFilter) {
             return new SingleKafkaSourceImpl<>(this.properties,         
                                                this.topic, 
                                                this.consumedOffsets,
@@ -154,8 +153,8 @@ public class KafkaSource<K, V> {
             
             private ConsumerSubscription(String topic, 
                                          ImmutableMap<String, Object> properties, 
-                                         ImmutableList<KafkaMessageId> consumedOffsets,
-                                         ImmutableList<KafkaMessageId> idsToFilter,
+                                         KafkaMessageIdList consumedOffsets,
+                                         KafkaMessageIdList idsToFilter,
                                          Subscriber<? super KafkaMessage<K, V>> subscriber) {
 
                 this.subscriberNotifier = new SubscriberNotifier<>(subscriber, this);
@@ -238,19 +237,18 @@ public class KafkaSource<K, V> {
                 private final AtomicInteger numPendingRequested = new AtomicInteger(0);
                 
                 private final Object processingLock = new Object();
-                private ImmutableList<KafkaMessageId> consumedOffsets;
-                
-                private final Optional<List<KafkaMessageId>> optionalIdsToFilter;
+                private KafkaMessageIdList consumedOffsets;
+                private Optional<KafkaMessageIdList> optionalIdsToFilter;
 
                 
                 
-                public InboundBuffer(ImmutableList<KafkaMessageId> consumedOffsets,
-                                     ImmutableList<KafkaMessageId> idsToFilter,
+                public InboundBuffer(KafkaMessageIdList consumedOffsets,
+                                     KafkaMessageIdList idsToFilter,
                                      KafkaConsumer<K, V> consumer, 
                                      Consumer<KafkaMessage<K, V>> recordConsumer) {
                     
                     this.consumedOffsets = consumedOffsets;
-                    this.optionalIdsToFilter = idsToFilter.isEmpty() ? Optional.empty() : Optional.of(Lists.newArrayList(idsToFilter));
+                    this.optionalIdsToFilter = idsToFilter.isEmpty() ? Optional.empty() : Optional.of(idsToFilter);
                     this.consumer = consumer;
                     this.recordConsumer = recordConsumer;
                 }
@@ -268,13 +266,13 @@ public class KafkaSource<K, V> {
                         if (optionalIdsToFilter.isPresent()) {
                             KafkaMessageId msgId = KafkaMessageId.valueOf(record.partition(), record.offset());
                             if (optionalIdsToFilter.get().contains(msgId)) {
-                                optionalIdsToFilter.get().remove(msgId);
+                                optionalIdsToFilter = Optional.of(optionalIdsToFilter.get().erase(msgId));
                             } else {
                                 continue;
                             }
                         }
 
-                        ImmutableList<KafkaMessageId> newConsumedOffsets = KafkaMessageId.replacePartitionOffset(consumedOffsets, record.partition(), record.offset());
+                        KafkaMessageIdList newConsumedOffsets = consumedOffsets.replacePartitionOffset(record.partition(), record.offset());
                         this.consumedOffsets = newConsumedOffsets;
                         
                         KafkaMessage<K, V> msg = new KafkaMessage<>(newConsumedOffsets, record);
@@ -312,10 +310,7 @@ public class KafkaSource<K, V> {
                 @Override
                 public void run() {
                     while (true) {
-                        ConsumerRecords<K, V> records = consumer.poll(100);
-                        if (!records.isEmpty()) {
-                            onRecords(records);
-                        }
+                        onRecords(consumer.poll(100));
                     }
                 }
             }

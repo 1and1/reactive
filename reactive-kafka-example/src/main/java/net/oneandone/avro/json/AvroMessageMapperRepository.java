@@ -33,7 +33,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
-import net.oneandone.reactive.kafka.KafkaMessageId;
+import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
 
 
@@ -89,7 +89,8 @@ public class AvroMessageMapperRepository {
         Map<String, String> schemas = Maps.newHashMap();
         
         for (Entry<String, AvroMessageMapper> entry : mapper.entrySet()) {
-            schemas.put(entry.getKey(),entry.getValue().toString());
+            schemas.put(entry.getKey(), entry.getValue().toString());
+            schemas.put(entry.getKey().replace("+json", ".list+json"), "[" + entry.getValue().toString() + "\r\n]");
         }
         
         return ImmutableMap.copyOf(schemas);
@@ -139,9 +140,9 @@ public class AvroMessageMapperRepository {
     }
     
 
-    public ServerSentEvent toServerSentEvent(ImmutableList<KafkaMessageId> consumedOffsets, AvroMessage avroMessage) {
+    public ServerSentEvent toServerSentEvent(KafkaMessageIdList consumedOffsets, AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(schema -> ServerSentEvent.newEvent()
-                                                                                         .id(KafkaMessageId.toString(consumedOffsets))
+                                                                                         .id(consumedOffsets.toString())
                                                                                          .event(avroMessage.getMimeType().toString())
                                                                                          .data(toJson(avroMessage).toString()))
                                                            .orElseThrow(SchemaException::new);

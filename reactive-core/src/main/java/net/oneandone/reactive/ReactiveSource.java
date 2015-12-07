@@ -33,6 +33,9 @@ public interface ReactiveSource<T> extends Closeable {
     CompletableFuture<T> readAsync();
 
     
+    CompletableFuture<T> readAsync(Duration timeout);
+
+    
     T read();
 
     

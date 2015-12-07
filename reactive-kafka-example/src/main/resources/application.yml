@@ -1,8 +1,8 @@
 
 logging:
   level:
-    net.oneandone.reactive: WARNING
-    kafka: WARNING
+    net.oneandone.reactive: DEBUG
+    kafka: ERROR
 
 
 schemaregistry: 

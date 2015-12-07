@@ -18,16 +18,10 @@ package net.oneandone.reactive.kafka;
 
 import java.util.Base64;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
-import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 
 
@@ -75,7 +69,7 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
     }
     
     
-    private String asString() {
+    String asString() {
         return partition + "_" + offset;
     }
     
@@ -85,7 +79,7 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
     }
 
 
-    private static KafkaMessageId fromString(String id) {
+    static KafkaMessageId fromString(String id) {
         final int idx = id.indexOf("_");
         return new KafkaMessageId(Integer.parseInt(id.substring(0, idx)), Long.parseLong(id.substring(idx + 1, id.length())));
     }
@@ -101,52 +95,11 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
     }
 
     
-    public static String toString(ImmutableList<KafkaMessageId> ids) {
-        return encode(Joiner.on(",")
-                            .join(ids.stream()
-                                     .map(id -> id.asString())
-                                     .collect(Collectors.toList())));
-    }
-
- 
-    
-    public static ImmutableList<KafkaMessageId> valuesOf(String ids) {
-        if (ids == null) {
-            return ImmutableList.of();
-        } else {
-            return ImmutableList.copyOf(Splitter.on(",")
-                                                .trimResults()    
-                                                .splitToList(decode(ids))
-                                                .stream()
-                                                .map(id -> KafkaMessageId.fromString(id))
-                                                .collect(Collectors.toList()));
-        }
-    }
 
     
-    
-    public static ImmutableList<KafkaMessageId> replacePartitionOffset(ImmutableList<KafkaMessageId> ids, int partition, long offset) {
+    public static Optional<Long> getOffSet(KafkaMessageIdList ids, int partition) {
         
-        List<KafkaMessageId> newIdentifiers = Lists.newArrayList(ids);
-        
-        // remove if partition offset already exists
-        for (KafkaMessageId id : ImmutableList.copyOf(ids)) {
-            if (id.getPartition() == partition) {
-                newIdentifiers.remove(id);
-            }
-        }
-
-        // add new partition offset
-        newIdentifiers.add(KafkaMessageId.valueOf(partition, offset));
-        
-        return ImmutableList.copyOf(newIdentifiers);
-    }
-
-    
-    
-    public static Optional<Long> getOffSet(ImmutableList<KafkaMessageId> ids, int partition) {
-        
-        for (KafkaMessageId id : ImmutableList.copyOf(ids)) {
+        for (KafkaMessageId id : ids) {
             if (id.getPartition() == partition) {
                 return Optional.of(id.getOffset());
             }
@@ -156,11 +109,11 @@ public class KafkaMessageId implements Comparable<KafkaMessageId> {
     }
 
    
-    private static String decode(String s) {
+    static String decode(String s) {
         return IS_BASE64_ENCODED ? new String(Base64.getUrlDecoder().decode(s), Charsets.UTF_8) : s;
     }
 
-    private static String encode(String s) {
+    static String encode(String s) {
         return  IS_BASE64_ENCODED ? Base64.getUrlEncoder().encodeToString(s.getBytes(Charsets.UTF_8)) : s;
     }
 }

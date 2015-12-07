@@ -107,11 +107,11 @@ public class KafkaResourceTest {
                                 .get(String.class);
 
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent+json =="));
-    //    Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.myevent.list+json =="));
         Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged+json =="));
-    //    Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.event.customerdatachanged.list+json =="));
         Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsent+json =="));
-     //   Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsent.list+json =="));
+        Assert.assertTrue(metaData.contains("== application/vnd.example.mail.mailsent.list+json =="));
         
         
         

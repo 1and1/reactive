@@ -19,21 +19,20 @@ package net.oneandone.reactive.kafka;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 
-import com.google.common.collect.ImmutableList;
 
 
  
 public class KafkaMessage<K, V> {
         
-    private final ImmutableList<KafkaMessageId> consumedOffsets;
+    private final KafkaMessageIdList consumedOffsets;
     private final ConsumerRecord<K, V> record;
     
-    public KafkaMessage(ImmutableList<KafkaMessageId> consumedOffsets, ConsumerRecord<K, V> record) {
+    public KafkaMessage(KafkaMessageIdList consumedOffsets, ConsumerRecord<K, V> record) {
         this.consumedOffsets = consumedOffsets;
         this.record = record;
     }
 
-    public ImmutableList<KafkaMessageId> getConsumedOffsets() {
+    public KafkaMessageIdList getConsumedOffsets() {
         return consumedOffsets;
     }
     

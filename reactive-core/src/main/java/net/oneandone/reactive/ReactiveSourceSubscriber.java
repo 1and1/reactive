@@ -17,6 +17,7 @@ package net.oneandone.reactive;
 
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -37,6 +38,7 @@ import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 
@@ -122,7 +124,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private final ReactiveSourceSubscriber<T> source;
         
         private final Object processingLock = new Object();
-        private final LinkedList<CompletableFuture<T>> pendingReads = Lists.newLinkedList();
+        private final LinkedList<ReadPromise<T>> pendingReads = Lists.newLinkedList();
         private final LinkedList<T> inBuffer = Lists.newLinkedList();
 
         private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
@@ -172,7 +174,13 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         
         @Override
         public CompletableFuture<T> readAsync() {
-            CompletableFuture<T> promise = new CompletableFuture<>(); 
+            return readAsync(Duration.ofSeconds(30));
+        }
+        
+        
+        @Override
+        public CompletableFuture<T> readAsync(Duration timeout) {
+            ReadPromise<T> promise = new ReadPromise<>(timeout); 
 
             if (isOpen.get()) {
                 
@@ -222,8 +230,18 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private void process() {
             synchronized (processingLock) {
                 while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
-                    CompletableFuture<T> promise = pendingReads.removeFirst();
+                    ReadPromise<T> promise = pendingReads.removeFirst();
                     promise.complete(inBuffer.removeFirst());
+                }
+
+                // check timeouts
+                if (!pendingReads.isEmpty()) {
+                    for (ReadPromise<T> promise : ImmutableList.copyOf(pendingReads)) {
+                        if (promise.isExpired()) {
+                            pendingReads.remove(promise);
+                            promise.completeExceptionally(new TimeoutException());
+                        }
+                    }
                 }
             }
         }
@@ -242,6 +260,21 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
             }
                 
             return builder.toString();
+        }
+    }
+    
+    
+    
+    private static class ReadPromise<T> extends CompletableFuture<T> {
+        
+        private Instant timeout;
+        
+        public ReadPromise(Duration maxWaitTime) {
+            this.timeout = Instant.now().plus(maxWaitTime);
+        }
+
+        public boolean isExpired() {
+            return Instant.now().isAfter(timeout);
         }
     }
 }

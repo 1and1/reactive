@@ -10,6 +10,7 @@ import java.io.InputStream;
 
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -54,6 +55,7 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaMessage;
 import net.oneandone.reactive.kafka.KafkaMessageId;
+import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -141,14 +143,14 @@ public class BusinesEventResource {
         // batch events
         if (contentType.toLowerCase(Locale.US).endsWith(".list+json")) {
             
-            CompletableFuture<ImmutableList<KafkaMessageId>> sendFuture = CompletableFuture.completedFuture(ImmutableList.of());
+            CompletableFuture<KafkaMessageIdList> sendFuture = CompletableFuture.completedFuture(KafkaMessageIdList.of());
             for (AvroMessage avroMessage : mapperRepository.toAvroMessages(jsonObjectStream, contentType.replace(".list+json", "+json"))) {
                 sendFuture = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getData()))    
-                                          .thenApply(metadata -> ImmutableList.of(new KafkaMessageId(metadata.partition(), metadata.offset())))
-                                          .thenCombine(sendFuture, (ids1, ids2) -> ImmutableList.<KafkaMessageId>builder().addAll(ids1).addAll(ids2).build());
+                                          .thenApply(metadata -> KafkaMessageIdList.of(new KafkaMessageId(metadata.partition(), metadata.offset())))
+                                          .thenCombine(sendFuture, (ids1, ids2) -> ids1.merge(ids2));
             }
 
-            sendFuture.thenApply(ids -> topicPath + "/eventcollections/" + KafkaMessageId.toString(ids))
+            sendFuture.thenApply(ids -> topicPath + "/eventcollections/" + ids)
                       .thenApply(uri -> Response.created(URI.create(uri)).build())
                       .whenComplete(ResultConsumer.writeTo(response));
             
@@ -174,11 +176,11 @@ public class BusinesEventResource {
         
         // open kafka source
         ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
-                                                                                          .filter(ImmutableList.of(id))
+                                                                                          .filter(KafkaMessageIdList.of(id))
                                                                                           .open();
         
         // read one message, close source and return result
-        reactiveSource.readAsync()
+        reactiveSource.readAsync(Duration.ofSeconds(5))
                       .thenApply(kafkaMessage -> mapperRepository.toAvroMessage(kafkaMessage.value(), readerMimeType))
                       .thenApply(avroMessage -> Pair.of(avroMessage.getMimeType(), mapperRepository.toJson(avroMessage)))
                       .thenApply(typeJsonMessagePair -> Response.ok(typeJsonMessagePair.getSecond().toString().getBytes(Charsets.UTF_8))
@@ -192,23 +194,21 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/eventcollections/{ids}")
     public void readEvents(@PathParam("topic") String topic,
-                           @PathParam("ids") String ids,
+                           @PathParam("ids") KafkaMessageIdList ids,
                            @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
                            @Suspended AsyncResponse response) throws IOException {
         
         
-        final ImmutableList<KafkaMessageId> kafkaMessageIds = KafkaMessageId.valuesOf(ids);
-        
         final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
-                                                                                                .filter(kafkaMessageIds)
+                                                                                                .filter(ids)
                                                                                                 .open();
             
         final JsonArrayBuilder builder = Json.createArrayBuilder();
 
         CompletableFuture<ImmutableList<AvroMessage>> queryFuture = CompletableFuture.completedFuture(ImmutableList.of());
 
-        for (int i = 0; i < kafkaMessageIds.size(); i++) {
-            queryFuture = reactiveSource.readAsync()
+        for (int i = 0; i < ids.size(); i++) {
+            queryFuture = reactiveSource.readAsync(Duration.ofSeconds(5))
                                         .thenApply(kafkaMessage -> ImmutableList.of(mapperRepository.toAvroMessage(kafkaMessage.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")))))
                                         .thenCombine(queryFuture, (ids1, ids2) -> ImmutableList.<AvroMessage>builder().addAll(ids1).addAll(ids2).build());
                     
@@ -227,7 +227,7 @@ public class BusinesEventResource {
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream")
     public void readEventsAsStream(@PathParam("topic") String topic,
-                                   @HeaderParam("Last-Event-Id") String consumedOffsets,
+                                   @HeaderParam("Last-Event-Id") @DefaultValue("") KafkaMessageIdList consumedOffsets,
                                    @Context HttpServletRequest req,
                                    @Context HttpServletResponse resp,
                                    @Suspended AsyncResponse response) {
@@ -244,12 +244,12 @@ public class BusinesEventResource {
         
         // compose greeting message 
         String prologComment = "stream opened. emitting " + readerMimeType + " event types";
-        prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + KafkaMessageId.valuesOf(consumedOffsets); 
+        prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + consumedOffsets; 
         prologComment = (filterCondition == FilterCondition.NO_FILTER) ? prologComment : prologComment + " with filter condition " + filterCondition;
 
         
         // establish reactive response stream 
-        final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(KafkaMessageId.valuesOf(consumedOffsets)))
+        final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(consumedOffsets))
                                                                  .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeTypes)))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))
                                                                  .map(idMsgPair -> mapperRepository.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));

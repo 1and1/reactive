@@ -85,7 +85,6 @@ public final class Problem {
     }
 
 
-    
     public static Problem of(WebApplicationException wae) {
         
         Response response = wae.getResponse();

@@ -38,6 +38,8 @@ public class BusinesEventApplication extends ResourceConfig {
     
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
+        register(DefaultExceptionMapper.class);
+        register(SchemaExceptionMapper.class);
     } 
 
 

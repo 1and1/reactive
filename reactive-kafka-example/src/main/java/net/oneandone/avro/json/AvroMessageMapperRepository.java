@@ -100,7 +100,7 @@ public class AvroMessageMapperRepository {
     
     public JsonObject toJson(AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(mapper -> mapper.toJson(avroMessage))
-                                                           .orElseThrow(SchemaException::new);
+                                                           .orElseThrow(() -> new SchemaException("unsupported type", avroMessage.getMimeType().toString()));
     }
 
     
@@ -108,7 +108,7 @@ public class AvroMessageMapperRepository {
 
     public ImmutableList<AvroMessage> toAvroMessages(InputStream jsonObjectStream, String mimeType) {
         return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessages(Json.createParser(jsonObjectStream)))
-                                            .orElseThrow(SchemaException::new);
+                                            .orElseThrow(() -> new SchemaException("unsupported type", mimeType));
     }
     
     
@@ -116,7 +116,7 @@ public class AvroMessageMapperRepository {
 
     public AvroMessage toAvroMessage(InputStream jsonObjectStream, String mimeType) {
         return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessage(Json.createParser(jsonObjectStream)))
-                                            .orElseThrow(SchemaException::new);
+                                            .orElseThrow(() -> new SchemaException("unsupported type", mimeType));
     }
     
         
@@ -145,12 +145,12 @@ public class AvroMessageMapperRepository {
                                                                                          .id(consumedOffsets.toString())
                                                                                          .event(avroMessage.getMimeType().toString())
                                                                                          .data(toJson(avroMessage).toString()))
-                                                           .orElseThrow(SchemaException::new);
+                                                           .orElseThrow(() -> new SchemaException("unsupported type", avroMessage.getMimeType().toString()));
     }
     
     
     Schema getSchema(String namespace, String name) {
-        return getJsonToAvroMapper(namespace, name).orElseThrow(SchemaException::new)
+        return getJsonToAvroMapper(namespace, name).orElseThrow(() -> new SchemaException("unsupported type", namespace + "." + name))
                                                    .getSchema();
     }
     

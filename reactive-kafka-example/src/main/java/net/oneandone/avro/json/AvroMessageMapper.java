@@ -131,7 +131,7 @@ class AvroMessageMapper {
          
         final String type = jsonRecordSchema.getString("type");
         if (!type.equals("record")) {
-            throw new SchemaException("unsupported type " + type);
+            throw new SchemaException("unsupported type", type);
         }  
 
         
@@ -141,7 +141,7 @@ class AvroMessageMapper {
             if (schemaField.getValueType() == JsonValue.ValueType.OBJECT) {
                 writers = withWriters(addNamespaceIfNotPresent((JsonObject) schemaField, jsonRecordSchema), writers);
             } else {
-                throw new SchemaException("unexpected value " + schemaField);
+                throw new SchemaException("unexpected value " + schemaField, type);
             }
         }
         

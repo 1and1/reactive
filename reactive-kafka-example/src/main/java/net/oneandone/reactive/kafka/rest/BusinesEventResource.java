@@ -249,6 +249,7 @@ public class BusinesEventResource {
         // establish reactive response stream 
         final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(consumedOffsets))
                                                                  .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeType)))
+                                                                 .filter(pair -> pair.getSecond().getMimeType().isCompatible(readerMimeType))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))
                                                                  .map(idMsgPair -> mapperRepository.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
         RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));

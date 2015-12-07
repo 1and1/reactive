@@ -4,6 +4,7 @@ import java.io.File;
 
 
 
+
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Random;
@@ -11,6 +12,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import javax.json.Json;
+import javax.ws.rs.ClientErrorException;
 import javax.ws.rs.client.Client;
 
 import javax.ws.rs.client.Entity;
@@ -32,6 +34,7 @@ import com.google.common.io.CharSource;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
+import net.oneandone.reactive.utils.ProblemTester;
 
 
 @Ignore
@@ -194,6 +197,20 @@ public class KafkaResourceTest {
 
         
         
+        // submit event with unknown mime type
+        try {
+            client.target(uri + "/topics/" + topicName + "/events")
+                  .request()
+                  .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.doesnotexsits+json"), String .class);
+
+            Assert.fail("exception expected");
+        } catch (ClientErrorException wae) {
+            Assert.assertTrue(ProblemTester.isProblem(wae, 400, "urn:problem:net.oneandone.reactive.kafka.rest:schema-error")); 
+        }
+            
+        
+        
+        
         
         ///////////////////////
         // (3) consume single event
@@ -244,7 +261,7 @@ public class KafkaResourceTest {
         
         
     
-        // consume with filter
+        // consume with data filter
         reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334").open();    
         ServerSentEvent sseF = reactiveSource.read();
         Assert.assertTrue(sseF.getData().get().contains("\"accountid\":2234334"));
@@ -252,7 +269,14 @@ public class KafkaResourceTest {
         reactiveSource.close();
         
         
-       
+
+        // consume with data and event type filter
+        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334&q.event.eq=application%2Fvnd.example.event.customerdatachanged%2Bjson").open();    
+        sseF = reactiveSource.read();
+        Assert.assertTrue(sseF.getData().get().contains("\"accountid\":2234334"));
+        
+        reactiveSource.close();
+
         
         
         

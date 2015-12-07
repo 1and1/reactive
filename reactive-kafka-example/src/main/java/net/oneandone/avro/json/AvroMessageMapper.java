@@ -101,7 +101,8 @@ class AvroMessageMapper {
         return AvroMessage.from(jsonObjectToAvroWriter.apply(jsonParser));
     }
     
-      public JsonObject toJson(AvroMessage avroMessage) {
+    
+    public JsonObject toJson(AvroMessage avroMessage) {
         return avroRecordToJsonObjectWriter.apply(avroMessage.getGenericRecord());
     }
     

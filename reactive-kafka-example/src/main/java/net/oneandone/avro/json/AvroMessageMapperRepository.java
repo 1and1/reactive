@@ -40,9 +40,9 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 
 
 
-public class AvroMessageMapperRepoistory {
+public class AvroMessageMapperRepository {
     
-    private static final Logger LOG = LoggerFactory.getLogger(AvroMessageMapperRepoistory.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AvroMessageMapperRepository.class);
     private static final IdlToJson idlToJson = new IdlToJson();
     
     private volatile ImmutableMap<String, AvroMessageMapper> mapper = ImmutableMap.of();
@@ -51,7 +51,7 @@ public class AvroMessageMapperRepoistory {
 
     
     
-    public AvroMessageMapperRepoistory(File schemaDir) {
+    public AvroMessageMapperRepository(File schemaDir) {
         reloadSchemadefintions(ImmutableList.copyOf(ImmutableList.copyOf(schemaDir.listFiles()).stream()
                                                                                                .map(file -> file.toURI())
                                                                                                .collect(Collectors.toList())));

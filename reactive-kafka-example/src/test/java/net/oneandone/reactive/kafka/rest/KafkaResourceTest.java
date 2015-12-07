@@ -34,7 +34,6 @@ import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
 
  
-@Ignore
 public class KafkaResourceTest {
     
     private static EmbeddedZookeeper zookeeper;

@@ -10,13 +10,10 @@ import java.io.InputStream;
 
 
 import java.net.URI;
-import java.time.Duration;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -50,9 +47,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
-import net.oneandone.avro.json.AvroMessageMapperRepoistory;
+import net.oneandone.avro.json.AvroMessageMapperRepository;
 import net.oneandone.avro.json.AvroMessage;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
@@ -73,7 +69,7 @@ import rx.RxReactiveStreams;
 @Path("/")
 public class BusinesEventResource {
     
-    private final AvroMessageMapperRepoistory mapperRepository; 
+    private final AvroMessageMapperRepository mapperRepository; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
     private final KafkaSource<String, byte[]> kafkaSourcePrototype;
 
@@ -82,7 +78,7 @@ public class BusinesEventResource {
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
                                 KafkaSource<String, byte[]> kafkaSourcePrototype,
-                                AvroMessageMapperRepoistory avroMessageMapperRepository) {
+                                AvroMessageMapperRepository avroMessageMapperRepository) {
         this.kafkaProducer = kafkaProducer;
         this.kafkaSourcePrototype = kafkaSourcePrototype;
         this.mapperRepository = avroMessageMapperRepository;
@@ -141,15 +137,15 @@ public class BusinesEventResource {
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
   
-        
-        if (isCollectionType(contentType)) {
-            CompletableFuture<ImmutableList<KafkaMessageId>> sendFuture = CompletableFuture.completedFuture(ImmutableList.of());
+  
+        // batch events
+        if (contentType.toLowerCase(Locale.US).endsWith(".list+json")) {
             
+            CompletableFuture<ImmutableList<KafkaMessageId>> sendFuture = CompletableFuture.completedFuture(ImmutableList.of());
             for (AvroMessage avroMessage : mapperRepository.toAvroMessages(jsonObjectStream, contentType.replace(".list+json", "+json"))) {
-                CompletableFuture<ImmutableList<KafkaMessageId>> future = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getData()))    
-                                                                                       .thenApply(metadata -> ImmutableList.of(new KafkaMessageId(metadata.partition(), metadata.offset())));
-
-                sendFuture = sendFuture.thenCombine(future, (ids1, ids2) -> ImmutableList.<KafkaMessageId>builder().addAll(ids1).addAll(ids2).build());
+                sendFuture = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getData()))    
+                                          .thenApply(metadata -> ImmutableList.of(new KafkaMessageId(metadata.partition(), metadata.offset())))
+                                          .thenCombine(sendFuture, (ids1, ids2) -> ImmutableList.<KafkaMessageId>builder().addAll(ids1).addAll(ids2).build());
             }
 
             sendFuture.thenApply(ids -> topicPath + "/eventcollections/" + KafkaMessageId.toString(ids))
@@ -157,6 +153,7 @@ public class BusinesEventResource {
                       .whenComplete(ResultConsumer.writeTo(response));
             
             
+        // single event    
         } else {
             kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, mapperRepository.toAvroMessage(jsonObjectStream, contentType).getData()))    
                          .thenApply(metadata -> new KafkaMessageId(metadata.partition(), metadata.offset()))
@@ -166,11 +163,6 @@ public class BusinesEventResource {
         }
     }
     
-
-    private boolean isCollectionType(String contentType) {
-        return contentType.toLowerCase(Locale.US).endsWith(".list+json");
-    }
-
     
     @GET
     @Path("/topics/{topic}/events/{id}")
@@ -205,40 +197,30 @@ public class BusinesEventResource {
                            @Suspended AsyncResponse response) throws IOException {
         
         
-        // TODO make it more functional, async 
+        final ImmutableList<KafkaMessageId> kafkaMessageIds = KafkaMessageId.valuesOf(ids);
         
-        try (ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
-                                                                                               .filter(KafkaMessageId.valuesOf(ids))
-                                                                                               .open()) {
-
+        final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+                                                                                                .filter(kafkaMessageIds)
+                                                                                                .open();
             
-            AtomicReference<MediaType> mimetypeRef = new AtomicReference<>(MediaType.APPLICATION_JSON_TYPE);
-            JsonArrayBuilder builder = Json.createArrayBuilder();
+        final JsonArrayBuilder builder = Json.createArrayBuilder();
 
+        CompletableFuture<ImmutableList<AvroMessage>> queryFuture = CompletableFuture.completedFuture(ImmutableList.of());
 
-            List<KafkaMessageId> identifiers = Lists.newArrayList(KafkaMessageId.valuesOf(ids));
-            while (!identifiers.isEmpty()) {
-                
-                KafkaMessage<String, byte[]> msg = reactiveSource.read(Duration.ofSeconds(3));
-                KafkaMessageId id = KafkaMessageId.valueOf(msg.partition(), msg.offset());
-                
-                if (identifiers.contains(id)) {
-                    identifiers.remove(KafkaMessageId.valueOf(msg.partition(), msg.offset()));
-
-                    AvroMessage avroMessage = mapperRepository.toAvroMessage(msg.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")));
+        for (int i = 0; i < kafkaMessageIds.size(); i++) {
+            queryFuture = reactiveSource.readAsync()
+                                        .thenApply(kafkaMessage -> ImmutableList.of(mapperRepository.toAvroMessage(kafkaMessage.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")))))
+                                        .thenCombine(queryFuture, (ids1, ids2) -> ImmutableList.<AvroMessage>builder().addAll(ids1).addAll(ids2).build());
                     
-                    mimetypeRef.set(MediaType.valueOf(avroMessage.getMimeType().toString().replace("+json", ".list+json")));
-                    builder.add(mapperRepository.toJson(avroMessage));
-                }
-            }
-                
-            response.resume(Response.ok(builder.build().toString().getBytes(Charsets.UTF_8))
-                                    .type(mimetypeRef.get()).build());
-        }
+        }    
+        
+        queryFuture.thenApply(avroMessages -> avroMessages.stream()
+                                                          .map(avroMessage -> { builder.add(mapperRepository.toJson(avroMessage)); return avroMessage.getMimeType(); } )
+                                                          .reduce(MediaType.APPLICATION_OCTET_STREAM_TYPE, (m1, m2) -> m2))
+                    .thenApply(mimeType -> Response.ok(builder.build().toString().getBytes(Charsets.UTF_8))
+                                                   .type(mimeType).build())
+                    .whenComplete((resp, error) -> { reactiveSource.close(); ResultConsumer.writeTo(response).accept(resp, error); });
     }
-    
-    
-
     
 
     @GET

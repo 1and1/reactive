@@ -36,6 +36,11 @@ public class KafkaMessage<K, V> {
     public ImmutableList<KafkaMessageId> getConsumedOffsets() {
         return consumedOffsets;
     }
+    
+    
+    public KafkaMessageId getKafkaMessageId() {
+        return KafkaMessageId.valueOf(partition(), offset());
+    }
 
     
     /**

@@ -7,6 +7,7 @@ import java.io.File;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -34,7 +35,7 @@ import com.google.common.io.CharSource;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
-import net.oneandone.reactive.utils.ProblemTester;
+import net.oneandone.reactive.utils.Problem;
 
 
 @Ignore
@@ -205,7 +206,7 @@ public class KafkaResourceTest {
 
             Assert.fail("exception expected");
         } catch (ClientErrorException wae) {
-            Assert.assertTrue(ProblemTester.isProblem(wae, 400, "urn:problem:net.oneandone.reactive.kafka.rest:schema-error")); 
+            Assert.assertTrue(Problem.of(wae).isMalformedRequestDataProblem()); 
         }
             
         

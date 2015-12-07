@@ -33,7 +33,7 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
 
- 
+
 @Ignore
 public class KafkaResourceTest {
     

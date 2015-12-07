@@ -25,7 +25,6 @@ import org.junit.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 
 import net.oneandone.avro.json.AvroMessage;
@@ -52,16 +51,16 @@ public class JsonAvroMapperTest {
 
     @Test(expected=AppendWriteException.class)
     public void testMissingMandatoryField() throws Exception {
-            MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "566");
+        MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "566");
         event.emailaddress = null;
         
-        writeToFile(mapper.getSchema(), mapper.toAvroMessages(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroMessage(toJsonParser(event)));
     }
 
     
     @Test
     public void testValid() throws Exception {
-        writeToFile(mapper.getSchema(), mapper.toAvroMessages(toJsonParser(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
+        writeToFile(mapper.getSchema(), mapper.toAvroMessage(toJsonParser(new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455"))));
     }
     
     
@@ -70,7 +69,7 @@ public class JsonAvroMapperTest {
     public void testValidWithNullRecord() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ADDED, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroMessages(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroMessage(toJsonParser(event)));
     }
     
    
@@ -79,14 +78,12 @@ public class JsonAvroMapperTest {
     public void testInValidEnumValue() throws Exception {
         MyEvent event = new MyEvent("3454503", "test@example.org", MyEvent.Operation.ILLEGAL, "455");
         event.context = null;
-        writeToFile(mapper.getSchema(), mapper.toAvroMessages(toJsonParser(event)));
+        writeToFile(mapper.getSchema(), mapper.toAvroMessage(toJsonParser(event)));
     }
     
     
     
-    private void writeToFile(Schema schema, ImmutableList<AvroMessage> avroMessages) throws IOException {
-        AvroMessage avroMessage =  avroMessages.get(0);
-        
+    private void writeToFile(Schema schema, AvroMessage avroMessage) throws IOException {
         File file = new File("withDataFileWriter.avro");
         DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);
         DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<GenericRecord>(datumWriter);

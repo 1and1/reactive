@@ -240,8 +240,6 @@ public class BusinesEventResource {
         final MediaType readerMimeType = (req.getParameter("q.event.eq") == null) ? MediaType.valueOf("*/*")
                                                                                   : MediaType.valueOf(req.getParameter("q.event.eq")); 
 
-        ImmutableList<MediaType> readerMimeTypes = ImmutableList.of(readerMimeType);
-        
         // compose greeting message 
         String prologComment = "stream opened. emitting " + readerMimeType + " event types";
         prologComment = (consumedOffsets == null) ? prologComment : prologComment + " with offset id " + consumedOffsets; 
@@ -250,7 +248,7 @@ public class BusinesEventResource {
         
         // establish reactive response stream 
         final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(consumedOffsets))
-                                                                 .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeTypes)))
+                                                                 .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeType)))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))
                                                                  .map(idMsgPair -> mapperRepository.toServerSentEvent(idMsgPair.getFirst(), idMsgPair.getSecond()));
         RxReactiveStreams.toPublisher(obs).subscribe(new ServletSseSubscriber(req, resp, prologComment));

@@ -42,12 +42,9 @@ public class BusinesEventApplication extends ResourceConfig {
     
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
-        register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, 
-                                                                e -> StdProblem.newMalformedRequestDataProblem())
-                                             .withProblemMapper(SchemaException.class, "POST", "PUT",
-                                                                e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("mimetype", e.getType()))
-                                             .withProblemMapper(SchemaException.class, "GET",
-                                                                e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("mimetype", e.getType())));
+        register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, e -> StdProblem.newMalformedRequestDataProblem())
+                                             .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("mimetype", e.getType()))
+                                             .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("mimetype", e.getType())));
     } 
 
 

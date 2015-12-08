@@ -16,12 +16,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.Optional;
 
 
 
 public class Problem {
     private static final String TYPE = "type";
     private static final String STATUS = "status";
+    private static final String DETAIL = "detail";
     
     private final ImmutableMap<String, String> problemData;
     
@@ -36,7 +38,7 @@ public class Problem {
     public Problem withDetail(String msg) {
         return new Problem(ImmutableMap.<String, String>builder()
                                        .putAll(problemData)
-                                       .put("detail", msg)
+                                       .put(DETAIL, msg)
                                        .build());
     }
         
@@ -58,6 +60,15 @@ public class Problem {
                                        .put("exception", t.toString())
                                        .put("exceptionStackTrace", Throwables.getStackTraceAsString(t).replace("\t", "   "))
                                        .build());
+    }
+    
+    
+    public Optional<String> getDetail() {
+        return Optional.ofNullable(problemData.get(DETAIL));
+    }
+    
+    public Optional<String> getExceptionText() {
+        return Optional.ofNullable(problemData.get("exception"));
     }
     
     

@@ -18,10 +18,15 @@ import net.oneandone.reactive.utils.Problem;
 
 
 public class GenericExceptionMapper implements ExceptionMapper<Throwable> {
-    private static final String ALL = "*"; 
+    
+    private static final String DEBUG_HEADER = "X-DEBUG";
+    private static final String AUTH_DEBUG_ROLE = "DEBUG";
+
+    private static final String ALL = "*";
     private final ImmutableMap<Class<?>, ImmutableMap<String, Function<Throwable, Problem>>> problemMapperRegistry;
     
     private @Context HttpServletRequest httpReq;
+    
     
     
     public GenericExceptionMapper() {
@@ -78,9 +83,24 @@ public class GenericExceptionMapper implements ExceptionMapper<Throwable> {
             }
         }
 
-        return problemMapper.apply(ex)
-                            .withDetail(ex.getMessage())
-                            .withException(ex)
-                            .toResponse();
+        
+        // ... perform it
+        Problem problem = problemMapper.apply(ex);
+        
+        
+        // and add debug info in case of debugging
+        if (Boolean.getBoolean(httpReq.getHeader(DEBUG_HEADER)) &&     // debug header is set with true 
+            httpReq.isUserInRole(AUTH_DEBUG_ROLE)) {                   // and caller is allowed to request debug info
+            
+            if (!problem.getDetail().isPresent()) {
+                problem = problem.withDetail(ex.getMessage());
+            }
+            
+            if (!problem.getExceptionText().isPresent()) {
+                problem = problem.withException(ex);
+            }
+        }
+        
+        return problem.toResponse();
     }
 }

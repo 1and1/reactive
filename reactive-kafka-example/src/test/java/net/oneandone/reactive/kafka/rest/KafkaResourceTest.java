@@ -36,6 +36,7 @@ import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
 import net.oneandone.reactive.utils.Problem;
+import net.oneandone.reactive.utils.StdProblem;
 
 
 @Ignore
@@ -202,11 +203,27 @@ public class KafkaResourceTest {
         try {
             client.target(uri + "/topics/" + topicName + "/events")
                   .request()
-                  .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.doesnotexsits+json"), String .class);
+                  .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.doesnotexists+json"), String .class);
 
             Assert.fail("exception expected");
-        } catch (ClientErrorException wae) {
-            Assert.assertTrue(Problem.of(wae).isMalformedRequestDataProblem()); 
+        } catch (ClientErrorException ce) {
+            Assert.assertTrue(StdProblem.of(ce).isMalformedRequestDataProblem()); 
+        }
+            
+        
+        
+
+        // submit event with wrong mime type 
+        try {
+            client.target(uri + "/topics/" + topicName + "/events")
+                  .request()
+                  .post(Entity.entity(new MailSentEvent("4454545z3"), "application/vnd.example.event.customerdatachanged+json"), String.class);
+
+            Assert.fail("exception expected");
+        } catch (ClientErrorException ce) {
+            StdProblem problem = StdProblem.of(ce);
+            Assert.assertTrue(problem.isMalformedRequestDataProblem());
+            System.out.println(problem);
         }
             
         
@@ -224,6 +241,19 @@ public class KafkaResourceTest {
         
 
        
+        
+        // consume with unknown mime type
+        try {
+            client.target(resourceUri1)
+                  .request("application/vnd.example.event.doesnotexists-v2+json")
+                  .get(CustomerChangedEventV2.class);      
+
+            Assert.fail("exception expected");
+        } catch (ClientErrorException ce) {
+            Assert.assertTrue(StdProblem.of(ce).isMalformedRequestDataProblem()); 
+        }
+
+        
         
         
         ///////////////////////
@@ -272,12 +302,12 @@ public class KafkaResourceTest {
         
 
         // consume with data and event type filter
-        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334&q.event.eq=application%2Fvnd.example.event.customerdatachanged%2Bjson").open();    
+ /*       reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334&q.event.eq=application%2Fvnd.example.event.customerdatachanged%2Bjson").open();    
         sseF = reactiveSource.read();
         Assert.assertTrue(sseF.getData().get().contains("\"accountid\":2234334"));
         
         reactiveSource.close();
-
+*/
         
         
         

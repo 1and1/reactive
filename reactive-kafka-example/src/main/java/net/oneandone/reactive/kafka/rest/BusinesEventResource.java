@@ -136,16 +136,17 @@ public class BusinesEventResource {
                             @HeaderParam("Content-Type") String contentType, 
                             InputStream jsonObjectStream,
                             @Suspended AsyncResponse response) throws BadRequestException {
+  
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
-  
-  
+        
+        
         // batch events
         if (contentType.toLowerCase(Locale.US).endsWith(".list+json")) {
             
             CompletableFuture<KafkaMessageIdList> sendFuture = CompletableFuture.completedFuture(KafkaMessageIdList.of());
             for (AvroMessage avroMessage : mapperRepository.toAvroMessages(jsonObjectStream, contentType.replace(".list+json", "+json"))) {
-                sendFuture = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getData()))    
+                sendFuture = kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, avroMessage.getBinaryData()))    
                                           .thenApply(metadata -> KafkaMessageIdList.of(new KafkaMessageId(metadata.partition(), metadata.offset())))
                                           .thenCombine(sendFuture, (ids1, ids2) -> ids1.merge(ids2));
             }
@@ -157,7 +158,7 @@ public class BusinesEventResource {
             
         // single event    
         } else {
-            kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, mapperRepository.toAvroMessage(jsonObjectStream, contentType).getData()))    
+            kafkaProducer.sendAsync(new ProducerRecord<String, byte[]>(topicname, mapperRepository.toAvroMessage(jsonObjectStream, contentType).getBinaryData()))    
                          .thenApply(metadata -> new KafkaMessageId(metadata.partition(), metadata.offset()))
                          .thenApply(id -> topicPath + "/events/" + id)
                          .thenApply(uri -> Response.created(URI.create(uri)).build())

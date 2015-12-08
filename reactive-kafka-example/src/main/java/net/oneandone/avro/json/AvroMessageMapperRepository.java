@@ -75,11 +75,11 @@ public class AvroMessageMapperRepository {
         
         schemaNameIndex = ImmutableMap.copyOf(mapper.values()
                                                     .stream()
-                                                    .collect(Collectors.toMap(m -> m.getSchema().getNamespace() + "." + m.getSchema().getName(), 
+                                                    .collect(Collectors.toMap(m -> m.getSchema().getFullName(), 
                                                                               m -> m.getMimeType())));
         schemaIndex = ImmutableMap.copyOf(mapper.values()
                                                 .stream()
-                                                .collect(Collectors.toMap(m -> m.getSchema().getNamespace() + "." + m.getSchema().getName(), 
+                                                .collect(Collectors.toMap(m -> m.getSchema().getFullName(), 
                                                                           m -> m.getSchema())));
     }
     
@@ -129,14 +129,21 @@ public class AvroMessageMapperRepository {
 
     
     public AvroMessage toAvroMessage(byte[] serializedAvroMessage, ImmutableList<MediaType> readerMimeTypes) throws SchemaException {
-        
         ImmutableList<Schema> readerSchemas = ImmutableList.copyOf(readerMimeTypes.stream()
                                                                                   .map(mimeType -> getJsonToAvroMapper(mimeType.toString()))
                                                                                   .filter(optionalMapper -> optionalMapper.isPresent())
                                                                                   .map(mapper -> mapper.get().getSchema())
                                                                                   .collect(Collectors.toList()));
         
-        return AvroMessage.from(serializedAvroMessage, schemaIndex, readerSchemas);
+        AvroMessage avroMessage = AvroMessage.from(serializedAvroMessage, schemaIndex, readerSchemas);
+
+        for (MediaType readerMimeType : readerMimeTypes) {
+            if (avroMessage.getMimeType().isCompatible(readerMimeType)) {
+                return avroMessage;
+            }
+        }
+
+        throw new SchemaException("avro messaqge type " + avroMessage.getMimeType() + " does not match with a requested type " + readerMimeTypes);
     }
     
 

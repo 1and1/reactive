@@ -15,8 +15,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
 import net.oneandone.avro.json.AvroMessageMapperRepository;
+import net.oneandone.avro.json.AvroSerializationException;
+import net.oneandone.avro.json.SchemaException;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
+import net.oneandone.reactive.utils.GenericExceptionMapper;
+import net.oneandone.reactive.utils.StdProblem;
 
 
 
@@ -38,8 +42,10 @@ public class BusinesEventApplication extends ResourceConfig {
     
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
-        register(DefaultExceptionMapper.class);
-        register(SchemaExceptionMapper.class);
+        register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, 
+                                                                e -> StdProblem.newMalformedRequestDataProblem())
+                                             .withProblemMapper(SchemaException.class, 
+                                                                e -> StdProblem.newMalformedRequestDataProblem().withParam("schemaname", e.getType())));
     } 
 
 

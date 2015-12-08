@@ -5,9 +5,12 @@ package net.oneandone.reactive.utils;
 
 import javax.ws.rs.WebApplicationException;
 
+
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 
+import static com.google.common.base.Preconditions.*;
+import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -16,77 +19,82 @@ import java.util.Map;
 
 
 
-public final class Problem {
-    private final int status;
+public class Problem {
+    private static final String TYPE = "type";
+    private static final String STATUS = "status";
+    
     private final ImmutableMap<String, String> problemData;
     
-    private Problem(int status, ImmutableMap<String, String> problemData) {
-        this.status = status;
+    protected Problem(ImmutableMap<String, String> problemData) {
         this.problemData = problemData;
     }
-
+    
+    protected ImmutableMap<String, String> getProblemdata() {
+        return problemData;
+    }
+    
     public Problem withDetail(String msg) {
-        return new Problem(status, ImmutableMap.<String, String>builder()
-                                               .putAll(problemData)
-                                               .put("detail", msg)
-                                               .build());
+        return new Problem(ImmutableMap.<String, String>builder()
+                                       .putAll(problemData)
+                                       .put("detail", msg)
+                                       .build());
     }
         
     public Problem withParam(String name, String value) {
-        return new Problem(status, ImmutableMap.<String, String>builder()
-                                               .putAll(problemData)
-                                               .put(name, value)
-                                               .build());
+        if (value == null) {
+            return this;
+        } else {
+            return new Problem(ImmutableMap.<String, String>builder()
+                                           .putAll(problemData)
+                                           .put(name, value)
+                                           .build());
+        }
     }
     
     public Problem withException(Throwable t) {
-        return new Problem(status, ImmutableMap.<String, String>builder()
-                                               .putAll(problemData)
-                                               .put("exceptionClass", t.getClass().getSimpleName())
-                                               .put("exception", t.toString())
-                                               .put("exceptionStackTrace", Throwables.getStackTraceAsString(t).replace("\t", "   "))
-                                               .build());
+        return new Problem(ImmutableMap.<String, String>builder()
+                                       .putAll(problemData)
+                                       .put("exceptionClass", t.getClass().getSimpleName())
+                                       .put("exception", t.toString())
+                                       .put("exceptionStackTrace", Throwables.getStackTraceAsString(t).replace("\t", "   "))
+                                       .build());
+    }
+    
+    
+    @Override
+    public String toString() {
+        return Joiner.on("\r\n").withKeyValueSeparator("=").join(problemData);
     }
     
     
     public Response toResponse() {
-        return Response.status(status)
+        return Response.status(Integer.parseInt(problemData.get(STATUS)))
                        .entity(problemData)
                        .type("application/problem+json").build();
     }
 
     
     public boolean is(int status, String problemtype) {
-        return (this.status == status) && problemtype.equals(this.problemData.get("type"));
+        return (status == Integer.parseInt(this.problemData.get(STATUS))) && 
+                problemtype.equals(this.problemData.get(TYPE));
     }
 
     
     public static Problem newProblem(int status, String urn) {
-        return new Problem(status, ImmutableMap.of("status", Integer.toString(status), "type", urn));
+        return new Problem(newProblemdata(status, urn));
     }
 
-
-
-    public boolean isMalformedRequestDataProblem() {
-        return is(400, "urn:problem:formed-request-data");
-    }
-
-    public static Problem newMalformedRequestDataProblem() {
-        return newProblem(400, "urn:problem:formed-request-data");
+    protected static ImmutableMap<String, String> newProblemdata(int status, String urn) {
+        return ImmutableMap.of(STATUS, Integer.toString(checkNotNull(status)), 
+                               TYPE, checkNotNull(urn));
     }
 
     
-    public boolean isServerErrorProblem() {
-        return is(500, "urn:problem:server-error");
-    }
-
-    public static Problem newServerErrorProblem() {
-        return newProblem(500, "urn:problem:server-error");
-    }
-
-
     public static Problem of(WebApplicationException wae) {
+        return new Problem(parseProblemData(wae));
+    }
         
+    protected static ImmutableMap<String, String> parseProblemData(WebApplicationException wae) {
         Response response = wae.getResponse();
         try {
             response.bufferEntity();
@@ -95,10 +103,9 @@ public final class Problem {
                 problemData = Maps.newHashMap();
             }
             
-            return new Problem(wae.getResponse().getStatus(), ImmutableMap.copyOf(problemData));
+            return ImmutableMap.copyOf(problemData);
         } finally {
             response.close();
         }
     }
-
 }

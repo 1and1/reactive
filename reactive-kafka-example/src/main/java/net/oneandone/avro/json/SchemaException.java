@@ -1,6 +1,5 @@
 package net.oneandone.avro.json;
 
-import java.util.function.Supplier;
 
 public class SchemaException extends RuntimeException {
 
@@ -8,7 +7,7 @@ public class SchemaException extends RuntimeException {
 
     private final String type;
 
-    @Deprecated
+
     public SchemaException(String reason) {
         super(reason);
         this.type = null;

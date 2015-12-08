@@ -54,7 +54,7 @@ public class AvroMessage {
         return MediaType.valueOf("application/vnd." + Joiner.on(".").join(getSchema().getNamespace(), getSchema().getName().replace("_v", "-v")) + "+json");
     }
     
-    public byte[] getData() {
+    public byte[] getBinaryData() throws AvroSerializationException {
         return serialize(avroMessage);
     }
     
@@ -80,7 +80,7 @@ public class AvroMessage {
         byte[] msg = new byte[buffer.remaining()];
         buffer.get(msg);
         
-        return new AvroMessage(deserializeAvroMessage(msg, writerSchema, readerSchemas));   
+        return new AvroMessage(deserializeAvroMessage(msg, writerSchema, readerSchemas));
     }
     
     
@@ -114,7 +114,7 @@ public class AvroMessage {
     
     
     
-    private static byte[] serialize(GenericRecord avroMessage) {
+    private static byte[] serialize(GenericRecord avroMessage) throws AvroSerializationException {
         try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
             final Encoder encoder = EncoderFactory.get().binaryEncoder(os, null); 
 
@@ -123,8 +123,8 @@ public class AvroMessage {
             encoder.flush(); 
             
             return withHeader(avroMessage.getSchema(), os.toByteArray()); 
-        } catch (IOException | RuntimeException e) {
-            throw new RuntimeException(e);
+        } catch(IOException | RuntimeException rt) {
+            throw new AvroSerializationException("serializing avro message failed (wrong schema type?)", avroMessage.getSchema().getFullName(), rt);
         }
     }
     

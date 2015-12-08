@@ -7,7 +7,6 @@ import java.io.File;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -35,7 +34,6 @@ import com.google.common.io.CharSource;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
-import net.oneandone.reactive.utils.Problem;
 import net.oneandone.reactive.utils.StdProblem;
 
 
@@ -207,7 +205,7 @@ public class KafkaResourceTest {
 
             Assert.fail("exception expected");
         } catch (ClientErrorException ce) {
-            Assert.assertTrue(StdProblem.of(ce).isMalformedRequestDataProblem()); 
+            Assert.assertTrue(StdProblem.of(ce).isUnsupportedMimeTypeProblem()); 
         }
             
         
@@ -250,7 +248,9 @@ public class KafkaResourceTest {
 
             Assert.fail("exception expected");
         } catch (ClientErrorException ce) {
-            Assert.assertTrue(StdProblem.of(ce).isMalformedRequestDataProblem()); 
+            StdProblem problem = StdProblem.of(ce);
+            Assert.assertTrue(problem.isUnacceptedMimeTypeProblem());
+            System.out.println(problem);
         }
 
         

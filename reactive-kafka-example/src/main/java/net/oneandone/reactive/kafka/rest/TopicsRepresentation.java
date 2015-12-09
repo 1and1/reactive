@@ -17,11 +17,10 @@ package net.oneandone.reactive.kafka.rest;
 
 
 
-import java.util.List;
-
 import javax.ws.rs.core.UriInfo;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
 
@@ -32,17 +31,17 @@ import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
 public class TopicsRepresentation {
     
     public ImmutableMap<String, Object> _links; 
-    public List<TopicRepresentation> _elements;
+    public ImmutableSet<TopicRepresentation> _elements;
     
     public TopicsRepresentation() {  }
     
     
-    public TopicsRepresentation(UriInfo uriInfo, String path, List<TopicRepresentation> elements) { 
+    public TopicsRepresentation(UriInfo uriInfo, String path, ImmutableSet<TopicRepresentation> elements) { 
         this(LinksBuilder.create(uriInfo.getBaseUriBuilder().path(path).build()).build(), elements);
     }
     
     
-    public TopicsRepresentation(ImmutableMap<String, Object> links, List<TopicRepresentation> elements) {
+    public TopicsRepresentation(ImmutableMap<String, Object> links, ImmutableSet<TopicRepresentation> elements) {
         this._links = links;
         this._elements = elements;
     }

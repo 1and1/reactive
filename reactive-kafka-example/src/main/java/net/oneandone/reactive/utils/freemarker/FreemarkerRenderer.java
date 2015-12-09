@@ -49,6 +49,11 @@ public class FreemarkerRenderer  {
 
     private static final Logger LOG = LoggerFactory.getLogger(FreemarkerRenderer.class);
     
+    public static String BUILDIN_LOCALHOST = "_localhost";
+    public static String BUILDIN_REQUEST_URL = "_requestURL";
+    public static String BUILDIN_PRINCIPAL = "_principal";
+    
+    
     private final Configuration cfg;
     private final InetAddress localhost;
 

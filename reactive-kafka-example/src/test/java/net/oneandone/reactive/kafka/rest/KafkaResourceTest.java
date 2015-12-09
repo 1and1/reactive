@@ -126,14 +126,6 @@ public class KafkaResourceTest {
         
 
         
-        // request topics info
-        String topics = client.target(uri + "/rest/topics?q.topic.name.eq=" + topicName)
-                              .request("application/vnd.ui.mam.eventservice.topic.list+json")
-                              .get(String.class);
-        Assert.assertTrue(topics.contains("/rest/topics/" + topicName));
-        
-       
-        
         
         // request topic info
         String topic = client.target(uri + "/rest/topics/" + topicName)
@@ -340,6 +332,25 @@ public class KafkaResourceTest {
         reactiveSource.close();
         
         
+
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        // request topics info
+        String topics = client.target(uri + "/rest/topics?q.topic.name.eq=" + topicName)
+                              .request("application/vnd.ui.mam.eventservice.topic.list+json")
+                              .get(String.class);
+        Assert.assertTrue(topics.contains("/rest/topics/" + topicName));
+        
+       
+        
+
 
         // consume with data and event type filter
  /*       reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334&q.event.eq=application%2Fvnd.example.event.customerdatachanged%2Bjson").open();    

@@ -41,6 +41,7 @@ import org.reactivestreams.Subscription;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Queues;
 
 
@@ -55,12 +56,20 @@ public class KafkaSource<K, V> {
     }
  
     
+    
     public SingleKafkaSource<K, V> withTopic(String topic) {
         return new SingleKafkaSourceImpl<K, V>(this.properties, topic, new KafkaMessageIdList(), new KafkaMessageIdList());
     }
     
     
+    public ImmutableSet<String> listTopics() {
+        try (KafkaConsumer<Object, Object> consumer = new KafkaConsumer<>(ImmutableMap.copyOf(properties))) {
+            return ImmutableSet.copyOf(consumer.listTopics().keySet());
+        }        
+    }
+    
 
+    
     
     
 

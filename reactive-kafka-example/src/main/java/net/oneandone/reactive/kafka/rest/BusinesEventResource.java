@@ -20,6 +20,7 @@ import java.io.IOException;
 
 
 
+
 import java.io.InputStream;
 
 
@@ -63,6 +64,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import net.oneandone.avro.json.AvroMessageMapperRepository;
 import net.oneandone.avro.json.AvroMessage;
@@ -78,6 +80,7 @@ import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
 import net.oneandone.reactive.utils.Pair;
 import net.oneandone.reactive.utils.freemarker.Page;
 import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
+
 import rx.Observable;
 import rx.RxReactiveStreams;
 
@@ -89,16 +92,17 @@ public class BusinesEventResource {
     
     private final AvroMessageMapperRepository mapperRepository; 
     private final CompletableKafkaProducer<String, byte[]> kafkaProducer;
-    private final KafkaSource<String, byte[]> kafkaSourcePrototype;
+    private final KafkaSource<String, byte[]> kafkaSource;
 
     
 
     @Autowired
     public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
-                                KafkaSource<String, byte[]> kafkaSourcePrototype,
+                                KafkaSource<String, byte[]> kafkaSource,
                                 AvroMessageMapperRepository avroMessageMapperRepository) {
+        
         this.kafkaProducer = kafkaProducer;
-        this.kafkaSourcePrototype = kafkaSourcePrototype;
+        this.kafkaSource = kafkaSource;
         this.mapperRepository = avroMessageMapperRepository;
     }
     
@@ -108,6 +112,7 @@ public class BusinesEventResource {
     @Path("/")
     @Produces(MediaType.APPLICATION_JSON + "; qs=0.8")
     public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(@Context UriInfo uriInfo) {
+        
         return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
     }
  
@@ -115,10 +120,11 @@ public class BusinesEventResource {
     @GET
     @Path("/")
     @Produces(MediaType.TEXT_HTML + "; qs=0.4")
-    public Page getRootHtml(@Context HttpServletRequest httpRequest) {
+    public Page getRootHtml(@Context UriInfo uriInfo, @Context HttpServletRequest httpRequest) {
+        
         return new Page("/net/oneandone/reactive/kafka/rest/root.ftl")
-                      .withModelData("self", httpRequest.getRequestURL())
-                      .withModelData("base", httpRequest.getRequestURL().substring(0, httpRequest.getRequestURL().length() - httpRequest.getServletPath().length()));
+                      .withModelData("self", uriInfo.getBaseUri())
+                      .withModelData("base", uriInfo.getBaseUri().toString().substring(0, uriInfo.getBaseUri().toString().length() - httpRequest.getServletPath().length()));
     }
     
     
@@ -126,26 +132,63 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics")
-    @Produces("application/vnd.ui.mam.eventservice.topic.list+json")
-    public TopicsRepresentation getTopics(@Context UriInfo uriInfo, @QueryParam("q.topic.name.eq") String topicname) {
-        return new TopicsRepresentation(uriInfo, "topics", ImmutableList.of(getTopic(uriInfo, topicname))); 
+    @Produces("application/vnd.ui.mam.eventservice.topic.list+json; qs=0.8")
+    public TopicsRepresentation getTopicsJson(@Context UriInfo uriInfo, @QueryParam("q.topic.name.eq") String topicname) {
+
+        Predicate<String> filter = (topicname == null) ? (name -> true) : (name -> name.equals(topicname));
+        
+        return new TopicsRepresentation(uriInfo, "topics", ImmutableSet.copyOf(kafkaSource.listTopics()
+                                                                                          .stream()
+                                                                                          .filter(filter)
+                                                                                          .map(name -> getTopicJson(uriInfo, name))
+                                                                                          .collect(Collectors.toList()))); 
     }
     
+    
+    @GET
+    @Path("/topics")
+    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    public Page getTopicsHtml(@Context UriInfo uriInfo) {
+        
+        return new Page("/net/oneandone/reactive/kafka/rest/topiclist.ftl")
+                      .withModelData("self", uriInfo.getBaseUri())
+                      .withModelData("topicnames", ImmutableSet.copyOf(kafkaSource.listTopics()
+                                                               .stream()
+                                                               .collect(Collectors.toList())));
+    }
     
     
     @GET
     @Path("/topics/{topicname}")
-    @Produces("application/vnd.ui.mam.eventservice.topic+json")
-    public TopicRepresentation getTopic(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
+    @Produces("application/vnd.ui.mam.eventservice.topic+json; qs=0.8")
+    public TopicRepresentation getTopicJson(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
+        
         return new TopicRepresentation(uriInfo, "topics", topicname);
     }
         
+    
+    @GET
+    @Path("/topics/{topicname}")
+    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    public Page getTopicHtml(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
+        
+        return new Page("/net/oneandone/reactive/kafka/rest/topic.ftl")
+                      .withModelData("base", uriInfo.getBaseUri())
+                      .withModelData("topicname", topicname);
+    }
+        
+    
+    
+    
+    
+    
   
 
     @GET
     @Path("/topics/{topic}/schemas")
     @Produces(MediaType.TEXT_PLAIN)
     public String getRegisteredSchematas() {
+        
         return Joiner.on("\r\n").join(mapperRepository.getRegisteredSchemas()
                                                       .entrySet()
                                                       .stream()
@@ -164,7 +207,6 @@ public class BusinesEventResource {
                             @HeaderParam("Content-Type") String contentType, 
                             InputStream jsonObjectStream,
                             @Suspended AsyncResponse response) throws BadRequestException {
-  
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
         
@@ -204,7 +246,7 @@ public class BusinesEventResource {
         
         
         // open kafka source
-        ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+        ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
                                                                                           .filter(KafkaMessageIdList.of(id))
                                                                                           .open();
         
@@ -228,7 +270,7 @@ public class BusinesEventResource {
                            @Suspended AsyncResponse response) throws IOException {
         
         
-        final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSourcePrototype.withTopic(topic)
+        final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
                                                                                                 .filter(ids)
                                                                                                 .open();
             
@@ -276,7 +318,7 @@ public class BusinesEventResource {
 
         
         // establish reactive response stream 
-        final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSourcePrototype.withTopic(topic).fromOffsets(consumedOffsets))
+        final Observable<ServerSentEvent> obs = RxReactiveStreams.toObservable(kafkaSource.withTopic(topic).fromOffsets(consumedOffsets))
                                                                  .map(message -> Pair.of(message.getConsumedOffsets(), mapperRepository.toAvroMessage(message.value(), readerMimeType)))
                                                                  .filter(pair -> pair.getSecond().getMimeType().isCompatible(readerMimeType))
                                                                  .filter(pair -> filterCondition.test(pair.getSecond()))

@@ -42,6 +42,7 @@ import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharSource;
@@ -312,10 +313,10 @@ public class KafkaResourceTest {
         Set<Integer> receivedIds = Sets.newHashSet(2234334, 223323);
         reactiveSource = new ClientSseSource(uri + "/rest/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
         ServerSentEvent sse1 = reactiveSource.read();
-        receivedIds.remove(Json.createReader(CharSource.wrap(sse1.getData().get()).openStream()).readObject().getInt("accountid"));
+        receivedIds.remove(Json.createReader(CharSource.wrap(Splitter.on("\n").splitToList(sse1.getData().get()).get(1)).openStream()).readObject().getInt("accountid"));
         
         ServerSentEvent sse2 = reactiveSource.read();
-        receivedIds.remove(Json.createReader(CharSource.wrap(sse2.getData().get()).openStream()).readObject().getInt("accountid"));
+        receivedIds.remove(Json.createReader(CharSource.wrap(Splitter.on("\n").splitToList(sse2.getData().get()).get(1)).openStream()).readObject().getInt("accountid"));
 
         reactiveSource.close();
         

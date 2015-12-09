@@ -18,7 +18,7 @@
                     <td> <a href="${base}health">springboot health</a> </td> 
                 </tr>
                 <tr class="odd">                    
-                    <td> <a href="${base}trace">springboot health</a> </td> 
+                    <td> <a href="${base}trace">springboot trace</a> </td> 
                 </tr>
                 <tr class="even">                    
                     <td> <a href="${base}metrics">springboot metrics</a> </td> 

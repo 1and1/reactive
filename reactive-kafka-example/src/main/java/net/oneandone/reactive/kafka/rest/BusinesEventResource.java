@@ -110,7 +110,7 @@ public class BusinesEventResource {
 
     @GET
     @Path("/")
-    @Produces(MediaType.APPLICATION_JSON + "; qs=0.8")
+    @Produces("application/json; qs=0.8")
     public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(@Context UriInfo uriInfo) {
         
         return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
@@ -119,7 +119,7 @@ public class BusinesEventResource {
     
     @GET
     @Path("/")
-    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    @Produces("text/html; qs=0.4")
     public Page getRootHtml(@Context UriInfo uriInfo, @Context HttpServletRequest httpRequest) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/root.ftl")
@@ -147,7 +147,7 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics")
-    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    @Produces("text/html; qs=0.4")
     public Page getTopicsHtml(@Context UriInfo uriInfo) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/topiclist.ftl")
@@ -169,7 +169,7 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics/{topicname}")
-    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    @Produces("text/html; qs=0.4")
     public Page getTopicHtml(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/topic.ftl")
@@ -186,7 +186,7 @@ public class BusinesEventResource {
 
     @GET
     @Path("/topics/{topic}/schemas")
-    @Produces(MediaType.TEXT_PLAIN)
+    @Produces("text/plain")
     public String getRegisteredSchematas() {
         
         return Joiner.on("\r\n").join(mapperRepository.getRegisteredSchemas()
@@ -293,15 +293,17 @@ public class BusinesEventResource {
                     .whenComplete((resp, error) -> { reactiveSource.close(); ResultConsumer.writeTo(response).accept(resp, error); });
     }
     
+    
+    
 
     @GET
     @Path("/topics/{topic}/events")
-    @Produces("text/event-stream")
-    public void readEventsAsStream(@PathParam("topic") String topic,
-                                   @HeaderParam("Last-Event-Id") @DefaultValue("") KafkaMessageIdList consumedOffsets,
-                                   @Context HttpServletRequest req,
-                                   @Context HttpServletResponse resp,
-                                   @Suspended AsyncResponse response) {
+    @Produces("text/event-stream; qs=0.8")
+    public void readEventsEventStream(@PathParam("topic") String topic,
+                                      @HeaderParam("Last-Event-Id") @DefaultValue("") KafkaMessageIdList consumedOffsets,
+                                      @Context HttpServletRequest req,
+                                      @Context HttpServletResponse resp,
+                                      @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
         
@@ -327,6 +329,16 @@ public class BusinesEventResource {
     }
     
    
+    
+    
+
+    @GET
+    @Path("/topics/{topic}/events")
+    @Produces("text/html; qs=0.4")
+    public Page readEventsAsHtml() {
+        return new Page("/net/oneandone/reactive/kafka/rest/eventstream.ftl");
+    }
+
     
     
     private static final class FilterCondition {

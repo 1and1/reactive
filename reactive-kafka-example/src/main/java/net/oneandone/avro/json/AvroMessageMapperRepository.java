@@ -165,8 +165,7 @@ public class AvroMessageMapperRepository {
     public ServerSentEvent toServerSentEvent(KafkaMessageIdList consumedOffsets, AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(schema -> ServerSentEvent.newEvent()
                                                                                          .id(consumedOffsets.toString())
-                                                                                         .event(avroMessage.getMimeType().toString())
-                                                                                         .data(toJson(avroMessage).toString()))
+                                                                                         .data(avroMessage.getMimeType().toString() + "\n" + toJson(avroMessage).toString()))
                                                            .orElseThrow(() -> new SchemaException("unsupported type", avroMessage.getMimeType().toString()));
     }
     

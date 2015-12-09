@@ -17,6 +17,8 @@ package net.oneandone.reactive.sse;
 
 import java.util.Optional;
 
+import com.google.common.base.Splitter;
+
 
 
 /**
@@ -77,7 +79,7 @@ public interface ServerSentEvent {
         getComment().ifPresent(comment -> sb.append(": " + comment + "\r\n"));
         getId().ifPresent(id -> sb.append("id: " + id + "\r\n"));
         getEvent().ifPresent(event -> sb.append("event: " + event + "\r\n"));
-        getData().ifPresent(data -> sb.append("data: " + data + "\r\n"));
+        getData().ifPresent(data -> Splitter.on("\n").splitToList(data).forEach(line -> sb.append("data: " + line + "\r\n")));
         getRetry().ifPresent(retry -> sb.append("retry: " + retry + "\r\n"));
         sb.append("\r\n");
         

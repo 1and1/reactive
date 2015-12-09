@@ -1,3 +1,18 @@
+/*
+ * Copyright 1&1 Internet AG, https://github.com/1and1/
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package net.oneandone.reactive.kafka.rest;
 
 import java.io.IOException;
@@ -60,8 +75,9 @@ import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
-import net.oneandone.reactive.utils.LinksBuilder;
 import net.oneandone.reactive.utils.Pair;
+import net.oneandone.reactive.utils.freemarker.Page;
+import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
 import rx.Observable;
 import rx.RxReactiveStreams;
 
@@ -86,15 +102,27 @@ public class BusinesEventResource {
         this.mapperRepository = avroMessageMapperRepository;
     }
     
+    
 
+    @GET
+    @Path("/")
+    @Produces(MediaType.APPLICATION_JSON + "; qs=0.8")
+    public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(@Context UriInfo uriInfo) {
+        return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
+    }
+ 
     
     @GET
     @Path("/")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Object getRoot(@Context UriInfo uriInfo) {
-        return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
+    @Produces(MediaType.TEXT_HTML + "; qs=0.4")
+    public Page getRootHtml(@Context HttpServletRequest httpRequest) {
+        return new Page("/net/oneandone/reactive/kafka/rest/root.ftl")
+                      .withModelData("self", httpRequest.getRequestURL())
+                      .withModelData("base", httpRequest.getRequestURL().substring(0, httpRequest.getRequestURL().length() - httpRequest.getServletPath().length()));
     }
     
+    
+  
     
     @GET
     @Path("/topics")

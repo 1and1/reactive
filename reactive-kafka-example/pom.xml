@@ -41,7 +41,7 @@
 			<artifactId>spring-boot-starter-jersey</artifactId>
 			<version>${spring-boot-version}</version>
 		</dependency>
-	
+
 
 		<dependency>
 			<groupId>net.oneandone.reactive</groupId>
@@ -95,6 +95,11 @@
 			<groupId>org.apache.avro</groupId>
 			<artifactId>avro-tools</artifactId>
 			<version>1.7.7</version>
+		</dependency>
+		<dependency>
+			<groupId>org.freemarker</groupId>
+			<artifactId>freemarker</artifactId>
+			<version>2.3.23</version>
 		</dependency>
 
 		<dependency>

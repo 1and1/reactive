@@ -1,3 +1,18 @@
+/*
+ * Copyright 1&1 Internet AG, https://github.com/1and1/
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package net.oneandone.reactive.kafka.rest;
 
 import java.io.File;
@@ -24,7 +39,6 @@ import org.glassfish.jersey.client.JerseyClientBuilder;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableMap;
@@ -34,7 +48,8 @@ import com.google.common.io.CharSource;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
-import net.oneandone.reactive.utils.StdProblem;
+import net.oneandone.reactive.utils.problem.StdProblem;
+
 
 
 @Ignore
@@ -91,21 +106,45 @@ public class KafkaResourceTest {
         
         
         
+        String health = client.target(uri + "/health")
+                              .request(MediaType.APPLICATION_JSON)
+                              .get(String.class);
+        System.out.println(health);
+        
+        
+        
         ///////////////////////
         // (1) first fetch meta data
+
+        
+        // request root
+        String root = client.target(uri + "/rest/")
+                             .request(MediaType.APPLICATION_JSON)
+                            .get(String.class);
+        Assert.assertTrue(root.contains("/rest/"));
+        
+
+        
+        // request topics info
+        String topics = client.target(uri + "/rest/topics?q.topic.name.eq=" + topicName)
+                              .request("application/vnd.ui.mam.eventservice.topic.list+json")
+                              .get(String.class);
+        Assert.assertTrue(topics.contains("/rest/topics/" + topicName));
+        
+       
         
         
         // request topic info
-        String topic = client.target(uri + "/topics/" + topicName)
-                             .request()
+        String topic = client.target(uri + "/rest/topics/" + topicName)
+                             .request("application/vnd.ui.mam.eventservice.topic+json")
                              .get(String.class);
 
-        Assert.assertTrue(topic.contains("/topics/" + topicName + "/schemas"));
+        Assert.assertTrue(topic.contains("/rest/topics/" + topicName + "/schemas"));
         
        
 
         // request all schemas
-        String metaData = client.target(uri + "/topics/" + topicName + "/schemas")
+        String metaData = client.target(uri + "/rest/topics/" + topicName + "/schemas")
                                 .request(MediaType.TEXT_PLAIN)
                                 .get(String.class);
 
@@ -129,7 +168,7 @@ public class KafkaResourceTest {
         
         
         // submit event based on avro schema
-        Response resp = client.target(uri + "/topics/" + topicName + "/events")
+        Response resp = client.target(uri + "/rest/topics/" + topicName + "/events")
                               .request()
                               .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"));
 
@@ -148,7 +187,7 @@ public class KafkaResourceTest {
      
         
         // submit event based on avro idl
-        resp = client.target(uri + "/topics/" + topicName + "/events")
+        resp = client.target(uri + "/rest/topics/" + topicName + "/events")
                      .request()
                      .post(Entity.entity(new MailSentEvent("4454545z3"), "application/vnd.example.mail.mailsent+json"));
         
@@ -169,7 +208,7 @@ public class KafkaResourceTest {
         
         
         // submit batch event
-        resp = client.target(uri + "/topics/" + topicName + "/events")
+        resp = client.target(uri + "/rest/topics/" + topicName + "/events")
                      .request()
                      .post(Entity.entity(new CustomerChangedEvent[] { new CustomerChangedEvent(5555), new CustomerChangedEvent(4544) }, "application/vnd.example.event.customerdatachanged.list+json"));
         
@@ -189,8 +228,8 @@ public class KafkaResourceTest {
         
         // and check if submitted (with wildcard type)
         ccEvents = client.target(resourceUri3)
-                                                .request("*/*")
-                                                .get(CustomerChangedEvent[].class);
+                         .request("*/*")
+                         .get(CustomerChangedEvent[].class);
         Assert.assertTrue((ccEvents[0].accountid == 5555) || (ccEvents[1].accountid == 5555));
         Assert.assertTrue((ccEvents[0].accountid == 4544) || (ccEvents[1].accountid == 4544));
         
@@ -199,7 +238,7 @@ public class KafkaResourceTest {
         
         // submit event with unknown mime type
         try {
-            client.target(uri + "/topics/" + topicName + "/events")
+            client.target(uri + "/rest/topics/" + topicName + "/events")
                   .request()
                   .post(Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.doesnotexists+json"), String .class);
 
@@ -213,7 +252,7 @@ public class KafkaResourceTest {
 
         // submit event with wrong mime type 
         try {
-            client.target(uri + "/topics/" + topicName + "/events")
+            client.target(uri + "/rest/topics/" + topicName + "/events")
                   .request()
                   .post(Entity.entity(new MailSentEvent("4454545z3"), "application/vnd.example.event.customerdatachanged+json"), String.class);
 
@@ -260,7 +299,7 @@ public class KafkaResourceTest {
         // (4) consume event stream
             
       
-        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").open();    
+        ReactiveSource<ServerSentEvent> reactiveSource = new ClientSseSource(uri + "/rest/topics/" + topicName + "/events").open();    
         reactiveSource.read();
         reactiveSource.read();
         reactiveSource.read();
@@ -270,15 +309,15 @@ public class KafkaResourceTest {
 
         
         // submit 2 more events
-        client.target(uri + "/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(2234334), "application/vnd.example.event.customerdatachanged+json"), String .class);
-        client.target(uri + "/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(223323), "application/vnd.example.event.customerdatachanged+json"), String .class);
+        client.target(uri + "/rest/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(2234334), "application/vnd.example.event.customerdatachanged+json"), String .class);
+        client.target(uri + "/rest/topics/" + topicName + "/events").request().post(Entity.entity(new CustomerChangedEvent(223323), "application/vnd.example.event.customerdatachanged+json"), String .class);
         reactiveSource.read();
         reactiveSource.read();
         reactiveSource.close();
         
         
         Set<Integer> receivedIds = Sets.newHashSet(2234334, 223323);
-        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
+        reactiveSource = new ClientSseSource(uri + "/rest/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
         ServerSentEvent sse1 = reactiveSource.read();
         receivedIds.remove(Json.createReader(CharSource.wrap(sse1.getData().get()).openStream()).readObject().getInt("accountid"));
         
@@ -293,7 +332,7 @@ public class KafkaResourceTest {
         
     
         // consume with data filter
-        reactiveSource = new ClientSseSource(uri + "/topics/" + topicName + "/events?q.data.accountid.eq=2234334").open();    
+        reactiveSource = new ClientSseSource(uri + "/rest/topics/" + topicName + "/events?q.data.accountid.eq=2234334").open();    
         ServerSentEvent sseF = reactiveSource.read();
         Assert.assertTrue(sseF.getData().get().contains("\"accountid\":2234334"));
         

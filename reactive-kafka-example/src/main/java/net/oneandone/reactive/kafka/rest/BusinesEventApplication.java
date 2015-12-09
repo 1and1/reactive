@@ -1,3 +1,18 @@
+/*
+ * Copyright 1&1 Internet AG, https://github.com/1and1/
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package net.oneandone.reactive.kafka.rest;
 
 
@@ -5,13 +20,18 @@ package net.oneandone.reactive.kafka.rest;
 import java.io.File;
 import java.util.Map;
 
+import javax.ws.rs.ApplicationPath;
+
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.servlet.ServletContainer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.embedded.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import net.oneandone.avro.json.AvroMessageMapperRepository;
@@ -19,16 +39,18 @@ import net.oneandone.avro.json.AvroSerializationException;
 import net.oneandone.avro.json.SchemaException;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
-import net.oneandone.reactive.utils.GenericExceptionMapper;
-import net.oneandone.reactive.utils.StdProblem;
+import net.oneandone.reactive.utils.freemarker.FreemarkerPageProvider;
+import net.oneandone.reactive.utils.problem.GenericExceptionMapper;
+import net.oneandone.reactive.utils.problem.StdProblem;
 
 
 
 
 
+@ApplicationPath("/rest")
 @SpringBootApplication
 public class BusinesEventApplication extends ResourceConfig {
-    
+
     @Value("${eventbus.bootstrapservers}")
     private String bootstrapservers;
 
@@ -42,10 +64,21 @@ public class BusinesEventApplication extends ResourceConfig {
     
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
+        register(FreemarkerPageProvider.class);
         register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, e -> StdProblem.newMalformedRequestDataProblem())
-                                             .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("mimetype", e.getType()))
-                                             .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("mimetype", e.getType())));
+                                             .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("type", e.getType()))
+                                             .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
     } 
+    
+
+
+    @Bean
+    public FilterRegistrationBean jersey() {
+        FilterRegistrationBean bean = new FilterRegistrationBean();
+        bean.setFilter(new ServletContainer());
+        bean.setUrlPatterns(Lists.newArrayList("/topics/*"));
+        return bean;
+    }
 
 
     @Bean(destroyMethod="close")

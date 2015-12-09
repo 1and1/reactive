@@ -4,7 +4,6 @@ logging:
     net.oneandone.reactive: DEBUG
     kafka: ERROR
 
-
 schemaregistry: 
        path: src/main/resources/schemas
 

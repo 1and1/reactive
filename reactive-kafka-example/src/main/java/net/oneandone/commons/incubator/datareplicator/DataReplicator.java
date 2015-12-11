@@ -50,8 +50,7 @@ import com.google.common.io.Files;
  * Each time updated data is fetched the registered consumer will be called. 
  *
  */
-public class DataReplicator {
-    
+public class DataReplicator {    
     private static final Logger LOG = LoggerFactory.getLogger(DataReplicator.class);
     
     private final URI uri;
@@ -237,9 +236,9 @@ public class DataReplicator {
             // load on startup
             try {
                 load();
-                
+
             } catch (final RuntimeException rt) {
-                
+            
                 if (failOnInitFailure) {
                     throw rt;
                 } else {

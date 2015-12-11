@@ -22,8 +22,8 @@ import java.io.IOException;
 
 
 
-import java.io.InputStream;
 
+import java.io.InputStream;
 
 
 import java.net.URI;
@@ -33,7 +33,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import javax.json.Json;
 import javax.json.JsonArrayBuilder;
@@ -81,6 +80,7 @@ import net.oneandone.reactive.kafka.avro.json.AvroMessageMapperRepository;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
+import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Pair;
 import rx.Observable;
 import rx.RxReactiveStreams;
@@ -113,7 +113,7 @@ public class BusinesEventResource {
     @Path("/")
     @Produces("application/json; qs=0.8")
     public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(final @Context UriInfo uriInfo) {
-        
+
         return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
     }
  
@@ -144,7 +144,7 @@ public class BusinesEventResource {
                                                                                           .stream()
                                                                                           .filter(filter)
                                                                                           .map(name -> getTopicJson(uriInfo, name))
-                                                                                          .collect(Collectors.toList()))); 
+                                                                                          .collect(Immutables.toList()))); 
     }
     
     
@@ -195,7 +195,7 @@ public class BusinesEventResource {
                                                       .map(entry -> ("== " + entry.getKey() +  
                                                                      " ==\r\n" + entry.getValue() +
                                                                      "\r\n\r\n\r\n"))
-                                                      .collect(Collectors.toList()));
+                                                      .collect(Immutables.toList()));
     }
     
   
@@ -208,7 +208,7 @@ public class BusinesEventResource {
                     .withModelData("schemas", mapperRepository.getRegisteredSchemas()
                                                               .entrySet()
                                                               .stream()
-                                                              .collect(Collectors.toMap(e -> e.getKey(), 
+                                                              .collect(Immutables.toMap(e -> e.getKey(), 
                                                                                         e -> (e.getValue().getDoc() == null) ? "" 
                                                                                                                              : e.getValue().getDoc())));
     }
@@ -310,7 +310,7 @@ public class BusinesEventResource {
         for (int i = 0; i < ids.size(); i++) {
             queryFuture = reactiveSource.readAsync(Duration.ofSeconds(5))
                                         .thenApply(kafkaMessage -> ImmutableList.of(mapperRepository.toAvroMessage(kafkaMessage.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")))))
-                                        .thenCombine(queryFuture, (ids1, ids2) -> ImmutableList.<AvroMessage>builder().addAll(ids1).addAll(ids2).build());
+                                        .thenCombine(queryFuture, (ids1, ids2) -> Immutables.join(ids1, ids2));
                     
         }    
         
@@ -370,9 +370,11 @@ public class BusinesEventResource {
 
     
     
+    
+    
     private static final class FilterCondition {
-
         public static final Predicate<AvroMessage> NO_FILTER = new Condition("", record -> true); 
+
         
         public static Predicate<AvroMessage> from(ImmutableMap<String, String[]> filterParams) {
             Predicate<AvroMessage> filter = NO_FILTER;
@@ -395,28 +397,28 @@ public class BusinesEventResource {
             if (condition.endsWith(".eq")) {
                 return new Condition(condition + "=" + value,
                                      record -> read(name, record).map(obj -> obj.toString().equals(value))
-                                                                   .orElse(false));
+                                                                 .orElse(false));
                 
             } else if (condition.endsWith(".ne")) {
                 return new Condition(condition + "=" + value,
                                      record -> read(name, record).map(obj -> !obj.toString().equals(value))
-                                                                   .orElse(false));
+                                                                 .orElse(false));
 
             } else if (condition.endsWith(".in")) {
                 ImmutableList<String> values = ImmutableList.copyOf(Splitter.on(",").trimResults().splitToList(value));
                 return new Condition(condition + "=" + values, 
                                      record -> read(name, record).map(obj -> values.contains(obj.toString()))
-                                                                   .orElse(false));
+                                                                 .orElse(false));
 
             } else if (condition.endsWith(".gt")) {
                 return new Condition(condition + "=" + value,
                                      record -> read(name, record).map(obj -> obj.toString().compareTo(value) > 0)
-                                                                   .orElse(false));
+                                                                 .orElse(false));
                 
             } else if (condition.endsWith(".lt")) {
                 return new Condition(condition + "=" + value,
                                      record -> read(name, record).map(obj -> obj.toString().compareTo(value) < 0)
-                                                                   .orElse(false));
+                                                                 .orElse(false));
 
             } else {
                 throw new BadRequestException("unsupported filter condition" + condition);
@@ -456,7 +458,6 @@ public class BusinesEventResource {
         
         
         private static Optional<Object> read(final String dotSeparatedName, final AvroMessage avroMessage) {
-            
             Optional<Object> result = Optional.empty();
             GenericRecord record = avroMessage.getGenericRecord();
             

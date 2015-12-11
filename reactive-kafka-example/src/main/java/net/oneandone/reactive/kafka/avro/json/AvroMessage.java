@@ -145,10 +145,10 @@ public class AvroMessage {
     
     
     private static byte[] withHeader(Schema schema, byte[] msg) {
-        byte[] header = (schema.getNamespace() + "#" + schema.getName()).getBytes(Charsets.UTF_8);
-        byte[] lengthHeader = ByteBuffer.allocate(4).putInt(header.length).array();
+        final byte[] header = (schema.getNamespace() + "#" + schema.getName()).getBytes(Charsets.UTF_8);
+        final byte[] lengthHeader = ByteBuffer.allocate(4).putInt(header.length).array();
          
-        byte[] newBytes = new byte[4 + header.length + msg.length];
+        final byte[] newBytes = new byte[4 + header.length + msg.length];
         System.arraycopy(lengthHeader, 0, newBytes, 0, lengthHeader.length);
         System.arraycopy(header, 0, newBytes, lengthHeader.length, header.length);
         System.arraycopy(msg, 0, newBytes, 4 + header.length, msg.length);

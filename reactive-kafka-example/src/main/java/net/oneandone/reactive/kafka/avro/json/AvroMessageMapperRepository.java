@@ -18,6 +18,7 @@ package net.oneandone.reactive.kafka.avro.json;
 
 
 import java.io.ByteArrayInputStream;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Map.Entry;
-import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -56,6 +56,7 @@ import net.oneandone.commons.incubator.datareplicator.DataReplicator;
 import net.oneandone.commons.incubator.datareplicator.ReplicationJob;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
+import net.oneandone.reactive.utils.Immutables;
 
 
 
@@ -90,9 +91,7 @@ public class AvroMessageMapperRepository implements Closeable {
     public void onRefresh(byte[] binary) {
         
         List<AvroMessageMapper> mappers = Lists.newArrayList();
-        
         for (Entry<String, InputStream> entry : Zip.unpack(binary).entrySet()) {
-            
             try {
                 mappers.addAll(createMappers(entry.getKey(), entry.getValue()));
             } catch (IOException ioe) {
@@ -101,17 +100,18 @@ public class AvroMessageMapperRepository implements Closeable {
         }
         
 
-        this.mapper = ImmutableMap.copyOf(mappers.stream()
-                                                 .collect(Collectors.toMap(AvroMessageMapper::getMimeType, (AvroMessageMapper m) -> m)));
+        this.mapper = mappers.stream()
+                             .collect(Immutables.toMap(AvroMessageMapper::getMimeType, (AvroMessageMapper m) -> m));
         
-        schemaNameIndex = ImmutableMap.copyOf(mapper.values()
-                                                    .stream()
-                                                    .collect(Collectors.toMap(m -> m.getSchema().getFullName(), 
-                                                                              m -> m.getMimeType())));
-        schemaIndex = ImmutableMap.copyOf(mapper.values()
-                                                .stream()
-                                                .collect(Collectors.toMap(m -> m.getSchema().getFullName(), 
-                                                                          m -> m.getSchema())));
+        this.schemaNameIndex = mapper.values()
+                                     .stream()
+                                     .collect(Immutables.toMap(m -> m.getSchema().getFullName(), 
+                                                               m -> m.getMimeType()));
+        
+        this.schemaIndex = mapper.values()
+                                 .stream()
+                                 .collect(Immutables.toMap(m -> m.getSchema().getFullName(), 
+                                                           m -> m.getSchema()));
     }    
     
     
@@ -132,18 +132,11 @@ public class AvroMessageMapperRepository implements Closeable {
     
 
     public  ImmutableMap<String, Schema> getRegisteredSchemas() {
-        Map<String, Schema> schemas = Maps.newHashMap();
-        
-        for (Entry<String, AvroMessageMapper> entry : mapper.entrySet()) {
-            schemas.put(entry.getKey(), entry.getValue().getSchema());
-        }
-        
-        return ImmutableMap.copyOf(schemas);
+        return mapper.entrySet().stream().collect(Immutables.toMap(e -> e.getKey(), e -> e.getValue().getSchema()));
     }
     
 
     public Optional<String> getRegisteredSchema(MediaType mimetype) {
-        
         for (Entry<String, String> entry : getRegisteredSchemasAsText().entrySet()) {
             if (entry.getKey().equals(mimetype.toString())) {
                 return Optional.of(entry.getValue().toString());
@@ -186,11 +179,11 @@ public class AvroMessageMapperRepository implements Closeable {
 
     
     public AvroMessage toAvroMessage(byte[] serializedAvroMessage, ImmutableList<MediaType> readerMimeTypes) throws SchemaException {
-        ImmutableList<Schema> readerSchemas = ImmutableList.copyOf(readerMimeTypes.stream()
-                                                                                  .map(mimeType -> getJsonToAvroMapper(mimeType.toString()))
-                                                                                  .filter(optionalMapper -> optionalMapper.isPresent())
-                                                                                  .map(mapper -> mapper.get().getSchema())
-                                                                                  .collect(Collectors.toList()));
+        ImmutableList<Schema> readerSchemas =readerMimeTypes.stream()
+                                                            .map(mimeType -> getJsonToAvroMapper(mimeType.toString()))
+                                                            .filter(optionalMapper -> optionalMapper.isPresent())
+                                                            .map(mapper -> mapper.get().getSchema())
+                                                            .collect(Immutables.toList());
         
         AvroMessage avroMessage = AvroMessage.from(serializedAvroMessage, schemaIndex, readerSchemas);
 
@@ -237,8 +230,6 @@ public class AvroMessageMapperRepository implements Closeable {
     
     
     private ImmutableList<AvroMessageMapper> createMappers(String filename, InputStream is) throws IOException {
-        
-        
         final ImmutableList<JsonObject> jsonSchemas;
         
         // avro json schema? 
@@ -255,15 +246,7 @@ public class AvroMessageMapperRepository implements Closeable {
             return ImmutableList.of();
         }
         
-        
-
-        List<AvroMessageMapper> mappers = Lists.newArrayList();
-        for (JsonObject jsonSchema : jsonSchemas) {
-            AvroMessageMapper entityMapper = AvroMessageMapper.createrMapper(jsonSchema);
-            mappers.add(entityMapper);
-        }
-
-        return ImmutableList.copyOf(mappers);
+        return jsonSchemas.stream().map(jsonSchema -> AvroMessageMapper.createrMapper(jsonSchema)).collect(Immutables.toList());
     }
     
 

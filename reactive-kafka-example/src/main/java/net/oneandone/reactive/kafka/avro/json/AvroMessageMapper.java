@@ -92,7 +92,6 @@ class AvroMessageMapper {
         
         final List<AvroMessage> avroMessages = Lists.newArrayList();
         
-        
         while (jsonParser.hasNext()) {
             
             switch (jsonParser.next()) {
@@ -125,7 +124,7 @@ class AvroMessageMapper {
     @Override
     public String toString() {
         final StringWriter stringWriter = new StringWriter();
-        final ImmutableMap<String, Boolean> config =ImmutableMap.of(JsonGenerator.PRETTY_PRINTING, true);
+        final ImmutableMap<String, Boolean> config = ImmutableMap.of(JsonGenerator.PRETTY_PRINTING, true);
         final JsonWriterFactory writerFactory = Json.createWriterFactory(config);
         final JsonWriter jsonWriter = writerFactory.createWriter(stringWriter);
         jsonWriter.write(jsonSchema);
@@ -143,13 +142,11 @@ class AvroMessageMapper {
     
     
     private static AvroMessageMapper createrRecordMapper(JsonObject jsonRecordSchema) throws SchemaException {
-         
         final String type = jsonRecordSchema.getString("type");
         if (!type.equals("record")) {
             throw new SchemaException("unsupported type", type);
         }  
 
-        
         Writers writers = Writers.create();
         final JsonArray schemaFields = jsonRecordSchema.getJsonArray("fields");
         for (JsonValue schemaField : schemaFields) {
@@ -174,16 +171,12 @@ class AvroMessageMapper {
     
     
     private static JsonObject addAttribute(JsonObject jsonObject, String name, String value) {
-        
         final JsonReader reader = Json.createReader(new ByteArrayInputStream(jsonObject.toString().getBytes(Charsets.UTF_8)));
-        JsonObject json =  reader.readObject();
-
-        JsonObjectBuilder builder = Json.createObjectBuilder();
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
         
-        for (Entry<String, JsonValue> nameValuePair : json.entrySet()) {
+        for (Entry<String, JsonValue> nameValuePair : reader.readObject().entrySet()) {
             builder.add(nameValuePair.getKey(), nameValuePair.getValue());
         }
-        
         builder.add(name, value);
         
         return builder.build();

@@ -16,7 +16,7 @@
 package net.oneandone.commons.incubator.datareplicator;
 
 
-import java.io.Closeable;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -24,19 +24,23 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLConnection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
+
 
 
 
@@ -138,10 +142,19 @@ public class DataReplicator {
     
     
     
+    
     public ReplicationJob open(Consumer<byte[]> consumer) {
-        return new ReplicatonJobImpl(uri, failOnInitFailure, cacheDir, maxCacheTime, refreshPeriod, consumer);
+        return new ReplicatonJobImpl(uri, 
+                                     failOnInitFailure, 
+                                     cacheDir,
+                                     maxCacheTime,
+                                     appId,
+                                     refreshPeriod,
+                                     consumer);
     }
  
+    
+    
     
     
     
@@ -151,24 +164,32 @@ public class DataReplicator {
         private final Datasource datasource; 
         private final FileCache fileCache;
         private final Consumer<byte[]> consumer;
+        private final ScheduledExecutorService executor;
         
         
         public ReplicatonJobImpl(URI uri,
                                  boolean failOnInitFailure, 
                                  File cacheDir, 
                                  Duration maxCacheTime,
-                                 Duration reloadPeriod, 
+                                 String appId,
+                                 Duration refreshPeriod, 
                                  Consumer<byte[]> consumer) {
             this.consumer = new CachingConsumer(consumer);
             this.fileCache = new FileCache(cacheDir, uri.toString(), maxCacheTime);
             
-            
-            if (uri.getScheme().equals("classpath")) {
+
+            // create proper data source 
+            if (uri.getScheme().equalsIgnoreCase("classpath")) {
                 this.datasource = new ClasspathDatasource(uri);
+                
+            } else if (uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https")) {
+                this.datasource = new HttpDatasource(uri, appId);
+                
             } else {
                 throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath)");
             }
 
+            
             
             // load on startup
             try {
@@ -183,15 +204,30 @@ public class DataReplicator {
                     consumer.accept(fileCache.load());
                 } 
             }
-        }
-
-        
-        private void load() throws DatasourceException {
-            byte[] data = datasource.load();
-            consumer.accept(data);
             
-            // data has been accepted by the consumer -> update cache
-            fileCache.update(data);
+            
+            // start scheduler
+            this.executor = Executors.newScheduledThreadPool(0);
+            executor.scheduleWithFixedDelay(() -> load(), refreshPeriod.toMillis(), refreshPeriod.toMillis(), TimeUnit.MILLISECONDS);
+        }
+    
+        
+        @Override
+        public void close() {
+            executor.shutdown();;
+        }
+        
+        
+        private void load() {
+            try {
+                final byte[] data = datasource.load();
+                consumer.accept(data);
+                fileCache.update(data); // data has been accepted by the consumer -> update cache
+                
+            } catch (RuntimeException rt) {
+                LOG.warn("error occured by loading " + getEndpoint(), rt);
+                throw rt;
+            }
         }
         
         
@@ -204,19 +240,14 @@ public class DataReplicator {
         public Optional<Duration> getExpiredTimeSinceRefresh() {
             return datasource.getExpiredTimeSinceRefresh();
         }
-        
-        @Override
-        public void close() {
-            datasource.close();
-        }
-        
+    
 
         
         
         private static final class CachingConsumer implements Consumer<byte[]> {
 
             private final Consumer<byte[]> consumer;
-            private final AtomicReference<HashCode> lastMd5 = new AtomicReference<HashCode>(Hashing.md5().newHasher().hash());
+            private final AtomicReference<Long> lastMd5 = new AtomicReference<>(Hashing.md5().newHasher().hash().asLong());
             
             public CachingConsumer(Consumer<byte[]> consumer) {
                 this.consumer = consumer;
@@ -224,19 +255,21 @@ public class DataReplicator {
             
             @Override
             public void accept(byte[] binary) {
-                HashCode hc = Hashing.md5().newHasher().putBytes(binary).hash();
                 
-                if (!hc.equals(lastMd5)) {
+                final long md5 = Hashing.md5().newHasher().putBytes(binary).hash().asLong();
+                if (md5 != lastMd5.get()) {
                     consumer.accept(binary);
-                    lastMd5.set(hc);
+                    lastMd5.set(md5);
                 }
             }
         }
         
         
-        private static abstract class Datasource implements Closeable {
+        private static abstract class Datasource {
             
             private final URI uri;
+            private final AtomicReference<Optional<Instant>> lastRefresh = new AtomicReference<>(Optional.empty());
+            
             
             public Datasource(URI uri) {
                 this.uri = uri;
@@ -246,34 +279,44 @@ public class DataReplicator {
                 return uri;
             }
             
-            @Override
-            public void close() { }
             
-            public abstract Optional<Duration> getExpiredTimeSinceRefresh();
-
-            public abstract byte[] load() throws DatasourceException;
+            public Optional<Duration> getExpiredTimeSinceRefresh() {
+                return lastRefresh.get().map(time -> Duration.between(time, Instant.now()));
+            }
+            
+            public byte[] load() {
+                final byte[] data = onLoad();
+                lastRefresh.set(Optional.of(Instant.now()));
+                
+                return data;
+            }
+                
+            public abstract byte[] onLoad();
         }
         
       
+       
         private static class ClasspathDatasource extends Datasource {
             
             public ClasspathDatasource(URI uri) {
                 super(uri);
             }
             
+
             @Override
             public Optional<Duration> getExpiredTimeSinceRefresh() {
-                return Optional.empty();
+                return Optional.of(Duration.ZERO); 
             }
+
             
             @Override
-            public byte[] load() throws DatasourceException {
+            public byte[] onLoad() {
                 ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 if (classLoader == null) {
                     classLoader = getClass().getClassLoader();
                 }
                 
-                URL classpathUri = classLoader.getResource(getEndpoint().getRawSchemeSpecificPart());           
+                final URL classpathUri = classLoader.getResource(getEndpoint().getRawSchemeSpecificPart());           
                 if (classpathUri == null) {
                     throw new RuntimeException("resource " + getEndpoint().getRawSchemeSpecificPart() + " not found in classpath");
                     
@@ -289,9 +332,45 @@ public class DataReplicator {
                     }
                 }
             }
+        }
+
+        
+        
+        private static class HttpDatasource extends Datasource {
+            
+            private final String appId;
+            
+            public HttpDatasource(URI uri, String appId) {
+                super(uri);
+                this.appId = appId;
+            }
+            
+            @Override
+            public Optional<Duration> getExpiredTimeSinceRefresh() {
+                return Optional.empty();
+            }
+            
+            @Override
+            public byte[] onLoad() throws DatasourceException {
+                
+                InputStream is = null;
+                try {
+                    final URLConnection con = getEndpoint().toURL().openConnection();
+                    con.setRequestProperty("X-APP", appId);
+
+                    is = con.getInputStream();
+                    return ByteStreams.toByteArray(is);
+                    
+                } catch (IOException ioe) {
+                    throw new DatasourceException(ioe);
+                } finally {
+                    Closeables.closeQuietly(is);
+                }
+            }
             
         }
-    
+        
+        
         
         private static final class FileCache extends Datasource {
             
@@ -318,7 +397,7 @@ public class DataReplicator {
 
             public void update(byte[] data) {
                 try {
-                    File tempFile = new File(cacheFileName + ".temp");
+                    final File tempFile = new File(cacheFileName + ".temp");
                     if (tempFile.exists()) {
                         tempFile.delete();
                     }
@@ -329,7 +408,7 @@ public class DataReplicator {
                         os.write(data);
                         os.close();
 
-                        File cacheFile = new File(cacheFileName);
+                        final File cacheFile = new File(cacheFileName);
                         if (cacheFile.exists()) {
                             cacheFile.delete();
                         }
@@ -348,7 +427,7 @@ public class DataReplicator {
 
             @Override
             public Optional<Duration> getExpiredTimeSinceRefresh() {
-                File cacheFile = new File(cacheFileName);
+                final File cacheFile = new File(cacheFileName);
                 if (cacheFile.exists()) {
                     return Optional.of(Duration.between(Instant.ofEpochMilli(cacheFile.lastModified()), Instant.now()));
                 } else  {
@@ -358,14 +437,14 @@ public class DataReplicator {
    
             
             @Override
-            public byte[] load() throws DatasourceException {
+            public byte[] onLoad() throws DatasourceException {
 
-                Duration age = getExpiredTimeSinceRefresh().orElseThrow(() -> new DatasourceException("no cache entry exists"));
+                final Duration age = getExpiredTimeSinceRefresh().orElseThrow(() -> new DatasourceException("no cache entry exists"));
                 if (maxCacheTime.minus(age).isNegative()) {
                     throw new DatasourceException("cache entry is eppired. Age is " + age.toDays() + " days");
                 }
                 
-                File cacheFile = new File(cacheFileName);
+                final File cacheFile = new File(cacheFileName);
                 if (cacheFile.exists()) {
                     FileInputStream is = null;
                     try {

@@ -76,7 +76,7 @@ public class AvroMessageMapperRepository implements Closeable {
     
     
     public AvroMessageMapperRepository(URI uri) {
-        this.replicationJob = new DataReplicator(uri).withRefreshPeriod(Duration.ofMinutes(2))
+        this.replicationJob = new DataReplicator(uri).withRefreshPeriod(Duration.ofMinutes(1))
                                                      .open(this::onRefresh);
     }
     

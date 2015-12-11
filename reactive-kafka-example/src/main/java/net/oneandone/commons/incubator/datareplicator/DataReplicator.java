@@ -129,7 +129,7 @@ public class DataReplicator {
      * <p>
      * If failOnInitFailure==false and the source is unreachable: If a cached file exists, this file will be used. 
      * 
-     * @param failOnInitFailure true, if the application should abort, else false.
+     * @param failOnInitFailure true, if the application should abort, else false. (default is false)
      * @return the new instance of the data replicator
      */
     public DataReplicator withFailOnInitFailure(boolean failOnInitFailure) {

@@ -208,7 +208,7 @@ public class DataReplicator {
                                  String appId,
                                  Duration refreshPeriod, 
                                  Consumer<byte[]> consumer) {
-            this.consumer = new CachingConsumer(consumer);
+            this.consumer = new HashProtectedConsumer(consumer);
             this.fileCache = new FileCache(cacheDir, uri.toString(), maxCacheTime);
             
 
@@ -281,18 +281,17 @@ public class DataReplicator {
 
         
         
-        private static final class CachingConsumer implements Consumer<byte[]> {
+        private static final class HashProtectedConsumer implements Consumer<byte[]> {
 
             private final Consumer<byte[]> consumer;
             private final AtomicReference<Long> lastMd5 = new AtomicReference<>(Hashing.md5().newHasher().hash().asLong());
             
-            public CachingConsumer(Consumer<byte[]> consumer) {
+            public HashProtectedConsumer(Consumer<byte[]> consumer) {
                 this.consumer = consumer;
             }
             
             @Override
             public void accept(byte[] binary) {
-                
                 final long md5 = Hashing.md5().newHasher().putBytes(binary).hash().asLong();
                 if (md5 != lastMd5.get()) {
                     consumer.accept(binary);
@@ -358,7 +357,6 @@ public class DataReplicator {
                     throw new RuntimeException("resource " + getEndpoint().getRawSchemeSpecificPart() + " not found in classpath");
                     
                 } else {
-                    
                     InputStream is = null;
                     try {
                         return ByteStreams.toByteArray(classpathUri.openStream());
@@ -384,9 +382,8 @@ public class DataReplicator {
             @Override
             public byte[] onLoad() {
                 
-                File file = new File(getEndpoint().getPath());
+                final File file = new File(getEndpoint().getPath());
                 if (file.exists()) {
-                    
                     try {
                         return Files.toByteArray(file);
                     } catch (IOException ioe) {
@@ -474,6 +471,11 @@ public class DataReplicator {
                         os.write(data);
                         os.close();
 
+                        
+                        // if the process crashes after deleting the cacheFile and
+                        // before renaming the tempFile into the cacheFile, the 
+                        // cache file will be lost.
+                        // However this does not matter and is very unlikely
                         final File cacheFile = new File(cacheFileName);
                         if (cacheFile.exists()) {
                             cacheFile.delete();

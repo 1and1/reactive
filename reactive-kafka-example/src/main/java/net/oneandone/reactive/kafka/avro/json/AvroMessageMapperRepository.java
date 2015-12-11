@@ -91,7 +91,7 @@ public class AvroMessageMapperRepository implements Closeable {
         
         List<AvroMessageMapper> mappers = Lists.newArrayList();
         
-        for (Entry<String, InputStream> entry : Unpack.unpack(binary).entrySet()) {
+        for (Entry<String, InputStream> entry : Zip.unpack(binary).entrySet()) {
             
             try {
                 mappers.addAll(createMappers(entry.getKey(), entry.getValue()));
@@ -316,9 +316,9 @@ public class AvroMessageMapperRepository implements Closeable {
     }
     
     
-    private static class Unpack {
+    private static class Zip {
 
-        private Unpack() { }
+        private Zip() { }
         
         
         public static ImmutableMap<String, InputStream> unpack(byte[] binary) {

@@ -34,10 +34,14 @@ public interface ReplicationJob extends Closeable {
     URI getEndpoint();
     
     /**
-     * @return the expired time since the last refresh
+     * @return the expired time since the last successfully refresh
      */
-    Optional<Duration> getExpiredTimeSinceRefresh();
-    
+    Optional<Duration> getExpiredTimeSinceRefreshSuccess();
+
+    /**
+     * @return the expired time since the last erroneous refresh
+     */
+    Optional<Duration> getExpiredTimeSinceRefreshError();
     
     /**
      * terminates the replication job 

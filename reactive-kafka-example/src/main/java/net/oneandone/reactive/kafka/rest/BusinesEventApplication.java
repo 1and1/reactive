@@ -69,7 +69,7 @@ public class BusinesEventApplication extends ResourceConfig {
     
     
     
-    public static void main(String[] args) {
+    public static void main(final String[] args) {
         SpringApplication.run(BusinesEventApplication.class, args);
     }
 

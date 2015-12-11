@@ -98,9 +98,9 @@ public class BusinesEventResource {
     
 
     @Autowired
-    public BusinesEventResource(CompletableKafkaProducer<String, byte[]> kafkaProducer,
-                                KafkaSource<String, byte[]> kafkaSource,
-                                AvroMessageMapperRepository avroMessageMapperRepository) {
+    public BusinesEventResource(final CompletableKafkaProducer<String, byte[]> kafkaProducer,
+                                final KafkaSource<String, byte[]> kafkaSource,
+                                final AvroMessageMapperRepository avroMessageMapperRepository) {
         
         this.kafkaProducer = kafkaProducer;
         this.kafkaSource = kafkaSource;
@@ -112,7 +112,7 @@ public class BusinesEventResource {
     @GET
     @Path("/")
     @Produces("application/json; qs=0.8")
-    public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(@Context UriInfo uriInfo) {
+    public ImmutableMap<String, ImmutableMap<String, Object>> getRootJson(final @Context UriInfo uriInfo) {
         
         return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
     }
@@ -121,7 +121,8 @@ public class BusinesEventResource {
     @GET
     @Path("/")
     @Produces("text/html; qs=0.4")
-    public Page getRootHtml(@Context UriInfo uriInfo, @Context HttpServletRequest httpRequest) {
+    public Page getRootHtml(final @Context UriInfo uriInfo, 
+                            final @Context HttpServletRequest httpRequest) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/root.ftl")
                       .withModelData("self", uriInfo.getBaseUri())
@@ -134,7 +135,8 @@ public class BusinesEventResource {
     @GET
     @Path("/topics")
     @Produces("application/vnd.ui.mam.eventservice.topic.list+json; qs=0.8")
-    public TopicsRepresentation getTopicsJson(@Context UriInfo uriInfo, @QueryParam("q.topic.name.eq") String topicname) {
+    public TopicsRepresentation getTopicsJson(final @Context UriInfo uriInfo, 
+                                              final @QueryParam("q.topic.name.eq") String topicname) {
 
         Predicate<String> filter = (topicname == null) ? (name -> true) : (name -> name.equals(topicname));
         
@@ -149,7 +151,7 @@ public class BusinesEventResource {
     @GET
     @Path("/topics")
     @Produces("text/html; qs=0.4")
-    public Page getTopicsHtml(@Context UriInfo uriInfo) {
+    public Page getTopicsHtml(final @Context UriInfo uriInfo) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/topiclist.ftl")
                       .withModelData("self", uriInfo.getBaseUri())
@@ -160,7 +162,8 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topicname}")
     @Produces("application/vnd.ui.mam.eventservice.topic+json; qs=0.8")
-    public TopicRepresentation getTopicJson(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
+    public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
+                                            final @PathParam("topicname") String topicname) {
         
         return new TopicRepresentation(uriInfo, "topics", topicname);
     }
@@ -169,7 +172,8 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topicname}")
     @Produces("text/html; qs=0.4")
-    public Page getTopicHtml(@Context UriInfo uriInfo, @PathParam("topicname") String topicname) {
+    public Page getTopicHtml(final @Context UriInfo uriInfo, 
+                             final @PathParam("topicname") String topicname) {
         
         return new Page("/net/oneandone/reactive/kafka/rest/topic.ftl")
                       .withModelData("base", uriInfo.getBaseUri())
@@ -214,7 +218,8 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/schemas/{type}/{subtype}")   
     @Produces("text/plain")
-    public Response getRegisteredSchemaPlain(@PathParam("type") String type, @PathParam("subtype") String subtype) {
+    public Response getRegisteredSchemaPlain(final @PathParam("type") String type, 
+                                             final @PathParam("subtype") String subtype) {
         
         String schema = mapperRepository.getRegisteredSchemasAsText()
                                         .get(type + "/" + subtype);
@@ -226,11 +231,11 @@ public class BusinesEventResource {
     
     @POST
     @Path("/topics/{topic}/events")
-    public void submitEvent(@Context UriInfo uriInfo,
-                            @PathParam("topic") String topicname,
-                            @HeaderParam("Content-Type") String contentType, 
-                            InputStream jsonObjectStream,
-                            @Suspended AsyncResponse response) throws BadRequestException {
+    public void submitEvent(final @Context UriInfo uriInfo,
+                            final @PathParam("topic") String topicname,
+                            final @HeaderParam("Content-Type") String contentType, 
+                            final InputStream jsonObjectStream,
+                            final @Suspended AsyncResponse response) throws BadRequestException {
         
         final String topicPath = uriInfo.getBaseUriBuilder().path("topics").path(topicname).toString();
         
@@ -263,16 +268,16 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics/{topic}/events/{id}")
-    public void readEvent(@PathParam("topic") String topic,
-                          @PathParam("id") KafkaMessageId id,
-                          @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
-                          @Suspended AsyncResponse response) throws IOException {
+    public void readEvent(final @PathParam("topic") String topic,
+                          final @PathParam("id") KafkaMessageId id,
+                          final @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                          final @Suspended AsyncResponse response) throws IOException {
         
         
         // open kafka source
         ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
-                                                                                          .filter(KafkaMessageIdList.of(id))
-                                                                                          .open();
+                                                                                 .filter(KafkaMessageIdList.of(id))
+                                                                                 .open();
         
         // read one message, close source and return result
         reactiveSource.readAsync(Duration.ofSeconds(5))
@@ -288,10 +293,10 @@ public class BusinesEventResource {
     
     @GET
     @Path("/topics/{topic}/eventcollections/{ids}")
-    public void readEvents(@PathParam("topic") String topic,
-                           @PathParam("ids") KafkaMessageIdList ids,
-                           @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
-                           @Suspended AsyncResponse response) throws IOException {
+    public void readEvents(final @PathParam("topic") String topic,
+                           final @PathParam("ids") KafkaMessageIdList ids,
+                           final @HeaderParam("Accept") @DefaultValue("*/*") MediaType readerMimeType,
+                           final @Suspended AsyncResponse response) throws IOException {
         
         
         final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
@@ -323,11 +328,11 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/events")
     @Produces("text/event-stream; qs=0.8")
-    public void readEventsEventStream(@PathParam("topic") String topic,
-                                      @HeaderParam("Last-Event-Id") @DefaultValue("") KafkaMessageIdList consumedOffsets,
-                                      @Context HttpServletRequest req,
-                                      @Context HttpServletResponse resp,
-                                      @Suspended AsyncResponse response) {
+    public void readEventsEventStream(final @PathParam("topic") String topic,
+                                      final @HeaderParam("Last-Event-Id") @DefaultValue("") KafkaMessageIdList consumedOffsets,
+                                      final @Context HttpServletRequest req,
+                                      final @Context HttpServletResponse resp,
+                                      final @Suspended AsyncResponse response) {
 
         resp.setContentType("text/event-stream");
         
@@ -375,7 +380,6 @@ public class BusinesEventResource {
             for (Entry<String, String[]> entry : filterParams.entrySet()) {
                 if (entry.getKey().startsWith("q.data.")) {
                     for (String value : entry.getValue()) {
-                        
                         filter = filter.and(newFilterCondition(entry.getKey(), value));
                     }
                 }
@@ -385,8 +389,8 @@ public class BusinesEventResource {
         }
         
         
-        private static final Predicate<AvroMessage> newFilterCondition(String condition, String value) {
-            String name = condition.substring("q.data.".length(), condition.lastIndexOf("."));
+        private static final Predicate<AvroMessage> newFilterCondition(final String condition, final String value) {
+            final String name = condition.substring("q.data.".length(), condition.lastIndexOf("."));
             
             if (condition.endsWith(".eq")) {
                 return new Condition(condition + "=" + value,
@@ -424,7 +428,7 @@ public class BusinesEventResource {
             private final Predicate<AvroMessage> predicate;
             private final String desc;
             
-            private Condition(String desc, Predicate<AvroMessage> predicate) {
+            private Condition(final String desc, final Predicate<AvroMessage> predicate) {
                 this.desc = desc;
                 this.predicate = predicate;
             }
@@ -435,7 +439,7 @@ public class BusinesEventResource {
             }
             
             @Override
-            public Predicate<AvroMessage> and(Predicate<? super AvroMessage> other) {
+            public Predicate<AvroMessage> and(final Predicate<? super AvroMessage> other) {
                 String description = toString();
                 description = ((description.length() > 0) && (!description.endsWith("&")) ? "&" : "") + description;
                 description = description + other.toString();
@@ -451,13 +455,13 @@ public class BusinesEventResource {
         
         
         
-        private static Optional<Object> read(String dotSeparatedName, AvroMessage avroMessage) {
+        private static Optional<Object> read(final String dotSeparatedName, final AvroMessage avroMessage) {
             
             Optional<Object> result = Optional.empty();
             GenericRecord record = avroMessage.getGenericRecord();
             
             for (String namePart : Splitter.on(".").trimResults().splitToList(dotSeparatedName)) {
-                Object obj = record.get(namePart);
+                final Object obj = record.get(namePart);
                 if (obj == null) {
                     break;
                 } else {

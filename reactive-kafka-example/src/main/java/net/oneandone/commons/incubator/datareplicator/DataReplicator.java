@@ -314,8 +314,7 @@ public class DataReplicator {
             public URI getEndpoint() {
                 return uri;
             }
-            
-            
+                        
             public Optional<Duration> getExpiredTimeSinceRefresh() {
                 return lastRefresh.get().map(time -> Duration.between(time, Instant.now()));
             }
@@ -338,12 +337,10 @@ public class DataReplicator {
                 super(uri);
             }
             
-
             @Override
             public Optional<Duration> getExpiredTimeSinceRefresh() {
                 return Optional.of(Duration.ZERO); 
             }
-
             
             @Override
             public byte[] onLoad() {
@@ -377,11 +374,9 @@ public class DataReplicator {
             public FileDatasource(URI uri) {
                 super(uri);
             }
-            
-
+          
             @Override
             public byte[] onLoad() {
-                
                 final File file = new File(getEndpoint().getPath());
                 if (file.exists()) {
                     try {
@@ -391,7 +386,7 @@ public class DataReplicator {
                     }
                     
                 } else {
-                    throw new RuntimeException("file  " + file.getAbsolutePath() + " not found");
+                    throw new RuntimeException("file " + file.getAbsolutePath() + " not found");
                 }
             }
         }
@@ -441,12 +436,10 @@ public class DataReplicator {
             private final Duration maxCacheTime;
             
             
-            
             public FileCache(File cacheDir, String name, Duration maxCacheTime) {
                 this(new File(new File(cacheDir, "datareplicator"), name.replaceAll("[,:/]", "_")), maxCacheTime);
             }
                 
-            
             public FileCache(File cacheFile, Duration maxCacheTime) {
                 super(cacheFile.toURI());
 
@@ -456,8 +449,6 @@ public class DataReplicator {
                 cacheFileName = cacheFile.getAbsolutePath();
             }
             
-            
-
             public void update(byte[] data) {
                 try {
                     final File tempFile = new File(cacheFileName + ".temp");
@@ -492,7 +483,6 @@ public class DataReplicator {
                 }
             }
              
-
             @Override
             public Optional<Duration> getExpiredTimeSinceRefresh() {
                 final File cacheFile = new File(cacheFileName);
@@ -503,13 +493,12 @@ public class DataReplicator {
                 }
             }
    
-            
             @Override
             public byte[] onLoad() throws DatasourceException {
 
                 final Duration age = getExpiredTimeSinceRefresh().orElseThrow(() -> new DatasourceException("no cache entry exists"));
                 if (maxCacheTime.minus(age).isNegative()) {
-                    throw new DatasourceException("cache entry is eppired. Age is " + age.toDays() + " days");
+                    throw new DatasourceException("cache file is expired. Age is " + age.toDays() + " days");
                 }
                 
                 final File cacheFile = new File(cacheFileName);
@@ -519,12 +508,12 @@ public class DataReplicator {
                         is = new FileInputStream(cacheFile);
                         return ByteStreams.toByteArray(is);
                     } catch (IOException ioe) {
-                        throw new DatasourceException("loading cachefile " + cacheFileName + " failed", ioe);
+                        throw new DatasourceException("loading cache file " + cacheFileName + " failed", ioe);
                     } finally {
                         Closeables.closeQuietly(is);
                     }
                 } else {
-                    throw new DatasourceException("no cache entry exists");
+                    throw new DatasourceException("no cache file exists");
                 }
             }
         }        

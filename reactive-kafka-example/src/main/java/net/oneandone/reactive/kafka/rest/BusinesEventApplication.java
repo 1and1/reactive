@@ -56,7 +56,7 @@ public class BusinesEventApplication extends ResourceConfig {
 
     @Value("${schemaregistry.schema.uri}")
     private String schemasUri;
-    
+
     
     
     public BusinesEventApplication() {
@@ -67,6 +67,11 @@ public class BusinesEventApplication extends ResourceConfig {
                                              .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
     } 
     
+    
+    
+    public static void main(String[] args) {
+        SpringApplication.run(BusinesEventApplication.class, args);
+    }
 
 
 
@@ -96,11 +101,4 @@ public class BusinesEventApplication extends ResourceConfig {
     public AvroMessageMapperRepository avroMessageMapperRepository() {
         return new AvroMessageMapperRepository(URI.create(schemasUri));
     }
-    
-    
-    
-    public static void main(String[] args) {
-        SpringApplication.run(BusinesEventApplication.class, args);
-    }
-
 }

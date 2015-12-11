@@ -17,20 +17,18 @@ package net.oneandone.reactive.kafka.rest;
 
 
 import java.net.URI;
+
 import java.util.Map;
 
 import javax.ws.rs.ApplicationPath;
 
 import org.glassfish.jersey.server.ResourceConfig;
-import org.glassfish.jersey.servlet.ServletContainer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.embedded.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import net.oneandone.commons.incubator.freemarker.FreemarkerProvider;
@@ -71,14 +69,6 @@ public class BusinesEventApplication extends ResourceConfig {
     
 
 
-    @Bean
-    public FilterRegistrationBean jersey() {
-        FilterRegistrationBean bean = new FilterRegistrationBean();
-        bean.setFilter(new ServletContainer());
-        bean.setUrlPatterns(Lists.newArrayList("/topics/*"));
-        return bean;
-    }
-
 
     @Bean(destroyMethod="close")
     public CompletableKafkaProducer<String, byte[]> kafkaProducer() {
@@ -102,7 +92,7 @@ public class BusinesEventApplication extends ResourceConfig {
     
     
     
-    @Bean
+    @Bean(destroyMethod="close")
     public AvroMessageMapperRepository avroMessageMapperRepository() {
         return new AvroMessageMapperRepository(URI.create(schemasUri));
     }

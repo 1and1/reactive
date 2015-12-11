@@ -40,11 +40,16 @@ import org.slf4j.LoggerFactory;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
+import com.google.common.io.Files;
 
 
 
 
-
+/**
+ * The data replicator replicates data periodically from uri base resources. Data will be cached locally for availability reasons.
+ * Each time updated data is fetched the registered consumer will be called. 
+ *
+ */
 public class DataReplicator {
     
     private static final Logger LOG = LoggerFactory.getLogger(DataReplicator.class);
@@ -58,6 +63,11 @@ public class DataReplicator {
     
     
     
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> as well as <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
     public DataReplicator(URI uri) {
         this(uri, 
              false, 
@@ -82,6 +92,10 @@ public class DataReplicator {
     }
 
     
+    /**
+     * @param refreshPeriod   the refresh period (default is 59 sec) 
+     * @return the new instance of the data replicator
+     */
     public DataReplicator withRefreshPeriod(Duration refreshPeriod) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure, 
@@ -91,6 +105,11 @@ public class DataReplicator {
                                   refreshPeriod);
     }
     
+    /**
+     * 
+     * @param maxCacheTime  the max cache time. after this time the cache entries will be ignored (default is 14 days)
+     * @return the new instance of the data replicator
+     */
     public DataReplicator withMaxCacheTime(Duration maxCacheTime) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure,
@@ -111,6 +130,7 @@ public class DataReplicator {
      * If failOnInitFailure==false and the source is unreachable: If a cached file exists, this file will be used. 
      * 
      * @param failOnInitFailure true, if the application should abort, else false.
+     * @return the new instance of the data replicator
      */
     public DataReplicator withFailOnInitFailure(boolean failOnInitFailure) {
         return new DataReplicator(this.uri,
@@ -121,6 +141,12 @@ public class DataReplicator {
                                   this.refreshPeriod);
     }
     
+    
+    /**
+     * 
+     * @param cacheDir  the cache dir (default is current working dir)
+     * @return the new instance of the data replicator
+     */
     public DataReplicator withCacheDir(File cacheDir) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure, 
@@ -131,6 +157,11 @@ public class DataReplicator {
     }
     
 
+    /**
+     * 
+     * @param appID  the app identifier such as myApp/2.1 (default is datareplicator/1.0) 
+     * @return the new instance of the data replicator
+     */
     public DataReplicator withAppId(String appID) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure, 
@@ -142,7 +173,10 @@ public class DataReplicator {
     
     
     
-    
+    /**
+     * @param consumer  the consumer which will be called each time updated data is fetched  
+     * @return the replication job
+     */
     public ReplicationJob open(Consumer<byte[]> consumer) {
         return new ReplicatonJobImpl(uri, 
                                      failOnInitFailure, 
@@ -185,8 +219,11 @@ public class DataReplicator {
             } else if (uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https")) {
                 this.datasource = new HttpDatasource(uri, appId);
                 
+            } else if (uri.getScheme().equalsIgnoreCase("file")) {
+                this.datasource = new FileDatasource(uri);
+             
             } else {
-                throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath)");
+                throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath, http, https)");
             }
 
             
@@ -335,6 +372,35 @@ public class DataReplicator {
         }
 
         
+        
+
+        private static class FileDatasource extends Datasource {
+            
+            public FileDatasource(URI uri) {
+                super(uri);
+            }
+            
+
+            @Override
+            public byte[] onLoad() {
+                
+                File file = new File(getEndpoint().getPath());
+                if (file.exists()) {
+                    
+                    try {
+                        return Files.toByteArray(file);
+                    } catch (IOException ioe) {
+                        throw new DatasourceException(ioe);
+                    }
+                    
+                } else {
+                    throw new RuntimeException("file  " + file.getAbsolutePath() + " not found");
+                }
+            }
+        }
+
+        
+                
         
         private static class HttpDatasource extends Datasource {
             

@@ -21,12 +21,26 @@ import java.time.Duration;
 import java.util.Optional;
 
 
-
+/**
+ * Represents the replication job
+ *
+ */
 public interface ReplicationJob extends Closeable {
     
+    
+    /**
+     * @return  the resource endpoint
+     */
     URI getEndpoint();
     
+    /**
+     * @return the expired time since the last refresh
+     */
     Optional<Duration> getExpiredTimeSinceRefresh();
     
+    
+    /**
+     * terminates the replication job 
+     */
     void close();
 }

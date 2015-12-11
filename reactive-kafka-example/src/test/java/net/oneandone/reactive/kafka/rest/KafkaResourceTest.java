@@ -42,15 +42,14 @@ import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharSource;
 
+import net.oneandone.commons.incubator.problem.StdProblem;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
-import net.oneandone.reactive.utils.problem.StdProblem;
 
 
 
@@ -313,10 +312,12 @@ public class KafkaResourceTest {
         Set<Integer> receivedIds = Sets.newHashSet(2234334, 223323);
         reactiveSource = new ClientSseSource(uri + "/rest/topics/" + topicName + "/events").withLastEventId(lastEventId).open();    
         ServerSentEvent sse1 = reactiveSource.read();
-        receivedIds.remove(Json.createReader(CharSource.wrap(Splitter.on("\n").splitToList(sse1.getData().get()).get(1)).openStream()).readObject().getInt("accountid"));
+        String data1 = sse1.getData().get();
+        receivedIds.remove(Json.createReader(CharSource.wrap(data1.substring(data1.indexOf("\n") + 1)).openStream()).readObject().getInt("accountid"));
         
         ServerSentEvent sse2 = reactiveSource.read();
-        receivedIds.remove(Json.createReader(CharSource.wrap(Splitter.on("\n").splitToList(sse2.getData().get()).get(1)).openStream()).readObject().getInt("accountid"));
+        String data2 = sse2.getData().get();
+        receivedIds.remove(Json.createReader(CharSource.wrap(data2.substring(data2.indexOf("\n") + 1)).openStream()).readObject().getInt("accountid"));
 
         reactiveSource.close();
         

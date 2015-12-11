@@ -12,21 +12,24 @@
 	    <table>
             <tbody>
                 <tr class="odd">
-                    <td> <a href="${self}topics">the avaialble topics</a> </td>
+                    <td> <a href="${self}topics">the available topics</a> </td>
                 </tr>
                 <tr class="even">
                     <td> <a href="${base}health">springboot health</a> </td> 
                 </tr>
                 <tr class="odd">                    
+                    <td> <a href="${base}env">springboot environment</a> </td> 
+                </tr>
+                <tr class="even">                    
                     <td> <a href="${base}trace">springboot trace</a> </td> 
                 </tr>
-                <tr class="even">                    
+                <tr class="odd">                    
                     <td> <a href="${base}metrics">springboot metrics</a> </td> 
                 </tr>
-                <tr class="odd">                    
+                <tr class="even">                    
                     <td> <a href="${base}beans">springboot beans</a> </td>  
                 </tr>
-                <tr class="even">                    
+                <tr class="odd">                    
                     <td> <a href="${base}autoconfig">springboot autoconfig</a> </td>
                 </tr>
 

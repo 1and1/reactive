@@ -16,8 +16,7 @@
 package net.oneandone.reactive.kafka.rest;
 
 
-
-import java.io.File;
+import java.net.URI;
 import java.util.Map;
 
 import javax.ws.rs.ApplicationPath;
@@ -34,14 +33,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import net.oneandone.avro.json.AvroMessageMapperRepository;
-import net.oneandone.avro.json.AvroSerializationException;
-import net.oneandone.avro.json.SchemaException;
+import net.oneandone.commons.incubator.freemarker.FreemarkerProvider;
+import net.oneandone.commons.incubator.problem.GenericExceptionMapper;
+import net.oneandone.commons.incubator.problem.StdProblem;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
-import net.oneandone.reactive.utils.freemarker.FreemarkerPageProvider;
-import net.oneandone.reactive.utils.problem.GenericExceptionMapper;
-import net.oneandone.reactive.utils.problem.StdProblem;
+import net.oneandone.reactive.kafka.avro.json.AvroMessageMapperRepository;
+import net.oneandone.reactive.kafka.avro.json.AvroSerializationException;
+import net.oneandone.reactive.kafka.avro.json.SchemaException;
 
 
 
@@ -57,14 +56,14 @@ public class BusinesEventApplication extends ResourceConfig {
     @Value("${eventbus.zookeeper}")
     private String zookeeperConnect;
 
-    @Value("${schemaregistry.path}")
-    private String schemaRegistryPath;
+    @Value("${schemaregistry.schema.uri}")
+    private String schemasUri;
     
     
     
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
-        register(FreemarkerPageProvider.class);
+        register(FreemarkerProvider.class);
         register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, e -> StdProblem.newMalformedRequestDataProblem())
                                              .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("type", e.getType()))
                                              .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
@@ -105,7 +104,7 @@ public class BusinesEventApplication extends ResourceConfig {
     
     @Bean
     public AvroMessageMapperRepository avroMessageMapperRepository() {
-        return new AvroMessageMapperRepository(new File(schemaRegistryPath));
+        return new AvroMessageMapperRepository(URI.create(schemasUri));
     }
     
     

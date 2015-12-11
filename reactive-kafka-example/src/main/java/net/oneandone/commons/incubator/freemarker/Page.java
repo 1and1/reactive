@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.freemarker;
+package net.oneandone.commons.incubator.freemarker;
 
 
 import com.google.common.collect.ImmutableMap;
@@ -29,34 +29,28 @@ public class Page {
     public Page(String path) {
         this(path, ImmutableMap.of());
     }
-        
     
-     protected Page(String path, ImmutableMap<String, Object> data) {
-           this.path = path;     
-           this.data = data;
-     }
-     
+    protected Page(String path, ImmutableMap<String, Object> data) {
+        this.path = path;     
+        this.data = data;
+    }
     
     public String getPath() {
         return path;
     }
     
-    
     public ImmutableMap<String, Object> getModelMap() {
         return data;
     }
-    
     
     public Page withModelData(String name, Object value) {
         return new Page(path, ImmutableMap.<String, Object>builder().putAll(data).put(name, value).build());
     }
   
-
     public Page withModelData(ImmutableMap<String, Object> addtionaldata) {
         return new Page(path, ImmutableMap.<String, Object>builder().putAll(data).putAll(addtionaldata).build());
     }
 
-    
     @Override
     public String toString() {
         return getPath();

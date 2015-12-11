@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.freemarker;
+package net.oneandone.commons.incubator.freemarker;
 
 
 
@@ -45,7 +45,7 @@ import freemarker.template.TemplateException;
 
 
 
-public class FreemarkerRenderer  {
+class FreemarkerRenderer  {
 
     private static final Logger LOG = LoggerFactory.getLogger(FreemarkerRenderer.class);
     

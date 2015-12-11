@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.freemarker;
+package net.oneandone.commons.incubator.freemarker;
 
 
 
@@ -41,7 +41,7 @@ import com.google.common.collect.Maps;
 
 
 @Provider
-public class FreemarkerPageProvider implements MessageBodyWriter<Page> {
+public class FreemarkerProvider implements MessageBodyWriter<Page> {
 
     private final FreemarkerRenderer renderer;
 
@@ -51,7 +51,7 @@ public class FreemarkerPageProvider implements MessageBodyWriter<Page> {
     /**
      * constructor
      */
-    public FreemarkerPageProvider() {
+    public FreemarkerProvider() {
         renderer = new FreemarkerRenderer();
     }
 

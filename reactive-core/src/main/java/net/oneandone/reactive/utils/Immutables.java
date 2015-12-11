@@ -17,8 +17,15 @@ package net.oneandone.reactive.utils;
 
 
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collector;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -104,4 +111,39 @@ public class Immutables {
     public static <K, V> ImmutableMap<K, V> join(ImmutableMap<K, V> map1, ImmutableMap<K, V> map2) {
         return ImmutableMap.<K, V>builder().putAll(map1).putAll(map2).build();
     }
+    
+    
+    public static <T> Collector<T, Builder<T>, ImmutableList<T>> toList() {
+        return new ImmutableListCollector<T>();
+    }
+    
+    
+    private static class ImmutableListCollector<T> implements Collector<T, Builder<T>, ImmutableList<T>> {
+        
+        @Override
+        public Supplier<Builder<T>> supplier() {
+            return Builder::new;
+        }
+
+        @Override
+        public BiConsumer<Builder<T>, T> accumulator() {
+            return (b, e) -> b.add(e);
+        }
+
+        @Override
+        public BinaryOperator<Builder<T>> combiner() {
+            return (b1, b2) -> b1.addAll(b2.build());
+        }
+
+        @Override
+        public Function<Builder<T>, ImmutableList<T>> finisher() {
+            return Builder::build;
+        }
+
+        @Override
+        public Set<Characteristics> characteristics() {
+            return ImmutableSet.of();
+        }
+    }
+   
 }  

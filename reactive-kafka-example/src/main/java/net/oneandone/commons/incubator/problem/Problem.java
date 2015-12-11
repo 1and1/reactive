@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.problem;
+package net.oneandone.commons.incubator.problem;
 
 
 
@@ -117,11 +117,16 @@ public class Problem {
 
     
     public static Problem of(WebApplicationException wae) {
-        return new Problem(parseProblemData(wae));
+        return fromResponse(wae.getResponse());
     }
-        
-    protected static ImmutableMap<String, String> parseProblemData(WebApplicationException wae) {
-        Response response = wae.getResponse();
+
+    
+    public static Problem fromResponse(Response response) {
+        return new Problem(parseProblemData(response));
+    }
+
+    
+    protected static ImmutableMap<String, String> parseProblemData(Response response) {
         try {
             response.bufferEntity();
             Map<String, String> problemData = response.readEntity(new GenericType<Map<String, String>>() { });

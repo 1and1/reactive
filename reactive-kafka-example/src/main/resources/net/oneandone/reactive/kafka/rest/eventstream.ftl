@@ -18,9 +18,9 @@
                 source.onmessage = function(event) {
                         var ev = document.getElementById('events');
                         
-                        var values = event.data.split('\n');
-                        var type = values[0];
-                        var data = values[1];
+                       
+                        var type = event.data.substring(0, event.data.indexOf('\n'))
+                        var data = event.data.substring(event.data.indexOf('\n') + 1, event.data.length)
                         
                         var color
                         if (idx++%2 == 0) {

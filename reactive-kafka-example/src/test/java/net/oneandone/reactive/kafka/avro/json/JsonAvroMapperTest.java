@@ -1,6 +1,7 @@
-package net.oneandone.avro.json;
+package net.oneandone.reactive.kafka.avro.json;
 
 import java.io.ByteArrayInputStream;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -27,7 +28,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
 
-import net.oneandone.avro.json.AvroMessage;
+import net.oneandone.reactive.kafka.avro.json.AvroMessage;
 
 
 

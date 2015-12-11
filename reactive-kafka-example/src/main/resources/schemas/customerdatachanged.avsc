@@ -2,6 +2,7 @@
   "namespace": "example.event",
   "type": "record",
   "name": "customerdatachanged",
+  "doc" : "an event representing a change of the customer data",
   "fields": [
         {"name": "header", "type": { "type" : "record",
                                      "name" : "header",

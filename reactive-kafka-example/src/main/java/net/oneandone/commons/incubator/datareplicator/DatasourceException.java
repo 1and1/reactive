@@ -13,27 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.kafka.avro.json;
+package net.oneandone.commons.incubator.datareplicator;
 
 
-public class SchemaException extends RuntimeException {
-
-    private static final long serialVersionUID = -3894104697627836613L;
-
-    private final String type;
 
 
-    public SchemaException(String reason) {
-        super(reason);
-        this.type = null;
-    } 
-        
-    public SchemaException(String reason, String type) {
-        super(reason);
-        this.type = type;
-    } 
+public class DatasourceException extends RuntimeException {
     
-    public String getType() {
-        return type;
+    private static final long serialVersionUID = 416902236153346527L;
+
+    
+    public DatasourceException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
+
+    public DatasourceException(String msg) {
+        super(msg);
+    }
+
+    public DatasourceException(Throwable cause) {
+        super(cause);
     }
 }

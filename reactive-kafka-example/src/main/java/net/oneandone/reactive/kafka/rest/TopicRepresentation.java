@@ -20,7 +20,7 @@ import javax.ws.rs.core.UriInfo;
 
 import com.google.common.collect.ImmutableMap;
 
-import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
+import net.oneandone.commons.incubator.hypermedia.LinksBuilder;
 
 
 

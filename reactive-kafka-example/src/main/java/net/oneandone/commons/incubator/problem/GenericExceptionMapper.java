@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.problem;
+package net.oneandone.commons.incubator.problem;
 
 import java.util.Locale;
 import java.util.Map;
@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import net.oneandone.reactive.utils.problem.Problem;
+import net.oneandone.commons.incubator.problem.Problem;
 
 
 

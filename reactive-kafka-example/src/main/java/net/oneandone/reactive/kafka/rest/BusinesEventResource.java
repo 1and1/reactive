@@ -21,6 +21,7 @@ import java.io.IOException;
 
 
 
+
 import java.io.InputStream;
 
 
@@ -66,21 +67,21 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import net.oneandone.avro.json.AvroMessageMapperRepository;
-import net.oneandone.avro.json.AvroMessage;
+import net.oneandone.commons.incubator.freemarker.Page;
+import net.oneandone.commons.incubator.hypermedia.LinksBuilder;
+import net.oneandone.commons.incubator.problem.StdProblem;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaMessage;
 import net.oneandone.reactive.kafka.KafkaMessageId;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.kafka.KafkaSource;
+import net.oneandone.reactive.kafka.avro.json.AvroMessage;
+import net.oneandone.reactive.kafka.avro.json.AvroMessageMapperRepository;
 import net.oneandone.reactive.rest.container.ResultConsumer;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.servlet.ServletSseSubscriber;
 import net.oneandone.reactive.utils.Pair;
-import net.oneandone.reactive.utils.freemarker.Page;
-import net.oneandone.reactive.utils.hypermedia.LinksBuilder;
-
 import rx.Observable;
 import rx.RxReactiveStreams;
 
@@ -152,9 +153,7 @@ public class BusinesEventResource {
         
         return new Page("/net/oneandone/reactive/kafka/rest/topiclist.ftl")
                       .withModelData("self", uriInfo.getBaseUri())
-                      .withModelData("topicnames", ImmutableSet.copyOf(kafkaSource.listTopics()
-                                                               .stream()
-                                                               .collect(Collectors.toList())));
+                      .withModelData("topicnames", kafkaSource.listTopics());
     }
     
     
@@ -180,16 +179,13 @@ public class BusinesEventResource {
     
     
     
-    
-    
-  
 
     @GET
     @Path("/topics/{topic}/schemas")
-    @Produces("text/plain")
-    public String getRegisteredSchematas() {
+    @Produces("text/plain; qs=0.8")
+    public String getRegisteredSchemasPlain() {
         
-        return Joiner.on("\r\n").join(mapperRepository.getRegisteredSchemas()
+        return Joiner.on("\r\n").join(mapperRepository.getRegisteredSchemasAsText()
                                                       .entrySet()
                                                       .stream()
                                                       .map(entry -> ("== " + entry.getKey() +  
@@ -198,6 +194,34 @@ public class BusinesEventResource {
                                                       .collect(Collectors.toList()));
     }
     
+  
+    @GET
+    @Path("/topics/{topic}/schemas")
+    @Produces("text/html; qs=0.4")
+    public Page getRegisteredSchemasHtml() throws IOException {
+
+        return new Page("/net/oneandone/reactive/kafka/rest/schemalist.ftl")
+                    .withModelData("schemas", mapperRepository.getRegisteredSchemas()
+                                                              .entrySet()
+                                                              .stream()
+                                                              .collect(Collectors.toMap(e -> e.getKey(), 
+                                                                                        e -> (e.getValue().getDoc() == null) ? "" 
+                                                                                                                             : e.getValue().getDoc())));
+    }
+    
+    
+
+    @GET
+    @Path("/topics/{topic}/schemas/{type}/{subtype}")   
+    @Produces("text/plain")
+    public Response getRegisteredSchemaPlain(@PathParam("type") String type, @PathParam("subtype") String subtype) {
+        
+        String schema = mapperRepository.getRegisteredSchemasAsText()
+                                        .get(type + "/" + subtype);
+        
+        return  (schema == null) ? StdProblem.newNotExists().toResponse()
+                                 : Response.ok(schema).build();
+    }
     
     
     @POST
@@ -335,7 +359,7 @@ public class BusinesEventResource {
     @GET
     @Path("/topics/{topic}/events")
     @Produces("text/html; qs=0.4")
-    public Page readEventsAsHtml() {
+    public Page readEventsHtml() {
         return new Page("/net/oneandone/reactive/kafka/rest/eventstream.ftl");
     }
 

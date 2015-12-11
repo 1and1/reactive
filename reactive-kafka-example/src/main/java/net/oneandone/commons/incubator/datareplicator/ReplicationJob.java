@@ -13,27 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.kafka.avro.json;
+package net.oneandone.commons.incubator.datareplicator;
+
+import java.io.Closeable;
+import java.net.URI;
+import java.time.Duration;
+import java.util.Optional;
 
 
-public class SchemaException extends RuntimeException {
 
-    private static final long serialVersionUID = -3894104697627836613L;
-
-    private final String type;
-
-
-    public SchemaException(String reason) {
-        super(reason);
-        this.type = null;
-    } 
-        
-    public SchemaException(String reason, String type) {
-        super(reason);
-        this.type = type;
-    } 
+public interface ReplicationJob extends Closeable {
     
-    public String getType() {
-        return type;
-    }
+    URI getEndpoint();
+    
+    Optional<Duration> getExpiredTimeSinceRefresh();
+    
+    void close();
 }

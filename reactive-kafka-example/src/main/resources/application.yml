@@ -5,7 +5,7 @@ logging:
     kafka: ERROR
 
 schemaregistry: 
-       path: src/main/resources/schemas
+       schema.uri: classpath:schemas/schemas.zip
 
 eventbus:
        bootstrapservers: localhost:8553

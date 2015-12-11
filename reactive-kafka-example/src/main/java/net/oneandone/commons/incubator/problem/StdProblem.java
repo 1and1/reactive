@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.reactive.utils.problem;
+package net.oneandone.commons.incubator.problem;
 
 
 
@@ -30,10 +30,18 @@ public class StdProblem extends Problem {
     }
 
     public static StdProblem of(WebApplicationException wae) {
-        return new StdProblem(parseProblemData(wae));
+        return new StdProblem(parseProblemData(wae.getResponse()));
     }
 
-    
+
+    public boolean isNotExists() {
+        return is(410, "urn:problem:instance-not-exists");
+    }
+
+    public static StdProblem newNotExists() {
+        return new StdProblem(newProblemdata(410, "urn:problem:instance-not-exists"));
+    }
+
     
     public boolean isMalformedRequestDataProblem() {
         return is(400, "urn:problem:formed-request-data");

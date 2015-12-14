@@ -1,5 +1,7 @@
 package net.oneandone.reactive.utils;
 
+import java.util.Optional;
+
 import com.google.common.base.Objects;
 
 public class Pair<F,S> {
@@ -52,9 +54,14 @@ public class Pair<F,S> {
     @SuppressWarnings("rawtypes")
     @Override
     public boolean equals(Object other) {
-        return (other != null) &&
-               (other instanceof Pair) &&
-               ((Pair) other).first.equals(this.first) &&
-               ((Pair) other).second.equals(this.second);
+
+        if ((other != null) && (other instanceof Pair)) {
+            Pair otherPair = (Pair) other;
+            return Optional.ofNullable(otherPair.getFirst()).equals(Optional.ofNullable(this.getFirst())) &&
+                   Optional.ofNullable(otherPair.getSecond()).equals(Optional.ofNullable(this.getSecond()));
+            
+        } else {
+            return false;
+        }
     }
 }

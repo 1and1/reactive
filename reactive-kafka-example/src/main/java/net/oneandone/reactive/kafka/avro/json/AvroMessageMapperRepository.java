@@ -19,10 +19,17 @@ package net.oneandone.reactive.kafka.avro.json;
 
 import java.io.ByteArrayInputStream;
 
+
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -33,30 +40,28 @@ import java.util.zip.ZipInputStream;
 
 import javax.json.Json;
 import javax.json.JsonObject;
-import javax.json.JsonObjectBuilder;
-import javax.json.JsonReader;
-import javax.json.JsonValue;
 import javax.ws.rs.core.MediaType;
 
 import org.apache.avro.Schema;
+import org.apache.avro.Schema.Type;
 import org.apache.avro.compiler.idl.Idl;
 import org.apache.avro.compiler.idl.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
-import com.google.common.io.Closeables;
 
+import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.commons.incubator.datareplicator.DataReplicator;
 import net.oneandone.commons.incubator.datareplicator.ReplicationJob;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.utils.Immutables;
+import net.oneandone.reactive.utils.Pair;
 
 
 
@@ -65,43 +70,40 @@ import net.oneandone.reactive.utils.Immutables;
 public class AvroMessageMapperRepository implements Closeable {
     
     private static final Logger LOG = LoggerFactory.getLogger(AvroMessageMapperRepository.class);
-    private static final IdlToJson idlToJson = new IdlToJson();
 
     private final ReplicationJob replicationJob; 
+    private volatile ImmutableList<SchemaInfo> erroneousSchemas = ImmutableList.of();
     private volatile ImmutableMap<String, AvroMessageMapper> mapper = ImmutableMap.of();
     private volatile ImmutableMap<String, String> schemaNameIndex = ImmutableMap.of();
     private volatile ImmutableMap<String, Schema> schemaIndex = ImmutableMap.of();
 
     
-
     
     
-    public AvroMessageMapperRepository(URI uri) {
+    public AvroMessageMapperRepository(final URI uri) {
         this.replicationJob = new DataReplicator(uri).withRefreshPeriod(Duration.ofMinutes(1))
-                                                     .open(this::onRefresh);
+                                                     .startConsumingBinary(this::onRefresh);
     }
+ 
     
-    
-    @Override
-    public void close() throws IOException {
-        replicationJob.close();
-    }
-
-    
-    public void onRefresh(byte[] binary) {
+    public void onRefresh(final byte[] binary) {
         
-        List<AvroMessageMapper> mappers = Lists.newArrayList();
-        for (Entry<String, InputStream> entry : Zip.unpack(binary).entrySet()) {
-            try {
-                mappers.addAll(createMappers(entry.getKey(), entry.getValue()));
-            } catch (IOException ioe) {
-                LOG.warn("error loading avro schema " + entry.getKey(), ioe);
-            }
-        }
-        
+        ImmutableSet<Pair<AvroMessageMapper, SchemaInfo>> results = parseSchemas(binary).stream()
+                                                                                        .map(schema -> AvroMessageMapper.createrMapper(schema))
+                                                                                        .collect(Immutables.toSet());
 
-        this.mapper = mappers.stream()
-                             .collect(Immutables.toMap(AvroMessageMapper::getMimeType, (AvroMessageMapper m) -> m));
+        
+        erroneousSchemas = results.stream()
+                                  .filter(result -> (result.getFirst() == null))
+                                  .map(result -> result.getSecond())
+                                  .collect(Immutables.toList());
+
+        
+        this.mapper = results.stream()
+                             .filter(result -> (result.getFirst() != null))
+                             .map(result -> result.getFirst())
+                             .collect(Immutables.toMap(AvroMessageMapper::getMimeType,
+                                      (AvroMessageMapper m) -> m));
         
         this.schemaNameIndex = mapper.values()
                                      .stream()
@@ -115,11 +117,16 @@ public class AvroMessageMapperRepository implements Closeable {
     }    
     
     
-
+ 
+    
+    @Override
+    public void close() throws IOException {
+        replicationJob.close();
+    }
 
 
     public ImmutableMap<String, String> getRegisteredSchemasAsText() {
-        Map<String, String> schemas = Maps.newHashMap();
+        final Map<String, String> schemas = Maps.newHashMap();
         
         for (Entry<String, AvroMessageMapper> entry : mapper.entrySet()) {
             schemas.put(entry.getKey(), entry.getValue().toString());
@@ -129,14 +136,18 @@ public class AvroMessageMapperRepository implements Closeable {
         return ImmutableMap.copyOf(schemas);
     }
     
-    
 
     public  ImmutableMap<String, Schema> getRegisteredSchemas() {
         return mapper.entrySet().stream().collect(Immutables.toMap(e -> e.getKey(), e -> e.getValue().getSchema()));
     }
     
+    
+    public ImmutableList<SchemaInfo> getErroneousSchemas() {
+        return erroneousSchemas;
+    }
 
-    public Optional<String> getRegisteredSchema(MediaType mimetype) {
+    
+    public Optional<String> getRegisteredSchema(final MediaType mimetype) {
         for (Entry<String, String> entry : getRegisteredSchemasAsText().entrySet()) {
             if (entry.getKey().equals(mimetype.toString())) {
                 return Optional.of(entry.getValue().toString());
@@ -147,45 +158,37 @@ public class AvroMessageMapperRepository implements Closeable {
     }
     
 
-    
-    public JsonObject toJson(AvroMessage avroMessage) {
+    public JsonObject toJson(final AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(mapper -> mapper.toJson(avroMessage))
                                                            .orElseThrow(() -> new SchemaException("unsupported type", avroMessage.getMimeType().toString()));
     }
 
     
-    
-
-    public ImmutableList<AvroMessage> toAvroMessages(InputStream jsonObjectStream, String mimeType) {
+    public ImmutableList<AvroMessage> toAvroMessages(final InputStream jsonObjectStream, final String mimeType) {
         return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessages(Json.createParser(jsonObjectStream)))
                                             .orElseThrow(() -> new SchemaException("unsupported type", mimeType));
     }
     
-    
-    
 
-    public AvroMessage toAvroMessage(InputStream jsonObjectStream, String mimeType) {
+    public AvroMessage toAvroMessage(final InputStream jsonObjectStream, final String mimeType) {
         return getJsonToAvroMapper(mimeType).map(mapper -> mapper.toAvroMessage(Json.createParser(jsonObjectStream)))
                                             .orElseThrow(() -> new SchemaException("unsupported type", mimeType));
     }
     
-        
 
-
-    public AvroMessage toAvroMessage(byte[] serializedAvroMessage, MediaType readerMimeType) throws SchemaException {
+    public AvroMessage toAvroMessage(final byte[] serializedAvroMessage, final MediaType readerMimeType) throws SchemaException {
         return toAvroMessage(serializedAvroMessage, ImmutableList.of(readerMimeType));
     }
     
 
-    
-    public AvroMessage toAvroMessage(byte[] serializedAvroMessage, ImmutableList<MediaType> readerMimeTypes) throws SchemaException {
-        ImmutableList<Schema> readerSchemas =readerMimeTypes.stream()
-                                                            .map(mimeType -> getJsonToAvroMapper(mimeType.toString()))
-                                                            .filter(optionalMapper -> optionalMapper.isPresent())
-                                                            .map(mapper -> mapper.get().getSchema())
-                                                            .collect(Immutables.toList());
+    public AvroMessage toAvroMessage(final byte[] serializedAvroMessage, final ImmutableList<MediaType> readerMimeTypes) throws SchemaException {
+        final ImmutableList<Schema> readerSchemas = readerMimeTypes.stream()
+                                                                   .map(mimeType -> getJsonToAvroMapper(mimeType.toString()))
+                                                                   .filter(optionalMapper -> optionalMapper.isPresent())
+                                                                   .map(mapper -> mapper.get().getSchema())
+                                                                   .collect(Immutables.toList());
         
-        AvroMessage avroMessage = AvroMessage.from(serializedAvroMessage, schemaIndex, readerSchemas);
+        final AvroMessage avroMessage = AvroMessage.from(serializedAvroMessage, schemaIndex, readerSchemas);
 
         for (MediaType readerMimeType : readerMimeTypes) {
             if (avroMessage.getMimeType().isCompatible(readerMimeType)) {
@@ -197,131 +200,158 @@ public class AvroMessageMapperRepository implements Closeable {
     }
     
 
-    public ServerSentEvent toServerSentEvent(KafkaMessageIdList consumedOffsets, AvroMessage avroMessage) {
+    public ServerSentEvent toServerSentEvent(final KafkaMessageIdList consumedOffsets, final AvroMessage avroMessage) {
         return getJsonToAvroMapper(avroMessage.getSchema()).map(schema -> ServerSentEvent.newEvent()
                                                                                          .id(consumedOffsets.toString())
-                                                                                         .data(avroMessage.getMimeType().toString() + "\n" +
-                                                                                               toJson(avroMessage).toString()))
+                                                                                         .data(avroMessage.getMimeType().toString() + "\n" + toJson(avroMessage).toString()))
                                                            .orElseThrow(() -> new SchemaException("unsupported type", avroMessage.getMimeType().toString()));
     }
     
     
-    Schema getSchema(String namespace, String name) {
+    Schema getSchema(final String namespace, final String name) {
         return getJsonToAvroMapper(namespace, name).orElseThrow(() -> new SchemaException("unsupported type", namespace + "." + name))
                                                    .getSchema();
     }
     
     
-    private Optional<AvroMessageMapper> getJsonToAvroMapper(Schema schema) {
-        return getJsonToAvroMapper(schema.getNamespace(),  schema.getName());
+    private Optional<AvroMessageMapper> getJsonToAvroMapper(final Schema schema) {
+        return getJsonToAvroMapper(schema.getNamespace(), schema.getName());
     }
     
 
-    private Optional<AvroMessageMapper> getJsonToAvroMapper(String namespace, String name) {
+    private Optional<AvroMessageMapper> getJsonToAvroMapper(final String namespace, final String name) {
         return  Optional.ofNullable(schemaNameIndex.get(namespace + "." + name))
                         .map(mimeType -> mapper.get(mimeType));
     }
 
     
-    private Optional<AvroMessageMapper> getJsonToAvroMapper(String mimeType) {
+    private Optional<AvroMessageMapper> getJsonToAvroMapper(final String mimeType) {
         return Optional.ofNullable(mapper.get(mimeType));
     }
     
-    
-    
-    private ImmutableList<AvroMessageMapper> createMappers(String filename, InputStream is) throws IOException {
-        final ImmutableList<JsonObject> jsonSchemas;
-        
-        // avro json schema? 
-        if (filename.endsWith(".avsc")) {
-            jsonSchemas = ImmutableList.of(Json.createReader(is).readObject());
-            
-        // avro idl?                
-        } else if (filename.endsWith(".avdl")) {
-            jsonSchemas = idlToJson.idlToJsonSchemaList(is);
-        
-        // unknown!
-        } else {
-            LOG.info("unsupported schema file " + filename + " found (supported type: .asvc and .avdl)");
-            return ImmutableList.of();
-        }
-        
-        return jsonSchemas.stream().map(jsonSchema -> AvroMessageMapper.createrMapper(jsonSchema)).collect(Immutables.toList());
-    }
+   
     
 
     
-    
-    
-    private static final class IdlToJson {
-        
-        public ImmutableList<JsonObject> idlToJsonSchemaList(InputStream data) {
+    private static ImmutableList<SchemaInfo> parseSchemas(final byte[] binary) {
+        try {
+            // unpack within temp dir 
+            final Path tempDir = Files.createTempDirectory("avro_repo_");
+            Zip.unpack(binary, tempDir);
+
             
-            InputStream is = null;
-            Idl parser = null;
-            try {
-                parser = new Idl(data);
+            // scan avro scheme files
+            final AvroSchemeFileVisitor avroSchemeFileVisitor = new AvroSchemeFileVisitor();
+            Files.walkFileTree(tempDir, avroSchemeFileVisitor);
+
+            // scan avro idl files
+            final AvroIdlFileVisitor avroIdlFileVisitor = new AvroIdlFileVisitor();
+            Files.walkFileTree(tempDir, avroIdlFileVisitor);
+
+
+            // delete temp dir 
+            Files.walkFileTree(tempDir, new DeleteRecursivelyVisitor()); 
+
+            
+            // return schema sets
+            return Immutables.join(avroSchemeFileVisitor.getCollectedSchemas(),
+                                   avroIdlFileVisitor.getCollectedSchemas());
+            
+        } catch (IOException ioe) {
+            LOG.warn("error loading avro schema", ioe);
+            return ImmutableList.of();
+        }
+    }
+    
+    
+    
+    private static final class AvroSchemeFileVisitor extends SimpleFileVisitor<Path> {
+        private final List<SchemaInfo> schemas = Lists.newArrayList();
+
+        public ImmutableList<SchemaInfo> getCollectedSchemas() {
+            return ImmutableList.copyOf(schemas);
+        }
+        
+        @Override
+        public FileVisitResult visitFile(final Path path, final BasicFileAttributes attrs) throws IOException {
+            if (path.getFileName().toString().endsWith(".avsc")) {
+                schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), new Schema.Parser().parse(path.toFile())));
+            }
                 
-                final String idl = parser.CompilationUnit().toString(true);
-                final JsonReader reader = Json.createReader(new ByteArrayInputStream(idl.getBytes(Charsets.UTF_8)));
-                
-                
-                List<JsonObject> jsonSchemas = Lists.newArrayList();
-                JsonObject idlJson =  reader.readObject();
-                String namespace = idlJson.getString("namespace");
-                
-                for (JsonValue recordJson : idlJson.getJsonArray("types")) {
-                    JsonObjectBuilder builder = Json.createObjectBuilder();
-                
-                    if (!((JsonObject) recordJson).containsKey("namespace")) {
-                        builder.add("namespace", namespace);
-                    }
-                    
-                    for (Entry<String, JsonValue> nameValuePair : ((JsonObject) recordJson).entrySet()) {
-                        builder.add(nameValuePair.getKey(), nameValuePair.getValue());
-                    }
-                    
-                    jsonSchemas.add(builder.build());
+            return FileVisitResult.CONTINUE;
+        }
+    }
+    
+    
+    private static final class AvroIdlFileVisitor extends SimpleFileVisitor<Path> {
+        private final List<SchemaInfo> schemas = Lists.newArrayList();
+
+        public ImmutableList<SchemaInfo> getCollectedSchemas() {
+            return ImmutableList.copyOf(schemas);
+        }
+        
+        @Override
+        public FileVisitResult visitFile(final Path path, final BasicFileAttributes attrs) throws IOException {
+            if (path.getFileName().toString().endsWith(".avdl")) {
+                for (Schema schema : idlToJsonSchemas(path.toFile())) {
+                    schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), schema));
                 }
+            }
                 
-                return ImmutableList.copyOf(jsonSchemas);
-                
-            } catch (ParseException pe) {
-                throw new RuntimeException(pe);
-                
-            } finally {
-                Closeables.closeQuietly(is);
-                try {
-                    Closeables.close(parser, true);
-                } catch (IOException ignore) { }
+            return FileVisitResult.CONTINUE;
+        }
+        
+        
+        private ImmutableSet<Schema> idlToJsonSchemas(final File idlFile) {
+            try (Idl parser = new Idl(idlFile)) {
+                return parser.CompilationUnit()
+                             .getTypes()
+                             .stream()
+                             .filter(scheme -> (scheme.getType() == Type.RECORD))
+                             .collect(Immutables.toSet());
+
+            } catch (ParseException | IOException e) {
+                throw new RuntimeException(e);
             }
         }            
     }
+    
+    
+    private static final class DeleteRecursivelyVisitor extends SimpleFileVisitor<Path> {
+        
+        public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+            Files.delete(dir);
+            return FileVisitResult.CONTINUE;
+        };
+
+        @Override
+        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+    }
+
     
     
     private static class Zip {
 
         private Zip() { }
         
-        
-        public static ImmutableMap<String, InputStream> unpack(byte[] binary) {
-            
-            Map<String, InputStream> result = Maps.newHashMap();
+        public static void unpack(final byte[] binary, final Path targetDir) throws IOException {
+            final ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(binary));
 
-            try {
-                ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(binary));
-                
-                ZipEntry ze = null;
-                while ((ze = zin.getNextEntry()) != null) {
-                    result.put(ze.getName(), new ByteArrayInputStream(ByteStreams.toByteArray(zin)));
-                    zin.closeEntry();
+            ZipEntry ze = null;
+            while ((ze = zin.getNextEntry()) != null) {
+                final File file = new File(targetDir + File.separator + ze.getName());
+                if (ze.isDirectory()) {
+                    file.mkdir();
+                } else {
+                    file.toPath().getParent().toFile().mkdirs();
+                    Files.write(file.toPath(), ByteStreams.toByteArray(zin));
                 }
-                zin.close();
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
+                zin.closeEntry();
             }
-            
-            return ImmutableMap.copyOf(result);
+            zin.close();
         }
     }
 }

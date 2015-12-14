@@ -45,8 +45,10 @@ public class JsonAvroMapperTest {
 
         
         JsonReader reader = Json.createReader(new ByteArrayInputStream(schema.getBytes(Charsets.UTF_8)));
-        mapper = AvroMessageMapper.createrMapper(reader.readObject());
+        mapper = AvroMessageMapper.createrMapper(new SchemaInfo("", new Schema.Parser().parse(reader.readObject().toString()))).getFirst();
     }
+    
+    
 
     
 

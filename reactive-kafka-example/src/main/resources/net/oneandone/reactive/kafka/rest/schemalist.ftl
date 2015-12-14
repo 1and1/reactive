@@ -16,7 +16,7 @@
                     <th>description</th>
                 </tr>
 
-                <#list schemas?keys as type>
+                <#list mimeTypes as type>
                 <tr class="even">
                     <td><a href="schemas/${type?split("/")[0]}/${type?split("/")[1]?url}">${type}</a></td><td>${schemas[type]}</td>
                 </tr>
@@ -32,6 +32,8 @@
             </tbody>
         </table> 
 	
+	    <br>
+	    <a href="erroneousschemas"><small>erroneous schemas</small></a>
 	    
 	    <#include "/net/oneandone/reactive/kafka/rest/footer.ftl">
 	</body>

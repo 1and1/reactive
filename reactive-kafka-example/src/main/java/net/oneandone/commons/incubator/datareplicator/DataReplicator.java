@@ -17,14 +17,16 @@ package net.oneandone.commons.incubator.datareplicator;
 
 
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
+
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import java.net.URLConnection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -34,9 +36,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.xml.sax.SAXException;
 
+import com.google.common.base.Charsets;
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
@@ -47,7 +58,9 @@ import com.google.common.io.Files;
 
 /**
  * The data replicator replicates data periodically from uri base resources. Data will be cached locally for availability reasons.
- * Each time updated data is fetched the registered consumer will be called. 
+ * Each time updated data is fetched the registered consumer will be called. <br>
+ * 
+ * Typically the data replicator is used for configuration data, definition files and template data  
  *
  */
 public class DataReplicator {    
@@ -71,7 +84,7 @@ public class DataReplicator {
         this(uri, 
              false, 
              new File("."), 
-             Duration.ofDays(14),
+             Duration.ofDays(4),
              "datareplicator/1.0",
              Duration.ofSeconds(60));
     }
@@ -92,7 +105,9 @@ public class DataReplicator {
 
     
     /**
-     * @param refreshPeriod   the refresh period (default is 60 sec) 
+     * @param refreshPeriod   the refresh period. The period should be as high as no unnecessary 
+     *                        extra load on the resource server is generated. Furthermore is
+     *                         should be as low as data is fresh enough. (default is 60 sec) 
      * @return the new instance of the data replicator
      */
     public DataReplicator withRefreshPeriod(final Duration refreshPeriod) {
@@ -106,7 +121,10 @@ public class DataReplicator {
     
     /**
      * 
-     * @param maxCacheTime  the max cache time. after this time the cache entries will be ignored (default is 14 days)
+     * @param maxCacheTime  the max cache time. The max time data is cached. This means it is highly 
+     *                      probable that a successfully refresh will be performed within this time 
+     *                      period (even though serious incidents occurs). Furthermore the age of the 
+     *                      data is acceptable for the consumer (default is 4 days)
      * @return the new instance of the data replicator
      */
     public DataReplicator withMaxCacheTime(final Duration maxCacheTime) {
@@ -123,7 +141,7 @@ public class DataReplicator {
      * Sets the value whether the application should terminate the start-up process when the data (source and local copy) 
      * are not available.<p>
      * 
-     * If failOnInitFailure==true then {@link #open(Consumer)} immediately aborts with a RuntimeException if the configured
+     * If failOnInitFailure==true then consumer method immediately aborts with a RuntimeException if the configured
      * source cannot be fetched.
      * <p>
      * If failOnInitFailure==false and the source is unreachable: If a cached file exists and not 
@@ -175,22 +193,43 @@ public class DataReplicator {
     
     
     /**
-     * @param consumer  the consumer which will be called each time updated data is fetched  
+     * @param consumer  the binary data consumer which will be called each time updated data is fetched  
      * @return the replication job
      */
-    public ReplicationJob open(final Consumer<byte[]> consumer) {
+    public ReplicationJob startConsumingBinary(final Consumer<byte[]> consumer) {
         return new ReplicatonJobImpl(uri, 
                                      failOnInitFailure, 
                                      cacheDir,
                                      maxCacheTime,
                                      appId,
                                      refreshPeriod,
-                                     consumer);
+                                     consumer); 
     }
  
+
     
+    /**
+     * @param consumer  the (UTF-8 encoded) text consumer 
+     *                  which will be called each time updated data is fetched  
+     * @return the replication job
+     */
+    public ReplicationJob startConsumingText(final Consumer<String> consumer) {
+        return startConsumingBinary(binary -> consumer.accept(new String(binary, Charsets.UTF_8)));
+    }
+ 
+
     
-    
+    /**
+     * @param consumer  the (UTF-8 encoded, line break separated, trimmed) text list consumer
+     *                  which will be called each time updated data is fetched  
+     * @return the replication job
+     */
+    public ReplicationJob startConsumingTextList(final Consumer<ImmutableList<String>> consumer) {
+        return startConsumingText(text -> consumer.accept(ImmutableList.copyOf(Splitter.onPattern("\r?\n")
+                                                                                       .trimResults()
+                                                                                       .splitToList(text))));
+    }
+ 
     
     
     
@@ -200,6 +239,8 @@ public class DataReplicator {
         private final FileCache fileCache;
         private final Consumer<byte[]> consumer;
         private final ScheduledExecutorService executor;
+        private final Duration maxCacheTime;
+        private final Duration refreshPeriod;
         
         private final AtomicReference<Optional<Instant>> lastRefreshSuccess = new AtomicReference<>(Optional.empty());
         private final AtomicReference<Optional<Instant>> lastRefreshError = new AtomicReference<>(Optional.empty());
@@ -213,16 +254,21 @@ public class DataReplicator {
                                  final String appId,
                                  final Duration refreshPeriod, 
                                  final Consumer<byte[]> consumer) {
+            
+            this.maxCacheTime = maxCacheTime;
+            this.refreshPeriod = refreshPeriod;
             this.consumer = new HashProtectedConsumer(consumer);
             this.fileCache = new FileCache(cacheDir, uri.toString(), maxCacheTime);
             
-
             // create proper data source 
             if (uri.getScheme().equalsIgnoreCase("classpath")) {
                 this.datasource = new ClasspathDatasource(uri);
                 
             } else if (uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https")) {
                 this.datasource = new HttpDatasource(uri, appId);
+                
+            } else if (uri.getScheme().equalsIgnoreCase("snapshot")) {
+                this.datasource = new MavenSnapshotDatasource(uri, appId);
                 
             } else if (uri.getScheme().equalsIgnoreCase("file")) {
                 this.datasource = new FileDatasource(uri);
@@ -241,9 +287,14 @@ public class DataReplicator {
             
                 if (failOnInitFailure) {
                     throw rt;
+                    
                 } else {
                     // try to load from cache 
-                    consumer.accept(fileCache.load());
+                    try {
+                        consumer.accept(fileCache.load().get());
+                    } catch (RuntimeException rt2) {
+                        throw rt;
+                    }
                 } 
             }
             
@@ -262,11 +313,12 @@ public class DataReplicator {
         
         private void load() {
             try {
-                final byte[] data = datasource.load();
-                consumer.accept(data);
-                fileCache.update(data); // data has been accepted by the consumer -> update cache
+                datasource.load().ifPresent(binary -> {
+                                                        consumer.accept(binary); 
+                                                        fileCache.update(binary);  // data has been accepted by the consumer -> update cache
+                                                      });
                 
-                lastRefreshSuccess.set(Optional.of(Instant.now()));
+                lastRefreshSuccess.set(Optional.of(Instant.now()));  // will be updated event though optional is empty
                 
             } catch (RuntimeException rt) {
                 LOG.warn("error occured by loading " + getEndpoint(), rt);
@@ -283,6 +335,16 @@ public class DataReplicator {
         }
        
         @Override
+        public Duration getMaxCacheTime() {
+            return maxCacheTime;
+        }
+        
+        @Override
+        public Duration getRefreshPeriod() {
+            return refreshPeriod;
+        }
+        
+        @Override
         public Optional<Duration> getExpiredTimeSinceRefreshSuccess() {
             return lastRefreshSuccess.get().map(time -> Duration.between(time, Instant.now()));
         }
@@ -295,8 +357,12 @@ public class DataReplicator {
         
         @Override
         public String toString() {
-            return datasource.toString() + " (last reload success: " + lastRefreshSuccess.get().map(time -> time.toString()).orElse("none") +
-                                           ", last reload error: " + lastRefreshError.get().map(time -> time.toString()).orElse("none") + ")";
+            return new StringBuilder(datasource.toString())
+                            .append(", refreshperiod=").append(refreshPeriod)
+                            .append(", maxCacheTime=").append(maxCacheTime)
+                            .append(" (last reload success: ").append(lastRefreshSuccess.get().map(time -> time.toString()).orElse("none")) 
+                            .append(", last reload error: ").append(lastRefreshError.get().map(time -> time.toString()).orElse("none")).append(")")
+                            .toString();
         }
         
         
@@ -332,7 +398,7 @@ public class DataReplicator {
                 return uri;
             }
                         
-            public abstract byte[] load();
+            public abstract Optional<byte[]> load();
             
             @Override
             public String toString() {
@@ -349,7 +415,7 @@ public class DataReplicator {
             }
             
             @Override
-            public byte[] load() {
+            public Optional<byte[]> load() {
                 ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 if (classLoader == null) {
                     classLoader = getClass().getClassLoader();
@@ -362,7 +428,7 @@ public class DataReplicator {
                 } else {
                     InputStream is = null;
                     try {
-                        return ByteStreams.toByteArray(classpathUri.openStream());
+                        return Optional.of(ByteStreams.toByteArray(classpathUri.openStream()));
                     } catch (IOException ioe) {
                         throw new DatasourceException(ioe);
                     } finally {
@@ -382,11 +448,11 @@ public class DataReplicator {
             }
           
             @Override
-            public byte[] load() {
+            public Optional<byte[]> load() {
                 final File file = new File(getEndpoint().getPath());
                 if (file.exists()) {
                     try {
-                        return Files.toByteArray(file);
+                        return Optional.of(Files.toByteArray(file));
                     } catch (IOException ioe) {
                         throw new DatasourceException(ioe);
                     }
@@ -402,6 +468,7 @@ public class DataReplicator {
         
         private static class HttpDatasource extends Datasource {
             private final String appId;
+            private final AtomicReference<String> etag = new AtomicReference<String>();
             
             public HttpDatasource(final URI uri, final String appId) {
                 super(uri);
@@ -410,15 +477,36 @@ public class DataReplicator {
             
             
             @Override
-            public byte[] load() throws DatasourceException {
+            public Optional<byte[]> load() {
+                return load(getEndpoint());
+            }
                 
+            protected Optional<byte[]> load(URI uri) {
                 InputStream is = null;
                 try {
-                    final URLConnection con = getEndpoint().toURL().openConnection();
+                    // compose request
+                    final HttpURLConnection con = (HttpURLConnection) uri.toURL().openConnection();
                     con.setRequestProperty("X-APP", appId);
+                    if (etag.get() != null) {
+                        con.setRequestProperty("If-None-Match", etag.get());
+                    }
+                    
 
-                    is = con.getInputStream();
-                    return ByteStreams.toByteArray(is);
+                    // read response
+                    final int status = con.getResponseCode();
+                    if ((status / 100) == 2) {
+                        etag.set(con.getHeaderField("ETAG"));
+                        is = con.getInputStream();
+                        return Optional.of(ByteStreams.toByteArray(is));
+                        
+                    // not modified
+                    } else if (status == 304) {
+                        return Optional.empty();
+             
+                    // other (client error, ...) 
+                    } else {
+                        throw new DatasourceException("got" + con.getResponseCode() + " by calling " + getEndpoint());
+                    }
                     
                 } catch (IOException ioe) {
                     throw new DatasourceException(ioe);
@@ -426,9 +514,45 @@ public class DataReplicator {
                     Closeables.closeQuietly(is);
                 }
             }
-            
         }
+
         
+        
+        private static class MavenSnapshotDatasource extends HttpDatasource {
+            
+            public MavenSnapshotDatasource(final URI uri, final String appId) {
+                super(uri, appId);
+            }
+            
+            
+            @Override
+            public Optional<byte[]> load() {
+                URI xmlUri = URI.create(getEndpoint().getSchemeSpecificPart() + "/maven-metadata.xml"); 
+                return load(xmlUri).map(xmlFile -> parseNewesetSnapshotUri(getEndpoint().getSchemeSpecificPart(), xmlFile))
+                                   .flatMap(newestSnapshotUri -> load(newestSnapshotUri));
+            }
+            
+            
+            private URI parseNewesetSnapshotUri(String uri, byte[] xmlFile) {
+                try {
+                    Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(xmlFile));
+                    
+                    String artifactId = ((Element) document.getElementsByTagName("artifactId").item(0)).getTextContent();
+                    String version = ((Element) document.getElementsByTagName("version").item(0)).getTextContent();
+                    
+                    Element node = (Element) document.getElementsByTagName("versioning").item(0);
+                    node = (Element) node.getElementsByTagName("snapshot").item(0);
+                    String timestamp = ((Element) node.getElementsByTagName("timestamp").item(0)).getTextContent();
+                    String buildNumber = ((Element) node.getElementsByTagName("buildNumber").item(0)).getTextContent();
+                    
+                    return URI.create(uri + "/" + artifactId + "-" + version.replace("-SNAPSHOT", "-" + timestamp + "-" + buildNumber + ".jar"));
+                     
+                } catch (IOException | ParserConfigurationException | SAXException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+
         
         
         private static final class FileCache extends Datasource {
@@ -484,7 +608,7 @@ public class DataReplicator {
                     }
                     
                     
-                }catch (IOException ioe) {
+                } catch (IOException ioe) {
                     LOG.warn("updating cache file " + cacheFileName + " failed", ioe);
                 }
             }
@@ -499,7 +623,7 @@ public class DataReplicator {
             }
    
             @Override
-            public byte[] load() throws DatasourceException {
+            public Optional<byte[]> load() {
 
                 // check if cache file is expired
                 final Duration age = getExpiredTimeSinceRefresh().orElseThrow(() -> new DatasourceException("no cache entry exists"));
@@ -513,7 +637,7 @@ public class DataReplicator {
                     FileInputStream is = null;
                     try {
                         is = new FileInputStream(cacheFile);
-                        return ByteStreams.toByteArray(is);
+                        return Optional.of(ByteStreams.toByteArray(is));
                     } catch (IOException ioe) {
                         throw new DatasourceException("loading cache file " + cacheFileName + " failed", ioe);
                     } finally {

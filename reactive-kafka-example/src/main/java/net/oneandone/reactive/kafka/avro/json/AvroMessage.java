@@ -116,7 +116,8 @@ public class AvroMessage {
             DatumReader<GenericRecord> reader = (readerSchema == null) ? new SpecificDatumReader<GenericRecord>(writerSchema)
                                                                        : new SpecificDatumReader<GenericRecord>(writerSchema, readerSchema) ;
             Decoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
-            return reader.read(null, decoder);
+            GenericRecord avroRecord = reader.read(null, decoder);
+            return avroRecord;
         } catch (IOException ioe) {
             LOG.debug("error occured by deserialize avro record", ioe);
             throw new RuntimeException(ioe);

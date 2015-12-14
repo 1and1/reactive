@@ -1,12 +1,32 @@
 
+spring:
+  profiles.active: default
+
 logging:
   level:
     net.oneandone.reactive: DEBUG
     kafka: ERROR
 
+
+---
+spring:
+  profiles: default
+
 schemaregistry: 
        schema.uri: classpath:schemas/schemas.zip
 
-eventbus:
+eventbus: 
        bootstrapservers: localhost:8553
        zookeeper: localhost:8653
+
+---
+spring:
+  profiles: integration
+  
+schemaregistry: 
+       schema.uri: XXXXX
+
+eventbus: 
+       bootstrapservers: localhost:8553
+       zookeeper: localhost:8653
+  

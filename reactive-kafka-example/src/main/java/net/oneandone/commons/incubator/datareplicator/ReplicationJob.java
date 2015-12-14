@@ -27,9 +27,8 @@ import java.util.Optional;
  */
 public interface ReplicationJob extends Closeable {
     
-    
     /**
-     * @return  the resource endpoint
+     * @return  the resource end point
      */
     URI getEndpoint();
     
@@ -42,6 +41,16 @@ public interface ReplicationJob extends Closeable {
      * @return the expired time since the last erroneous refresh
      */
     Optional<Duration> getExpiredTimeSinceRefreshError();
+    
+    /**
+     * @return the max cache time
+     */
+    Duration getMaxCacheTime();
+    
+    /**
+     * @return the refresh period
+     */
+    Duration getRefreshPeriod();
     
     /**
      * terminates the replication job 

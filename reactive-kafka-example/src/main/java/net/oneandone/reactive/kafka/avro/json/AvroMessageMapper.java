@@ -38,14 +38,18 @@ import javax.json.stream.JsonParser.Event;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericData.EnumSymbol;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.util.Utf8;
+import org.mortbay.log.Log;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+
+import net.oneandone.reactive.utils.Pair;
 
 
 
@@ -117,9 +121,23 @@ class AvroMessageMapper {
     
     
     public JsonObject toJson(AvroMessage avroMessage) {
-        return avroRecordToJsonObjectWriter.apply(avroMessage.getGenericRecord());
+        return toJson(avroMessage.getGenericRecord());
     }
     
+    
+    public JsonObject toJson(GenericRecord genericRecord) {
+        return avroRecordToJsonObjectWriter.apply(genericRecord);
+    }
+    
+    @Override
+    public int hashCode() {
+        return toString().hashCode();
+    }
+    
+    @Override
+    public boolean equals(Object other) {
+        return (other != null) && (other instanceof AvroMessageMapper) && ((AvroMessageMapper) other).toString().equals(this.toString());
+    }
     
     @Override
     public String toString() {
@@ -135,16 +153,25 @@ class AvroMessageMapper {
     
     
     
-    public static AvroMessageMapper createrMapper(JsonObject jsonRecordSchema) throws SchemaException {
-        return createrRecordMapper(jsonRecordSchema);
+    public static Pair<AvroMessageMapper, SchemaInfo> createrMapper(SchemaInfo schemaInfo) throws SchemaException {
+        try {
+            AvroMessageMapper mapper = createrRecordMapper(toJsonObject(schemaInfo.getSchema()));
+            return Pair.of(mapper, null);
+        } catch (SchemaException se) {
+            Log.warn("invalid schema " + schemaInfo.getSchema(), se);
+            return Pair.of(null, new SchemaInfo(schemaInfo.getSource(), schemaInfo.getSchema(), se.getMessage()));
+        }
     }
  
-    
+    private static JsonObject toJsonObject(Schema schema) {
+        return Json.createReader(new ByteArrayInputStream(schema.toString().getBytes(Charsets.UTF_8)))
+                   .readObject();
+    }
     
     private static AvroMessageMapper createrRecordMapper(JsonObject jsonRecordSchema) throws SchemaException {
         final String type = jsonRecordSchema.getString("type");
         if (!type.equals("record")) {
-            throw new SchemaException("unsupported type", type);
+            throw new SchemaException("unsupported record type " + jsonRecordSchema, type);
         }  
 
         Writers writers = Writers.create();
@@ -201,19 +228,28 @@ class AvroMessageMapper {
                 final JsonArray array = (JsonArray) objectFieldType; 
                 
                 if ((array.size() == 2)) {
-                    JsonValue val = array.get(0);
-                    if ((val.getValueType() == JsonValue.ValueType.STRING) && ((JsonString) val).getString().equals("null")) {
+                    final JsonValue val;
+                    if ((array.get(0).getValueType() == JsonValue.ValueType.STRING) && ((JsonString) array.get(0)).getString().equals("null")) {
                         val = array.get(1);
+                    } else if ((array.get(1).getValueType() == JsonValue.ValueType.STRING) && ((JsonString) array.get(1)).getString().equals("null")) {
+                        val = array.get(0);
+                    } else {
+                        val = array.get(0);
                     }
+
                     
                     // optional record  
                     if (val.getValueType() == JsonValue.ValueType.OBJECT) {
                         final AvroMessageMapper subObjectMapper = createrRecordMapper(addNamespaceIfNotPresent((JsonObject) val, jsonObjectSchema)); 
-                        return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toAvroMessage(jsonParser).getGenericRecord())); });
+                        return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, (subObjectMapper.toAvroMessage(jsonParser).getGenericRecord())); })
+                                          .withJsonWriter((avroRecord, jsonBuilder) -> { if (avroRecord.get(objectFieldname) != null)  jsonBuilder.add(objectFieldname, subObjectMapper.toJson((GenericRecord) avroRecord.get(objectFieldname))); });
 
+                        
                     // optional primitives
                     } else if (val.getValueType() == JsonValue.ValueType.STRING) { 
-                        return avroWriters.withAvroWriter(objectFieldname, newPimitiveAvroWriter(objectFieldname, ((JsonString) val).getString()));
+                        return avroWriters.withAvroWriter(objectFieldname, newPimitiveAvroWriter(objectFieldname, ((JsonString) val).getString()))
+                                          .withJsonWriter(newPimitiveJsonWriter(objectFieldname, ((JsonString) val).getString()));
+                                                  
                         
                     } else {
                         throw new SchemaException("unsupported union type " + jsonObjectSchema);
@@ -221,7 +257,7 @@ class AvroMessageMapper {
                 
                 // array size != 2
                 } else {
-                    throw new SchemaException("unsupported union type " + jsonObjectSchema);
+                    throw new SchemaException("unsupported union type " + array);
                 }
             
                 
@@ -231,13 +267,15 @@ class AvroMessageMapper {
                 
                 // enum    
                 if (type.equals("enum")) {
-                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.VALUE_STRING) avroRecord.put(objectFieldname, jsonParser.getString()); });
+                    return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.VALUE_STRING) avroRecord.put(objectFieldname, jsonParser.getString()); })
+                                      .withJsonWriter(newPimitiveJsonWriter(objectFieldname, type)); 
 
+                    
                 // object    
                 } else if (type.equals("record")) {
                     final AvroMessageMapper subObjectMapper = createrRecordMapper(addNamespaceIfNotPresent(obj, jsonObjectSchema)); 
                     return avroWriters.withAvroWriter(objectFieldname, (jsonParser, avroRecord) -> { if (jsonParser.next() == Event.START_OBJECT) avroRecord.put(objectFieldname, subObjectMapper.toAvroMessage(jsonParser).getGenericRecord()); })
-                                      .withJsonWriter((avroRecord, jsonBuilder) ->  jsonBuilder.add(objectFieldname, subObjectMapper.toJson(AvroMessage.from((GenericRecord) avroRecord.get(objectFieldname)))));
+                                      .withJsonWriter((avroRecord, jsonBuilder) ->  { if (avroRecord.get(objectFieldname) != null) jsonBuilder.add(objectFieldname, subObjectMapper.toJson(AvroMessage.from((GenericRecord) avroRecord.get(objectFieldname)))); });
                     
                 } else {
                     throw new SchemaException("unknown type " + jsonObjectSchema);
@@ -294,23 +332,26 @@ class AvroMessageMapper {
         
         switch (fieldtype) {
             
+            case "enum":
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, ((EnumSymbol) avroRecord.get(fieldname)).toString()); };
+                
             case "string":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, new String(((Utf8) avroRecord.get(fieldname)).getBytes(), Charsets.UTF_8));
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, ((Utf8) avroRecord.get(fieldname)).toString()); };
     
             case "boolean":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (Boolean) avroRecord.get(fieldname)); 
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, (Boolean) avroRecord.get(fieldname)); };
     
             case "int":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (int) avroRecord.get(fieldname));
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, (int) avroRecord.get(fieldname)); };
     
             case "long":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (long) avroRecord.get(fieldname));
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, (long) avroRecord.get(fieldname)); };
     
             case "float":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (float) avroRecord.get(fieldname));
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, (float) avroRecord.get(fieldname)); };
                 
             case "double":
-                return (avroRecord, jsonBuilder) -> jsonBuilder.add(fieldname, (double) avroRecord.get(fieldname));
+                return (avroRecord, jsonBuilder) -> { if (avroRecord.get(fieldname) != null) jsonBuilder.add(fieldname, (double) avroRecord.get(fieldname)); };
     
             case "bytes":
                 throw new SchemaException(fieldname + " is not yet supported on purpose");

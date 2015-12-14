@@ -17,12 +17,6 @@ package net.oneandone.reactive.kafka.rest;
 
 import java.io.IOException;
 
-
-
-
-
-
-
 import java.io.InputStream;
 
 
@@ -65,6 +59,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import net.oneandone.commons.incubator.freemarker.Page;
 import net.oneandone.commons.incubator.hypermedia.LinksBuilder;
@@ -204,14 +199,30 @@ public class BusinesEventResource {
     @Produces("text/html; qs=0.4")
     public Page getRegisteredSchemasHtml() throws IOException {
 
+        ImmutableMap<String, String> schemas = mapperRepository.getRegisteredSchemas()
+                                                               .entrySet()
+                                                               .stream()
+                                                               .collect(Immutables.toMap(e -> e.getKey(), 
+                                                                                         e -> (e.getValue().getDoc() == null) ? "" 
+                                                                                                                              : e.getValue().getDoc()));
+        ImmutableSet<String> mimeTypes = ImmutableSet.copyOf(Sets.newTreeSet(schemas.keySet()));
+        
         return new Page("/net/oneandone/reactive/kafka/rest/schemalist.ftl")
-                    .withModelData("schemas", mapperRepository.getRegisteredSchemas()
-                                                              .entrySet()
-                                                              .stream()
-                                                              .collect(Immutables.toMap(e -> e.getKey(), 
-                                                                                        e -> (e.getValue().getDoc() == null) ? "" 
-                                                                                                                             : e.getValue().getDoc())));
+                    .withModelData("mimeTypes", mimeTypes)
+                    .withModelData("schemas", schemas);
     }
+    
+    
+
+    @GET
+    @Path("/topics/{topic}/erroneousschemas")
+    @Produces("text/html; qs=0.4")
+    public Page getErroneousSchemasHtml() throws IOException {
+                                
+        return new Page("/net/oneandone/reactive/kafka/rest/erroneousschemalist.ftl")
+                    .withModelData("erroneousSchemas", mapperRepository.getErroneousSchemas());
+    }
+    
     
     
 

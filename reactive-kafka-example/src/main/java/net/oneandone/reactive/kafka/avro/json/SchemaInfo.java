@@ -15,21 +15,24 @@
  */
 package net.oneandone.reactive.kafka.avro.json;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.apache.avro.Schema;
 
 public class SchemaInfo {
     private String source;
+    private Instant lastModifiedTime; 
     private Optional<String> error;
     private Schema schema;
     
-    SchemaInfo(String source, Schema schema) {
-        this(source, schema, null);
+    SchemaInfo(String source, Instant filedate, Schema schema) {
+        this(source, filedate, schema, null);
     }
     
-    SchemaInfo(String source, Schema schema, String error) {
+    SchemaInfo(String source, Instant lastModifiedTime, Schema schema, String error) {
         this.source = source;
+        this.lastModifiedTime = lastModifiedTime;
         this.error = Optional.ofNullable(error);
         this.schema = schema;
     }
@@ -40,6 +43,10 @@ public class SchemaInfo {
 
     public Optional<String> getError() {
         return error;
+    }
+    
+    public Instant getLastModifiedTime() {
+        return lastModifiedTime;
     }
 
     public Schema getSchema() {

@@ -54,7 +54,7 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private final int maxBuffered;
     
     private final AtomicBoolean isStarted = new AtomicBoolean(false);
-    private final CompletableFuture<ReactiveSink<T>> startPromise = new CompletableFuture<>(); 
+    private final StartFuture startPromise = new StartFuture(); 
 
     
     
@@ -77,6 +77,21 @@ class ReactiveSinkSubscription<T> implements Subscription, ReactiveSink<T> {
     private CompletableFuture<ReactiveSink<T>> init() {
         this.subscriberNotifier.start();
         return startPromise;
+    }
+    
+    
+    private class StartFuture extends CompletableFuture<ReactiveSink<T>> {
+        
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            boolean iscancelled = super.cancel(mayInterruptIfRunning);
+            
+            if (!isCancelled() && !isDone() && !isCompletedExceptionally()) {
+                ReactiveSinkSubscription.this.cancel();
+            }
+            
+            return iscancelled;
+        }
     }
 
     

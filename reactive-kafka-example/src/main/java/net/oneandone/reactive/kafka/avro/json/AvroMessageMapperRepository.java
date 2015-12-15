@@ -22,6 +22,7 @@ import java.io.ByteArrayInputStream;
 
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -255,7 +256,12 @@ public class AvroMessageMapperRepository implements Closeable {
             
             // return schema sets
             return Immutables.join(avroSchemeFileVisitor.getCollectedSchemas(),
-                                   avroIdlFileVisitor.getCollectedSchemas());
+                                   avroIdlFileVisitor.getCollectedSchemas())
+                             .stream()
+                             .distinct()
+                             .collect(Immutables.toList());
+            
+            
             
         } catch (IOException ioe) {
             LOG.warn("error loading avro schema", ioe);
@@ -274,8 +280,15 @@ public class AvroMessageMapperRepository implements Closeable {
         
         @Override
         public FileVisitResult visitFile(final Path path, final BasicFileAttributes attrs) throws IOException {
+            
             if (path.getFileName().toString().endsWith(".avsc")) {
-                schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), new Schema.Parser().parse(path.toFile())));
+                
+                try (InputStream is = new FileInputStream(path.toFile())) {
+                    
+                    schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), 
+                                attrs.lastModifiedTime().toInstant(), 
+                                new Schema.Parser().parse(is)));
+                }
             }
                 
             return FileVisitResult.CONTINUE;
@@ -292,9 +305,16 @@ public class AvroMessageMapperRepository implements Closeable {
         
         @Override
         public FileVisitResult visitFile(final Path path, final BasicFileAttributes attrs) throws IOException {
+            
             if (path.getFileName().toString().endsWith(".avdl")) {
-                for (Schema schema : idlToJsonSchemas(path.toFile())) {
-                    schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), schema));
+                
+                try (InputStream is = new FileInputStream(path.toFile())) {
+    
+                    for (Schema schema : idlToJsonSchemas(is)) {
+                        schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), 
+                                    attrs.lastModifiedTime().toInstant(), 
+                                    schema));
+                    }
                 }
             }
                 
@@ -302,8 +322,8 @@ public class AvroMessageMapperRepository implements Closeable {
         }
         
         
-        private ImmutableSet<Schema> idlToJsonSchemas(final File idlFile) {
-            try (Idl parser = new Idl(idlFile)) {
+        private ImmutableSet<Schema> idlToJsonSchemas(final InputStream is) {
+            try (Idl parser = new Idl(is)) {
                 return parser.CompilationUnit()
                              .getTypes()
                              .stream()

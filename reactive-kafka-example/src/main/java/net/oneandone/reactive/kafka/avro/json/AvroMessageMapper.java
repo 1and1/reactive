@@ -159,7 +159,7 @@ class AvroMessageMapper {
             return Pair.of(mapper, null);
         } catch (SchemaException se) {
             Log.warn("invalid schema " + schemaInfo.getSchema(), se);
-            return Pair.of(null, new SchemaInfo(schemaInfo.getSource(), schemaInfo.getSchema(), se.getMessage()));
+            return Pair.of(null, new SchemaInfo(schemaInfo.getSource(), schemaInfo.getLastModifiedTime(), schemaInfo.getSchema(), se.getMessage()));
         }
     }
  

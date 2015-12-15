@@ -69,13 +69,10 @@ public class KafkaSource<K, V> {
     }
     
 
-    
-    
-    
+
 
     public static interface SingleKafkaSource<K, V> extends Publisher<KafkaMessage<K, V>> {
-        
-        
+                
         /**
          * @return the new source instance
          * @throws ConnectException if an connect error occurs
@@ -84,7 +81,6 @@ public class KafkaSource<K, V> {
             return Utils.get(openAsync());
         } 
 
-        
         /**
          * @return the new source instance future
          */

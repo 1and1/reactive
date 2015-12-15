@@ -16,17 +16,11 @@
 package net.oneandone.reactive;
 
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.LinkedList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-
-
 
 
 
@@ -38,8 +32,8 @@ import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
 
 
 class ReactiveSourceSubscriber<T> implements Subscriber<T> {
@@ -124,7 +118,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private final ReactiveSourceSubscriber<T> source;
         
         private final Object processingLock = new Object();
-        private final LinkedList<ReadPromise<T>> pendingReads = Lists.newLinkedList();
+        private final LinkedList<CompletableFuture<T>> pendingReads = Lists.newLinkedList();
         private final LinkedList<T> inBuffer = Lists.newLinkedList();
 
         private final AtomicReference<Throwable> errorRef = new AtomicReference<>();
@@ -145,14 +139,9 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         
         @Override
         public T read() {
-            return read(Duration.ofSeconds(30));
-        }
-        
-        @Override
-        public T read(Duration timeout) {
             try {
-                return readAsync().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                return readAsync().get();
+            } catch (InterruptedException | ExecutionException e) {
                 throw new RuntimeException(e.getCause());
             }
         }
@@ -174,13 +163,7 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         
         @Override
         public CompletableFuture<T> readAsync() {
-            return readAsync(Duration.ofSeconds(30));
-        }
-        
-        
-        @Override
-        public CompletableFuture<T> readAsync(Duration timeout) {
-            ReadPromise<T> promise = new ReadPromise<>(timeout); 
+            CompletableFuture<T> promise = new CompletableFuture<>(); 
 
             if (isOpen.get()) {
                 
@@ -230,18 +213,8 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
         private void process() {
             synchronized (processingLock) {
                 while (!inBuffer.isEmpty() && !pendingReads.isEmpty()) {
-                    ReadPromise<T> promise = pendingReads.removeFirst();
+                    CompletableFuture<T> promise = pendingReads.removeFirst();
                     promise.complete(inBuffer.removeFirst());
-                }
-
-                // check timeouts
-                if (!pendingReads.isEmpty()) {
-                    for (ReadPromise<T> promise : ImmutableList.copyOf(pendingReads)) {
-                        if (promise.isExpired()) {
-                            pendingReads.remove(promise);
-                            promise.completeExceptionally(new TimeoutException());
-                        }
-                    }
                 }
             }
         }
@@ -260,21 +233,6 @@ class ReactiveSourceSubscriber<T> implements Subscriber<T> {
             }
                 
             return builder.toString();
-        }
-    }
-    
-    
-    
-    private static class ReadPromise<T> extends CompletableFuture<T> {
-        
-        private Instant timeout;
-        
-        public ReadPromise(Duration maxWaitTime) {
-            this.timeout = Instant.now().plus(maxWaitTime);
-        }
-
-        public boolean isExpired() {
-            return Instant.now().isAfter(timeout);
         }
     }
 }

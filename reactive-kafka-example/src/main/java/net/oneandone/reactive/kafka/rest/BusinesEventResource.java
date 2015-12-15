@@ -21,7 +21,6 @@ import java.io.InputStream;
 
 
 import java.net.URI;
-import java.time.Duration;
 import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -286,12 +285,14 @@ public class BusinesEventResource {
         
         
         // open kafka source
-        ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
-                                                                                 .filter(KafkaMessageIdList.of(id))
-                                                                                 .open();
+        final ReactiveSource<KafkaMessage<String, byte[]>> reactiveSource = kafkaSource.withTopic(topic)
+                                                                                       .filter(KafkaMessageIdList.of(id))
+                                                                                       .open();
+        
+        // TODO kafka read with timeout
         
         // read one message, close source and return result
-        reactiveSource.readAsync(Duration.ofSeconds(5))
+        reactiveSource.readAsync()
                       .thenApply(kafkaMessage -> mapperRepository.toAvroMessage(kafkaMessage.value(), readerMimeType))
                       .thenApply(avroMessage -> Pair.of(avroMessage.getMimeType(), mapperRepository.toJson(avroMessage)))
                       .thenApply(typeJsonMessagePair -> Response.ok(typeJsonMessagePair.getSecond().toString().getBytes(Charsets.UTF_8))
@@ -314,17 +315,18 @@ public class BusinesEventResource {
                                                                                                 .filter(ids)
                                                                                                 .open();
             
-        final JsonArrayBuilder builder = Json.createArrayBuilder();
 
+        // TODO kafka read with timeout
+        
         CompletableFuture<ImmutableList<AvroMessage>> queryFuture = CompletableFuture.completedFuture(ImmutableList.of());
-
         for (int i = 0; i < ids.size(); i++) {
-            queryFuture = reactiveSource.readAsync(Duration.ofSeconds(5))
+            queryFuture = reactiveSource.readAsync()
                                         .thenApply(kafkaMessage -> ImmutableList.of(mapperRepository.toAvroMessage(kafkaMessage.value(), MediaType.valueOf(readerMimeType.toString().replace(".list+json", "+json")))))
                                         .thenCombine(queryFuture, (ids1, ids2) -> Immutables.join(ids1, ids2));
                     
         }    
         
+        final JsonArrayBuilder builder = Json.createArrayBuilder();
         queryFuture.thenApply(avroMessages -> avroMessages.stream()
                                                           .map(avroMessage -> { builder.add(mapperRepository.toJson(avroMessage)); return avroMessage.getMimeType(); } )
                                                           .reduce(MediaType.APPLICATION_OCTET_STREAM_TYPE, (m1, m2) -> m2))

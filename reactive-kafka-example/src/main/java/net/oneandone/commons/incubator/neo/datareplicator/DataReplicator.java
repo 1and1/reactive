@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.commons.incubator.datareplicator;
+package net.oneandone.commons.incubator.neo.datareplicator;
 
 
 
@@ -70,7 +70,7 @@ public class DataReplicator {
     private final boolean failOnInitFailure;
     private final Duration refreshPeriod;
     private final File cacheDir;
-    private final String appId;
+    private final Optional<String> appId;
     private final Duration maxCacheTime;
     
     
@@ -85,7 +85,7 @@ public class DataReplicator {
              false, 
              new File("."), 
              Duration.ofDays(4),
-             "datareplicator/1.0",
+             Optional.empty(),
              Duration.ofSeconds(60));
     }
     
@@ -93,7 +93,7 @@ public class DataReplicator {
                            final boolean failOnInitFailure, 
                            final File cacheDir,
                            final Duration maxCacheTime,
-                           final String appId,
+                           final Optional<String> appId,
                            final Duration refreshPeriod) {
         this.uri = uri;
         this.failOnInitFailure = failOnInitFailure;
@@ -178,15 +178,15 @@ public class DataReplicator {
     /**
      * 
      * @param appID  the app identifier such as myApp/2.1. The app identifier will be 
-     *               added to the http request for statistics purposes (default is datareplicator/1.0) 
+     *               added to the http request for statistics purposes (default is null) 
      * @return the new instance of the data replicator
      */
-    public DataReplicator withAppId(final String appID) {
+    public DataReplicator withAppId(final String appId) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure, 
                                   this.cacheDir, 
                                   this.maxCacheTime,
-                                  appId,
+                                  Optional.ofNullable(appId),
                                   this.refreshPeriod);
     }
     
@@ -251,7 +251,7 @@ public class DataReplicator {
                                  final boolean failOnInitFailure, 
                                  final File cacheDir, 
                                  final Duration maxCacheTime,
-                                 final String appId,
+                                 final Optional<String> appId,
                                  final Duration refreshPeriod, 
                                  final Consumer<byte[]> consumer) {
             
@@ -467,10 +467,10 @@ public class DataReplicator {
                 
         
         private static class HttpDatasource extends Datasource {
-            private final String appId;
+            private final Optional<String> appId;
             private final AtomicReference<String> etag = new AtomicReference<String>();
             
-            public HttpDatasource(final URI uri, final String appId) {
+            public HttpDatasource(final URI uri, final Optional<String> appId) {
                 super(uri);
                 this.appId = appId;
             }
@@ -486,7 +486,7 @@ public class DataReplicator {
                 try {
                     // compose request
                     final HttpURLConnection con = (HttpURLConnection) uri.toURL().openConnection();
-                    con.setRequestProperty("X-APP", appId);
+                    appId.ifPresent(id -> con.setRequestProperty("X-APP", id));
                     if (etag.get() != null) {
                         con.setRequestProperty("If-None-Match", etag.get());
                     }
@@ -520,7 +520,7 @@ public class DataReplicator {
         
         private static class MavenSnapshotDatasource extends HttpDatasource {
             
-            public MavenSnapshotDatasource(final URI uri, final String appId) {
+            public MavenSnapshotDatasource(final URI uri, final Optional<String> appId) {
                 super(uri, appId);
             }
             

@@ -20,9 +20,9 @@ package net.oneandone.reactive.kafka.avro.json;
 import java.io.ByteArrayInputStream;
 
 
+
 import java.io.Closeable;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Map.Entry;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -57,11 +58,11 @@ import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
 
 import jersey.repackaged.com.google.common.collect.Lists;
-import net.oneandone.commons.incubator.datareplicator.DataReplicator;
-import net.oneandone.commons.incubator.datareplicator.ReplicationJob;
+import net.oneandone.commons.incubator.neo.collect.Immutables;
+import net.oneandone.commons.incubator.neo.datareplicator.DataReplicator;
+import net.oneandone.commons.incubator.neo.datareplicator.ReplicationJob;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
-import net.oneandone.reactive.utils.Immutables;
 import net.oneandone.reactive.utils.Pair;
 
 
@@ -237,7 +238,7 @@ public class AvroMessageMapperRepository implements Closeable {
     private static ImmutableList<SchemaInfo> parseSchemas(final byte[] binary) {
         try {
             // unpack within temp dir 
-            final Path tempDir = Files.createTempDirectory("avro_repo_");
+            final Path tempDir = Files.createTempDirectory("avro_repo_" + new Random().nextInt(Integer.MAX_VALUE) + "_");
             Zip.unpack(binary, tempDir);
 
             
@@ -248,10 +249,6 @@ public class AvroMessageMapperRepository implements Closeable {
             // scan avro idl files
             final AvroIdlFileVisitor avroIdlFileVisitor = new AvroIdlFileVisitor();
             Files.walkFileTree(tempDir, avroIdlFileVisitor);
-
-
-            // delete temp dir 
-            Files.walkFileTree(tempDir, new DeleteRecursivelyVisitor()); 
 
             
             // return schema sets
@@ -283,12 +280,11 @@ public class AvroMessageMapperRepository implements Closeable {
             
             if (path.getFileName().toString().endsWith(".avsc")) {
                 
-                try (InputStream is = new FileInputStream(path.toFile())) {
-                    
+            //    try (InputStream is = new FileInputStream(path.toFile())) {
                     schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), 
                                 attrs.lastModifiedTime().toInstant(), 
-                                new Schema.Parser().parse(is)));
-                }
+                                new Schema.Parser().parse(path.toFile())));
+            //    }
             }
                 
             return FileVisitResult.CONTINUE;
@@ -308,13 +304,17 @@ public class AvroMessageMapperRepository implements Closeable {
             
             if (path.getFileName().toString().endsWith(".avdl")) {
                 
-                try (InputStream is = new FileInputStream(path.toFile())) {
+                //try (InputStream is = new FileInputStream(path.toFile())) {
     
-                    for (Schema schema : idlToJsonSchemas(is)) {
+                try {
+                    //for (Schema schema : idlToJsonSchemas(is)) {
+                    for (Schema schema : idlToJsonSchemas(path.toFile())) {
                         schemas.add(new SchemaInfo(path.toFile().getAbsolutePath(), 
                                     attrs.lastModifiedTime().toInstant(), 
                                     schema));
                     }
+                } catch (ParseException | IOException e) {
+                    throw new RuntimeException("error occured by parsing " + path.toFile().getAbsolutePath(), e);
                 }
             }
                 
@@ -322,36 +322,19 @@ public class AvroMessageMapperRepository implements Closeable {
         }
         
         
-        private ImmutableSet<Schema> idlToJsonSchemas(final InputStream is) {
-            try (Idl parser = new Idl(is)) {
+        private ImmutableSet<Schema> idlToJsonSchemas(final File file) throws IOException, ParseException {
+            try (Idl parser = new Idl(file)) {
                 return parser.CompilationUnit()
                              .getTypes()
                              .stream()
                              .filter(scheme -> (scheme.getType() == Type.RECORD))
                              .collect(Immutables.toSet());
 
-            } catch (ParseException | IOException e) {
-                throw new RuntimeException(e);
-            }
+            } 
         }            
     }
     
-    
-    private static final class DeleteRecursivelyVisitor extends SimpleFileVisitor<Path> {
-        
-        public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
-            Files.delete(dir);
-            return FileVisitResult.CONTINUE;
-        };
-
-        @Override
-        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-            Files.delete(file);
-            return FileVisitResult.CONTINUE;
-        }
-    }
-
-    
+ 
     
     private static class Zip {
 

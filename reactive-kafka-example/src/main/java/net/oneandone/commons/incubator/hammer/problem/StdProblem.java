@@ -13,13 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.commons.incubator.problem;
+package net.oneandone.commons.incubator.hammer.problem;
 
 
 
 import javax.ws.rs.WebApplicationException;
 
 import com.google.common.collect.ImmutableMap;
+
+import net.oneandone.commons.incubator.neo.problem.Problem;
 
 
 

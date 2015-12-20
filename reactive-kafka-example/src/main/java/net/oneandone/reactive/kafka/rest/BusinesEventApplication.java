@@ -31,9 +31,9 @@ import org.springframework.context.annotation.Bean;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import net.oneandone.commons.incubator.freemarker.FreemarkerProvider;
-import net.oneandone.commons.incubator.problem.GenericExceptionMapper;
-import net.oneandone.commons.incubator.problem.StdProblem;
+import net.oneandone.commons.incubator.hammer.problem.StdProblem;
+import net.oneandone.commons.incubator.neo.freemarker.FreemarkerProvider;
+import net.oneandone.commons.incubator.neo.problem.GenericExceptionMapper;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.kafka.avro.json.AvroMessageMapperRepository;
@@ -59,6 +59,16 @@ public class BusinesEventApplication extends ResourceConfig {
 
     
     
+    
+    public static void main(final String[] args) {
+        SpringApplication.run(BusinesEventApplication.class, args);
+    }
+
+    
+    
+    ///////////////////////////////////////////
+    // JAX-RS config 
+    
     public BusinesEventApplication() {
         register(BusinesEventResource.class);
         register(FreemarkerProvider.class);
@@ -67,12 +77,16 @@ public class BusinesEventApplication extends ResourceConfig {
                                              .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
     } 
     
-    
-    
-    public static void main(final String[] args) {
-        SpringApplication.run(BusinesEventApplication.class, args);
-    }
+    //
+    ////////////////////////////////////////////////
 
+
+    
+    
+    
+    
+    ///////////////////////////////////////////
+    // WIRING APPLICATION CLASSES
 
 
     @Bean(destroyMethod="close")
@@ -101,4 +115,7 @@ public class BusinesEventApplication extends ResourceConfig {
     public AvroMessageMapperRepository avroMessageMapperRepository() {
         return new AvroMessageMapperRepository(URI.create(schemasUri));
     }
+    
+    //
+    ///////////////////////////////////////////////////
 }

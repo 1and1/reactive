@@ -19,8 +19,6 @@ import java.io.File;
 
 
 
-
-import java.io.IOException;
 import java.time.Instant;
 import java.util.Random;
 import java.util.Set;
@@ -46,7 +44,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharSource;
 
-import net.oneandone.commons.incubator.problem.StdProblem;
+import net.oneandone.commons.incubator.hammer.problem.StdProblem;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;
@@ -99,7 +97,7 @@ public class KafkaResourceTest {
 
     
     @Test
-    public void allScenarios() throws IOException {
+    public void allScenarios() throws Exception {
         
         
         String topicName = "test" + new Random().nextInt(9999999); 
@@ -349,8 +347,9 @@ public class KafkaResourceTest {
                               .get(String.class);
         Assert.assertTrue(topics.contains("/rest/topics/" + topicName));
         
-       
         
+        
+                
 
 
         // consume with data and event type filter

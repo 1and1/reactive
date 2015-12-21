@@ -109,6 +109,12 @@
 			<optional>true</optional>
 		</dependency>
 
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-webapp</artifactId>
+            <version>9.3.6.v20151106</version>
+        </dependency>
+
 		<dependency>
 			<groupId>org.apache.zookeeper</groupId>
 			<artifactId>zookeeper</artifactId>
@@ -121,13 +127,6 @@
 			</exclusions>
 			<scope>test</scope>
 		</dependency>
-
-        <dependency>
-            <groupId>org.eclipse.jetty</groupId>
-            <artifactId>jetty-webapp</artifactId>
-            <version>9.3.6.v20151106</version>
-            <scope>test</scope>
-        </dependency>
 
 		<dependency>
 			<groupId>junit</groupId>

@@ -61,6 +61,28 @@ import com.google.common.io.Files;
  * Each time updated data is fetched the registered consumer will be called. <br>
  * 
  * Typically the data replicator is used for configuration data, definition files and template data  
+ * 
+ * <pre>
+ *  private static class MyClass implements Closeable {
+ *      private final ReplicationJob replicationJob;
+ *      
+ *      public MyClass() {
+ *          this.replicationJob = new DataReplicator(myUri).withCacheDir(myCacheDir)
+ *                                                         .startConsumingTextList(this::onListReload);
+ *      }
+ *      
+ *      void onListReload(ImmutableList<String> list) {
+ *          //... parse list. If an parsing error occurs, a RuntimeException will be thrown
+ *      }
+ *
+ *      // ...
+ *      
+ *      @Override
+ *      public void close() {
+ *          replicationJob.close();
+ *      }
+ *  }
+ * <pre>
  *
  */
 public class DataReplicator {    
@@ -74,6 +96,14 @@ public class DataReplicator {
     private final Duration maxCacheTime;
     
     
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
+    public DataReplicator(final String uri) {
+        this(URI.create(uri));
+    }
     
     /**
      * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
@@ -118,6 +148,11 @@ public class DataReplicator {
                                   this.appId,
                                   refreshPeriod);
     }
+    
+   
+    
+    
+    
     
     /**
      * 
@@ -193,7 +228,8 @@ public class DataReplicator {
     
     
     /**
-     * @param consumer  the binary data consumer which will be called each time updated data is fetched  
+     * @param consumer  the binary data consumer which will be called each time updated data is fetched. If a 
+     *                  parsing error occurs, the data consumer will throw a RuntimeException  
      * @return the replication job
      */
     public ReplicationJob startConsumingBinary(final Consumer<byte[]> consumer) {
@@ -209,8 +245,8 @@ public class DataReplicator {
 
     
     /**
-     * @param consumer  the (UTF-8 encoded) text consumer 
-     *                  which will be called each time updated data is fetched  
+     * @param consumer  the (UTF-8 encoded) text consumer which will be called each time updated data is fetched. If a 
+     *                  parsing error occurs, the data consumer will throw a RuntimeException    
      * @return the replication job
      */
     public ReplicationJob startConsumingText(final Consumer<String> consumer) {
@@ -220,8 +256,8 @@ public class DataReplicator {
 
     
     /**
-     * @param consumer  the (UTF-8 encoded, line break separated, trimmed) text list consumer
-     *                  which will be called each time updated data is fetched  
+     * @param consumer  the (UTF-8 encoded, line break separated, trimmed) text list consumer which will be called each
+     *                  time updated data is fetched. If a parsing error occurs, the data consumer will throw a RuntimeException    
      * @return the replication job
      */
     public ReplicationJob startConsumingTextList(final Consumer<ImmutableList<String>> consumer) {

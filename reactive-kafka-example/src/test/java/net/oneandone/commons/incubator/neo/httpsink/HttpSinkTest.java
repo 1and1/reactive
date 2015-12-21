@@ -17,6 +17,7 @@ package net.oneandone.commons.incubator.neo.httpsink;
 
 
 
+import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -124,6 +125,8 @@ public class HttpSinkTest {
         sink.close();
     }
   
+  
+
 
     
     @Test
@@ -187,7 +190,32 @@ public class HttpSinkTest {
         sink.close();
     }
 
-  
+
+    
+    
+    @Test
+    public void testServerErrorPersistentRetryWithSuccess() throws Exception {
+        servlet.setErrorsToThrow(1);
+        
+        EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
+                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                      .withRetryPersistency(new File(new File("."), "retrydir"))
+                                      .open();
+        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
+        Assert.assertFalse(isSent);
+        
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getNumDiscarded());
+        Assert.assertEquals(1, sink.getNumRetries());
+        Assert.assertEquals(1, sink.getNumSuccess());
+        
+        sink.close();
+    }
+
+    
     
     
     

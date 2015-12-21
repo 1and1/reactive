@@ -1,0 +1,6 @@
+POST
+http://localhost:52287/rest/topics
+application/vnd.example.event.customerdatachanged+json
+133
+{"header":{"eventId":"77f00595c7c949a6a7b7397c5327fdc2","timestamp":"2015-12-20T11:53:38.176Z","authInfo":null},"accountid":44545453}
+100

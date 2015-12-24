@@ -122,7 +122,9 @@ class SseOutboundChannel  {
             synchronized (out) {
                 byte[] data = event.toWire().getBytes("UTF-8");
                 out.write(data);
-                out.flush();
+                if (out.isReady()) {  // required by jetty
+                    out.flush();
+                }
                 
                 return data.length;
             }

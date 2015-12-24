@@ -1,5 +1,5 @@
 /*
- * Copyright 1&1 Internet AG, https://github.com/1and1/
+ * Copyright 1&1 Internet AG, htt;ps://github.com/1and1/
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,8 +25,12 @@ public interface EntityConsumer extends BiConsumer<Object, String>, Closeable {
 
     @Override
     default void accept(Object entity, String mediaType) {
+        submit(entity, mediaType);
+    }
+
+    default Submission submit(Object entity, String mediaType) {
         try {
-            acceptAsync(entity, mediaType).get();
+            return submitAsync(entity, mediaType).get();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
@@ -38,8 +42,8 @@ public interface EntityConsumer extends BiConsumer<Object, String>, Closeable {
             }
         }
     }
-
-    CompletableFuture<Boolean> acceptAsync(Object entity, String mediaType);
+    
+    CompletableFuture<Submission> submitAsync(Object entity, String mediaType);
     
     int getQueueSize();
     
@@ -47,8 +51,18 @@ public interface EntityConsumer extends BiConsumer<Object, String>, Closeable {
     
     long getNumRetries();
     
+    long getNumRejected();
+    
     long getNumDiscarded();
 
     @Override
     void close();
+    
+    
+    public interface Submission {
+        
+        public enum Status { PENDING, COMPLETED, DISCARDED } 
+        
+        Status getStatus();
+    }
 }

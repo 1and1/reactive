@@ -41,6 +41,7 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableList;
 
 import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer;
+import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer.Submission;
 import net.oneandone.commons.incubator.neo.httpsink.HttpSink;
 import net.oneandone.commons.incubator.neotest.WebServer;
 
@@ -105,8 +106,8 @@ public class HttpSinkTest {
                                       .withClient(client)
                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                       .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertTrue(isSent);
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         
         sink.close();
         client.close();
@@ -119,8 +120,8 @@ public class HttpSinkTest {
         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                       .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertTrue(isSent);
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         
         sink.close();
     }
@@ -134,38 +135,59 @@ public class HttpSinkTest {
          EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics?status=500")
                                        .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                        .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertFalse(isSent);
+         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+         
         
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException ignore) { }
+         try {
+             Thread.sleep(1000);
+         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(1, sink.getNumDiscarded());
-        Assert.assertEquals(2, sink.getNumRetries());
-        Assert.assertEquals(0, sink.getNumSuccess());
+         Assert.assertEquals(1, sink.getNumDiscarded());
+         Assert.assertEquals(2, sink.getNumRetries());
+         Assert.assertEquals(0, sink.getNumSuccess());
         
-        sink.close();
+         sink.close();
     }
 
+    
+    @Test
+    public void testRejectingError() throws Exception {
+         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics?status=400")
+                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                       .open();
+         
+         try {
+             sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+             Assert.fail("BadRequestException expected");
+         } catch (BadRequestException expected) { }
+        
+         Assert.assertEquals(1, sink.getNumRejected());
+         Assert.assertEquals(0, sink.getNumDiscarded());
+         Assert.assertEquals(0, sink.getNumRetries());
+         Assert.assertEquals(0, sink.getNumSuccess());
+        
+         sink.close();
+    }
     
     @Test
     public void testServerErrorIncompletedRetries() throws Exception {
          EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics?status=500")
                                        .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000)))
                                        .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertFalse(isSent);
+         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+
         
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException ignore) { }
+         try {
+             Thread.sleep(1000);
+         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getNumDiscarded());
-        Assert.assertEquals(2, sink.getNumRetries());
-        Assert.assertEquals(0, sink.getNumSuccess());
+         Assert.assertEquals(0, sink.getNumDiscarded());
+         Assert.assertEquals(2, sink.getNumRetries());
+         Assert.assertEquals(0, sink.getNumSuccess());
         
-        sink.close();
+         sink.close();
     }
   
   
@@ -176,9 +198,9 @@ public class HttpSinkTest {
         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                       .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertFalse(isSent);
-        
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+
         try {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
@@ -195,21 +217,22 @@ public class HttpSinkTest {
     
     @Test
     public void testServerErrorPersistentRetryWithSuccess() throws Exception {
-        servlet.setErrorsToThrow(1);
+        servlet.setErrorsToThrow(2);
         
         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(100)))
                                       .withRetryPersistency(new File(new File("."), "retrydir"))
                                       .open();
-        boolean isSent = sink.acceptAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
-        Assert.assertFalse(isSent);
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
         
         try {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
+        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         Assert.assertEquals(0, sink.getNumDiscarded());
-        Assert.assertEquals(1, sink.getNumRetries());
+        Assert.assertEquals(2, sink.getNumRetries());
         Assert.assertEquals(1, sink.getNumSuccess());
         
         sink.close();

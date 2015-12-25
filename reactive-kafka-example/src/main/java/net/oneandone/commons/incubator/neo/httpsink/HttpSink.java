@@ -28,10 +28,9 @@ import java.net.URI;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -39,6 +38,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.client.Client;
@@ -55,10 +55,13 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.io.Closeables;
 
 import joptsimple.internal.Strings;
 import net.oneandone.commons.incubator.neo.collect.Immutables;
@@ -85,7 +88,7 @@ import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer.Submission;
  * 
  *  // tries to send data. If fails (5xx) it will be auto-retried. In case of 
  *  // an 4xx an BadRequestException will be thrown 
- *  sink.submitAsync(newCustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get(); 
+ *  sink.submitAsync(newCustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"); 
  *  // ...
  *  
  *  sink.close();
@@ -107,7 +110,7 @@ import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer.Submission;
  * 
  * // tries to send data. If fails (5xx) it will be auto-retried. In case of an
  * // 4xx an BadRequestException will be thrown 
- * sink.submitAsync(newCustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json").get();
+ * sink.submitAsync(newCustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
  * // ...
  * 
  * sink.close();
@@ -126,7 +129,7 @@ public class HttpSink {
     private final Method method;
     private final int bufferSize;
     private final File dir;
-    private final Optional<String> appId;
+    private final String appId;
     private final ImmutableSet<Integer> rejectStatusList;
     private final ImmutableList<Duration> remainingRetries;
     private final int numParallelWorkers;
@@ -136,7 +139,7 @@ public class HttpSink {
                      final Method method, 
                      final int bufferSize, 
                      final File dir, 
-                     final Optional<String> appId,
+                     final String appId,
                      final ImmutableSet<Integer> rejectStatusList,
                      final ImmutableList<Duration> remainingRetries, 
                      final int numParallelWorkers) {
@@ -169,7 +172,7 @@ public class HttpSink {
                             Method.POST, 
                             Integer.MAX_VALUE,
                             null,
-                            Optional.empty(),
+                            null,
                             ImmutableSet.of(400, 403, 405, 406, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417),
                             ImmutableList.of(),
                             1);
@@ -459,7 +462,17 @@ public class HttpSink {
                 
                 for (File file : ImmutableList.copyOf(dir.listFiles())) {
                     if (file.getName().endsWith(".query")) {
-                        PersistentQuery.readFrom(file).ifPresent(query -> executeRetry(query));
+                        PersistentQuery.readFrom(file)
+                                       .ifPresent(query -> {
+                                                              Optional<Duration> nextExecutionDelay = query.nextExecutionDelay();
+                                                              if (nextExecutionDelay.isPresent()) {
+                                                                  LOG.info("persistent query found " + query.getQueryFile().getAbsolutePath() + 
+                                                                           " retry query after " + nextExecutionDelay.get());
+                                                                  executor.schedule(() -> executeRetry(query), 
+                                                                                          nextExecutionDelay.get().toMillis(),
+                                                                                          TimeUnit.MILLISECONDS);
+                                                              }
+                                                           });
                     }
                 }
             }
@@ -470,25 +483,27 @@ public class HttpSink {
 
     
     private static class Query implements Submission {
-        protected final String id;
         protected final Method method;
         protected final URI target;
-        protected final Optional<String> appId;
+        protected final String appId;
         protected final Entity<?> entity;
         protected final AtomicReference<EntityConsumer.Submission.Status> status = new AtomicReference<>(EntityConsumer.Submission.Status.PENDING);
         protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
-
+        
         public Query(final URI target, 
                      final Method method, 
-                     final Optional<String> appId,
+                     final String appId,
                      final Entity<?> entity, 
-                     final ImmutableList<Duration> remainingRetries) {
-            this.id = Instant.now().toString() + "_" + UUID.randomUUID().toString();
+                     final ImmutableList<Duration> remainingRetrys) {
+            Preconditions.checkNotNull(target);
+            Preconditions.checkNotNull(method);
+            Preconditions.checkNotNull(entity);
+            
             this.target = target;
             this.method = method;
             this.appId = appId;
             this.entity = entity;
-            this.remainingRetrysRef = new AtomicReference<>(remainingRetries);
+            this.remainingRetrysRef = new AtomicReference<>(remainingRetrys);
         }
 
         public boolean isOpen() {
@@ -519,7 +534,9 @@ public class HttpSink {
             final ResponseHandler responseHandler = new ResponseHandler();
 
             final Builder builder = client.target(target).request();
-            appId.ifPresent(id -> builder.header("X-APP", id));
+            if (appId != null) {
+                builder.header("X-APP", appId);
+            }
 
             if (method == Method.POST) {
                 builder.async().post(entity, responseHandler);
@@ -560,23 +577,43 @@ public class HttpSink {
     
     
     private static final class PersistentQuery extends Query {
-        private final File file;
+        private final File queryFile;
         private final RandomAccessFile raf;
         private final FileChannel channel;
         private final Writer writer;
 
         
+        private PersistentQuery(final File queryFile, 
+                                final RandomAccessFile raf, 
+                                final FileChannel channel, 
+                                final Writer writer, 
+                                final URI target, 
+                                final Method method, 
+                                final String appId,
+                                final Entity<?> entity, 
+                                final ImmutableList<Duration> remainingRetrys) {
+            super(target, method, appId, entity, remainingRetrys);
+            
+            Preconditions.checkNotNull(queryFile);
+            Preconditions.checkState(channel.isOpen());
+            
+            this.queryFile = queryFile;
+            this.raf = raf;
+            this.channel = channel;
+            this.writer = writer;
+        }
+        
         public PersistentQuery(final URI target, 
                                final Method method, 
-                               final Optional<String> appId,
+                               final String appId,
                                final Entity<?> entity, 
                                final ImmutableList<Duration> remainingRetrys, 
                                final File dir) {
             super(target, method, appId, entity, remainingRetrys);
             
             try {
-                file = new File(dir.getCanonicalFile(), UUID.randomUUID().toString() + ".query");
-                raf = new RandomAccessFile(file, "rw");
+                queryFile = new File(dir.getCanonicalFile(), UUID.randomUUID().toString() + ".query");
+                raf = new RandomAccessFile(queryFile, "rw");
                 channel = raf.getChannel();
                 channel.lock();                          // get lock. lock will not been release until query is completed! 
                 writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
@@ -584,56 +621,59 @@ public class HttpSink {
                 
                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
                 new ObjectMapper().writeValue(bos, entity.getEntity());
-                writer.write("version: V1" + "\r\n");
-                writer.write("id: " + id + "\r\n");
-                writer.write("appid: " + appId.orElse("null") + "\r\n");
-                writer.write("method: " + method.toString() + "\r\n");
-                writer.write("target: " + target + "\r\n");
-                writer.write("mediaType: " + entity.getMediaType().toString() + "\r\n");
-                writer.write("class: " + entity.getEntity().getClass().getName() + "\r\n");
-                writer.write("data: " + Base64.getEncoder().encodeToString(bos.toByteArray()) + "\r\n");
-                writer.write("retries: " + Joiner.on("&").join(remainingRetrys.stream().map(duration -> duration.toMillis()).collect(Immutables.toList())) + "\r\n");
-                writer.flush();
+                
+                MapEncoding.create()
+                           .with("appId", appId)
+                           .with("method", method.toString())
+                           .with("mediaType", entity.getMediaType().toString())
+                           .with("target", target.toString())
+                           .with("class", entity.getEntity().getClass().getName())
+                           .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
+                           .with("retries", Joiner.on("&")
+                                                  .join(remainingRetrys.stream()
+                                                                       .map(duration -> duration.toMillis())
+                                                                       .collect(Immutables.toList())))
+                           .writeTo(writer);
+                
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);
             }
         }
         
         
-        
+        public File getQueryFile() {
+            return queryFile;
+        }
         
         @Override
         protected void updateRemaingDelays(ImmutableList<Duration> newRemaingDelays) {
             super.updateRemaingDelays(newRemaingDelays);
 
             if (isOpen()) {
-                try {
-                    writer.write("retries: " + Joiner.on("&").join(newRemaingDelays.stream().map(duration -> duration.toMillis()).collect(Immutables.toList())) + "\r\n");
-                    writer.flush();
-                } catch (IOException ioe) {
-                    throw new RuntimeException(ioe);
-                }
+                MapEncoding.create()
+                          .with("retries", Joiner.on("&").join(newRemaingDelays.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
+                          .writeTo(writer);
                 
                 if (newRemaingDelays.isEmpty()) {
                     close(false);
                 }
             }
         }
-              
+
+        
         @Override
         public void close(boolean isSuccess) {
             try {
                 if (isOpen()) {
-                    try {
-                        writer.write("retries: \r\n");
-                        writer.flush();
-                    } catch (IOException ignore) { }
+                    MapEncoding.create()
+                              .with("retries", "") 
+                              .writeTo(writer);
 
                     writer.close();
                     channel.close();
                     raf.close();
                     
-                    file.delete();
+                    queryFile.delete();
                 }
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);
@@ -642,66 +682,137 @@ public class HttpSink {
             super.close(isSuccess);
         }
         
-        
-        
+
         public static Optional<PersistentQuery> readFrom(File queryFile) {
+
+            RandomAccessFile raf = null;
+            FileChannel channel = null;
+
             try {
-                RandomAccessFile raf = new RandomAccessFile(queryFile, "rw");
-                FileChannel channel = raf.getChannel();
+                raf = new RandomAccessFile(queryFile, "rw");
+                channel = raf.getChannel();
                 
-                if (channel.tryLock() != null) {
-                    try (LineNumberReader reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()))) {
-                        Writer writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
+                if (channel.tryLock() == null) {
+                    LOG.debug("query file " + queryFile.getAbsolutePath() + " is locked. ignoring it");
+                    raf.close();
+                    return Optional.empty();
+                    
+                } else {
+                    LineNumberReader reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
+                    Writer writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
+                    
+                    MapEncoding protocol = MapEncoding.readFrom(reader);
+                    String appId = protocol.get("appid");
+                    Method method = protocol.get("method", txt -> Method.valueOf(txt));
+                    URI target = protocol.get("target", txt -> URI.create(txt));
+                    MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
+                    String clazz = protocol.get("class");
+                    byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
+                    ImmutableList<Duration> retries = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
+                                                                                                                : Splitter.on("&")
+                                                                                                                .trimResults()
+                                                                                                                .splitToList(txt)
+                                                                                                                .stream()
+                                                                                                                .map(milisString -> Duration.ofMillis(Long.parseLong(milisString)))
+                                                                                                                .collect(Immutables.<Duration>toList()));
+    
+                                                                                      
+           
+                    if (retries.isEmpty()) {
+                        LOG.warn("deleting expired query file " + queryFile);
+                        raf.close();
+                        queryFile.delete();
+                        return Optional.empty();
                         
-                        Map<String, Object> map = Maps.newHashMap();
-                        String line = null;
-                        do {
-                            line = reader.readLine();
-                            if (line != null) {
-                                List<String> tokens = Splitter.on(":").trimResults().splitToList(line);
-                                switch (tokens.get(0)) {
-                                case "id":  map.put("id", tokens.get(1));
-                                            break; 
-                                case "appid":  map.put("appid", tokens.get(1).equals("null") ? null : tokens.get(1));
-                                            break; 
-                                case "method":  map.put("method", Method.valueOf(tokens.get(1)));
-                                            break; 
-                                case "target":  map.put("target", tokens.get(1));
-                                            break; 
-                                case "mediaType":  map.put("mediaType", MediaType.valueOf(tokens.get(1)));
-                                            break; 
-                                case "class":  map.put("class", tokens.get(1));
-                                            break; 
-                                case "data":  map.put("data", Base64.getDecoder().decode(tokens.get(1)));
-                                            break;  
-                                case "retries": map.put("retries", Strings.isNullOrEmpty(tokens.get(1)) ? ImmutableList.of()  
-                                                                                                        : Splitter.on("&")
-                                                                                                                  .trimResults()
-                                                                                                                  .splitToList(tokens.get(1))
-                                                                                                                  .stream()
-                                                                                                                  .map(millis -> Duration.ofMillis(Long.parseLong(millis)))
-                                                                                                                  .collect(Immutables.toList()));
-                                            break; 
-                                }
-                            }
-                        } while (line != null); 
-        
-                        if (((ImmutableList<Duration>) map.get("retries")).isEmpty()) {
-                            LOG.warn("try deleting expired query file " + queryFile);
-                            raf.close();
-                            queryFile.delete();
-                        } else {
-                            System.out.println(map);
-                        }
+                    } else {
+                        return Optional.of(new PersistentQuery(queryFile,
+                                                               raf, 
+                                                               channel, 
+                                                               writer,
+                                                               target,
+                                                               method, 
+                                                               appId, 
+                                                               Entity.entity(new ObjectMapper().readValue(data, Class.forName(clazz)), mediaType),
+                                                               retries));
                     }
-                }   
+                }
                 
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
+            } catch (IOException | ClassNotFoundException | RuntimeException e) {
+                LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be corrupt. ignoring it");
+                
+                try {
+                    Closeables.close(channel, true);
+                    Closeables.close(raf, true);
+                } catch (IOException ignore) { }
+                
+                return Optional.empty();
             }
-                
+        }
+        
+        
+        
+        private static final class MapEncoding {
+            private final ImmutableMap<String, String> data;
             
-            return Optional.empty();
+            private MapEncoding(ImmutableMap<String, String> data) {
+                this.data = data;
+            }
+            
+            public static MapEncoding create() {
+                return new MapEncoding(ImmutableMap.of());
+            }
+            
+            public MapEncoding with(String name, String value) {
+                if (value == null) {
+                    return this;
+                } else {
+                    return new MapEncoding(Immutables.join(data, name, value));
+                }
+            }
+            
+            public String get(String name) {
+                return get(name, obj -> obj.toString());
+            }
+
+            public <T> T get(String name, Function<String, T> mapper) {
+                String txt = data.get(name);
+                if (txt == null) {
+                    return null;
+                } else {
+                    return mapper.apply(txt);
+                }
+            }
+
+            public void writeTo(Writer writer) {
+                try {
+                    for (Entry<String, String> entry : data.entrySet()) {
+                        writer.write(entry.getKey() + ": " + entry.getValue() + "\r\n");
+                    }
+                    writer.flush();
+                } catch (IOException ioe)  {
+                    throw new RuntimeException(ioe);
+                }
+            }
+            
+            public static MapEncoding readFrom(LineNumberReader reader) {
+                try {
+                    Map<String, String> map = Maps.newHashMap();
+                    String line = null;
+                    do {
+                        line = reader.readLine();
+                        if (line != null) {
+                            int idx = line.indexOf(":");
+                            if (idx > 0) {
+                                map.put(line.substring(0,  idx), line.substring(idx + 1, line.length()).trim());
+                            }
+                        }
+                    } while (line != null); 
+                    
+                    return new MapEncoding(ImmutableMap.copyOf(map));
+                } catch (IOException ioe)  {
+                    throw new RuntimeException(ioe);
+                }
+            }
         }
     }   
 }

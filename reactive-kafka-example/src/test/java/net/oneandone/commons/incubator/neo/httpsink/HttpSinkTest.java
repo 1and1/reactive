@@ -18,6 +18,7 @@ package net.oneandone.commons.incubator.neo.httpsink;
 
 
 import java.io.File;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,6 +40,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.Files;
 
 import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer;
 import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer.Submission;
@@ -263,6 +265,39 @@ public class HttpSinkTest {
         client.close();
     }
 
+    
+    @Test
+    public void testReschedulePersistentQuery() throws Exception {
+        
+        File dir = Files.createTempDir();
+        File querysDir = new File("src" + File.separator + "test" + File.separator + "resources" + File.separator + "queries");
+        
+        for (File queryFile : querysDir.listFiles()) {
+            Files.copy(queryFile, new File(dir, queryFile.getName()));
+        }
+        Assert.assertTrue(dir.listFiles().length > 0);
+        
+        EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
+                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                      .withRetryPersistency(dir)
+                                      .open();
+        
+        
+        try {
+            Thread.sleep(3000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getNumRejected());
+        Assert.assertEquals(1, sink.getNumDiscarded());
+        Assert.assertEquals(1, sink.getNumRetries());
+        Assert.assertEquals(0, sink.getNumSuccess());
+        
+        sink.close();
+        
+        Assert.assertTrue(dir.listFiles().length == 0);
+        dir.delete();
+    }
+    
     
     @XmlRootElement 
     public static class CustomerChangedEvent {

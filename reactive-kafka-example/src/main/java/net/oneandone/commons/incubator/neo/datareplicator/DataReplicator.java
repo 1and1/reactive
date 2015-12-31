@@ -18,13 +18,13 @@ package net.oneandone.commons.incubator.neo.datareplicator;
 
 
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.File;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.time.Duration;
@@ -36,6 +36,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Invocation.Builder;
+import javax.ws.rs.core.Response;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
@@ -52,6 +56,8 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
 import com.google.common.io.Files;
+
+import net.oneandone.commons.incubator.neo.serviceloader.ServiceFactoryFinder;
 
 
 
@@ -92,47 +98,43 @@ public class DataReplicator {
     private final boolean failOnInitFailure;
     private final Duration refreshPeriod;
     private final File cacheDir;
-    private final Optional<String> appId;
     private final Duration maxCacheTime;
+    private final Client client;
     
+   
     
-    /**
-     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
-     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
-     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
-     */
-    public DataReplicator(final String uri) {
-        this(URI.create(uri));
-    }
-    
-    /**
-     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
-     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
-     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
-     */
-    public DataReplicator(final URI uri) {
-        this(uri, 
-             false, 
-             new File("."), 
-             Duration.ofDays(4),
-             Optional.empty(),
-             Duration.ofSeconds(60));
-    }
-    
-    private DataReplicator(final URI uri, 
-                           final boolean failOnInitFailure, 
-                           final File cacheDir,
-                           final Duration maxCacheTime,
-                           final Optional<String> appId,
-                           final Duration refreshPeriod) {
+    DataReplicator(final URI uri, 
+                   final boolean failOnInitFailure, 
+                   final File cacheDir,
+                   final Duration maxCacheTime,
+                   final Duration refreshPeriod,
+                   final Client client) {
         this.uri = uri;
         this.failOnInitFailure = failOnInitFailure;
         this.refreshPeriod = refreshPeriod;
         this.cacheDir = cacheDir;
-        this.appId = appId;
         this.maxCacheTime = maxCacheTime;
+        this.client = client;
     }
 
+    
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
+    public static DataReplicator create(final String uri) {
+        return create(URI.create(uri));
+    }
+    
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
+    public static DataReplicator create(final URI uri) {
+        return DataReplicatorFactorySpi.createNewDataReplicator(uri);
+    }
     
     /**
      * @param refreshPeriod   the refresh period. The period should be as high as no unnecessary 
@@ -145,8 +147,8 @@ public class DataReplicator {
                                   this.failOnInitFailure, 
                                   this.cacheDir, 
                                   this.maxCacheTime, 
-                                  this.appId,
-                                  refreshPeriod);
+                                  refreshPeriod,
+                                  this.client);
     }
     
    
@@ -159,7 +161,7 @@ public class DataReplicator {
      * @param maxCacheTime  the max cache time. The max time data is cached. This means it is highly 
      *                      probable that a successfully refresh will be performed within this time 
      *                      period (even though serious incidents occurs). Furthermore the age of the 
-     *                      data is acceptable for the consumer (default is 4 days)
+     *                      data is acceptable for the consumer (default is {@link DataReplicatorFactorySpi#DEFAULT_MAX_CACHETIME})
      * @return the new instance of the data replicator
      */
     public DataReplicator withMaxCacheTime(final Duration maxCacheTime) {
@@ -167,8 +169,8 @@ public class DataReplicator {
                                   this.failOnInitFailure,
                                   this.cacheDir, 
                                   maxCacheTime,
-                                  this.appId,
-                                  this.refreshPeriod);
+                                  this.refreshPeriod,
+                                  this.client);
     }
     
     
@@ -182,7 +184,7 @@ public class DataReplicator {
      * If failOnInitFailure==false and the source is unreachable: If a cached file exists and not 
      * expired ({@link #withMaxCacheTime(Duration)}}), this file will be used. 
      * 
-     * @param failOnInitFailure true, if the application should be aborted, else false. (default is false)
+     * @param failOnInitFailure true, if the application should be aborted, else false. (default is {@link DataReplicatorFactorySpi#DEFAULT_FAIL_ON_INITFAILURE})
      * @return the new instance of the data replicator
      */
     public DataReplicator withFailOnInitFailure(final boolean failOnInitFailure) {
@@ -190,14 +192,14 @@ public class DataReplicator {
                                   failOnInitFailure,
                                   this.cacheDir, 
                                   this.maxCacheTime, 
-                                  this.appId,
-                                  this.refreshPeriod);
+                                  this.refreshPeriod,
+                                  this.client);
     }
     
     
     /**
      * 
-     * @param cacheDir  the cache dir (default is current working dir)
+     * @param cacheDir  the cache dir (default is {@link DataReplicatorFactorySpi#DEFAULT_CACHEDIR})
      * @return the new instance of the data replicator
      */
     public DataReplicator withCacheDir(final File cacheDir) {
@@ -205,27 +207,23 @@ public class DataReplicator {
                                   this.failOnInitFailure, 
                                   cacheDir, 
                                   this.maxCacheTime,
-                                  this.appId,
-                                  this.refreshPeriod);
+                                  this.refreshPeriod,
+                                  this.client);
     }
     
-
+    
     /**
-     * 
-     * @param appID  the app identifier such as myApp/2.1. The app identifier will be 
-     *               added to the http request for statistics purposes (default is null) 
+     * @param client the client to use
      * @return the new instance of the data replicator
      */
-    public DataReplicator withAppId(final String appId) {
+    public DataReplicator withClient(final Client client) {
         return new DataReplicator(this.uri, 
                                   this.failOnInitFailure, 
-                                  this.cacheDir, 
+                                  this.cacheDir,    
                                   this.maxCacheTime,
-                                  Optional.ofNullable(appId),
-                                  this.refreshPeriod);
+                                  this.refreshPeriod,
+                                  client);
     }
-    
-    
     
     /**
      * @param consumer  the binary data consumer which will be called each time updated data is fetched. If a 
@@ -237,8 +235,8 @@ public class DataReplicator {
                                      failOnInitFailure, 
                                      cacheDir,
                                      maxCacheTime,
-                                     appId,
                                      refreshPeriod,
+                                     client,
                                      consumer); 
     }
  
@@ -287,8 +285,8 @@ public class DataReplicator {
                                  final boolean failOnInitFailure, 
                                  final File cacheDir, 
                                  final Duration maxCacheTime,
-                                 final Optional<String> appId,
                                  final Duration refreshPeriod, 
+                                 final Client client,
                                  final Consumer<byte[]> consumer) {
             
             this.maxCacheTime = maxCacheTime;
@@ -301,10 +299,10 @@ public class DataReplicator {
                 this.datasource = new ClasspathDatasource(uri);
                 
             } else if (uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https")) {
-                this.datasource = new HttpDatasource(uri, appId);
+                this.datasource = new HttpDatasource(uri, client);
                 
             } else if (uri.getScheme().equalsIgnoreCase("snapshot")) {
-                this.datasource = new MavenSnapshotDatasource(uri, appId);
+                this.datasource = new MavenSnapshotDatasource(uri, client);
                 
             } else if (uri.getScheme().equalsIgnoreCase("file")) {
                 this.datasource = new FileDatasource(uri);
@@ -343,7 +341,8 @@ public class DataReplicator {
         
         @Override
         public void close() {
-            executor.shutdown();;
+            executor.shutdown();
+            datasource.close();
         }
         
         
@@ -423,12 +422,15 @@ public class DataReplicator {
         }
         
         
-        private static abstract class Datasource {
+        private static abstract class Datasource implements Closeable {
             private final URI uri;
             
             public Datasource(URI uri) {
                 this.uri = uri;
             }
+
+            @Override
+            public void close() { }
             
             public URI getEndpoint() {
                 return uri;
@@ -503,14 +505,23 @@ public class DataReplicator {
                 
         
         private static class HttpDatasource extends Datasource {
-            private final Optional<String> appId;
             private final AtomicReference<String> etag = new AtomicReference<String>();
+            private final Client client;
+            private final boolean isUserClient;
             
-            public HttpDatasource(final URI uri, final Optional<String> appId) {
+            public HttpDatasource(final URI uri, final Client client) {
                 super(uri);
-                this.appId = appId;
+                this.isUserClient = client != null;
+                this.client = (client != null) ? client : ClientBuilder.newClient();
             }
             
+            @Override
+            public void close() {
+                super.close();
+                if (!isUserClient) {
+                    client.close();
+                }
+            }
             
             @Override
             public Optional<byte[]> load() {
@@ -518,22 +529,20 @@ public class DataReplicator {
             }
                 
             protected Optional<byte[]> load(URI uri) {
-                InputStream is = null;
+                
+                Response response = null;
                 try {
-                    // compose request
-                    final HttpURLConnection con = (HttpURLConnection) uri.toURL().openConnection();
-                    appId.ifPresent(id -> con.setRequestProperty("X-APP", id));
-                    if (etag.get() != null) {
-                        con.setRequestProperty("If-None-Match", etag.get());
-                    }
-                    
 
-                    // read response
-                    final int status = con.getResponseCode();
+                    Builder builder = client.target(uri).request();
+                    if (etag.get() != null) {
+                        builder = builder.header("etag", etag.get());
+                    }
+                    response = builder.get();
+
+                    int status = response.getStatus(); 
                     if ((status / 100) == 2) {
-                        etag.set(con.getHeaderField("ETAG"));
-                        is = con.getInputStream();
-                        return Optional.of(ByteStreams.toByteArray(is));
+                        etag.set(response.getHeaderString("etag"));
+                        return Optional.of(response.readEntity(byte[].class));
                         
                     // not modified
                     } else if (status == 304) {
@@ -541,13 +550,13 @@ public class DataReplicator {
              
                     // other (client error, ...) 
                     } else {
-                        throw new DatasourceException("got" + con.getResponseCode() + " by calling " + getEndpoint());
+                        throw new DatasourceException("got" + status + " by calling " + getEndpoint());
                     }
-                    
-                } catch (IOException ioe) {
-                    throw new DatasourceException(ioe);
+                
                 } finally {
-                    Closeables.closeQuietly(is);
+                    if (response != null) {
+                        response.close();
+                    }
                 }
             }
         }
@@ -556,8 +565,8 @@ public class DataReplicator {
         
         private static class MavenSnapshotDatasource extends HttpDatasource {
             
-            public MavenSnapshotDatasource(final URI uri, final Optional<String> appId) {
-                super(uri, appId);
+            public MavenSnapshotDatasource(final URI uri, final Client client) {
+                super(uri, client);
             }
             
             
@@ -684,5 +693,33 @@ public class DataReplicator {
                 }
             }
         }        
+    }
+    
+    
+    public static class DataReplicatorFactorySpi {
+        protected static final String FACTORY_ID = DataReplicator.class.getName(); 
+        
+        private static final boolean DEFAULT_FAIL_ON_INITFAILURE = false;
+        private static final File DEFAULT_CACHEDIR = new File(".");
+        private static final Duration DEFAULT_MAX_CACHETIME = Duration.ofDays(4);
+        private static final Duration DEFAULT_REFRESHPERIOD = Duration.ofSeconds(60);
+
+        static DataReplicator createNewDataReplicator(final URI uri) {
+            return ((DataReplicatorFactorySpi) ServiceFactoryFinder.find(FACTORY_ID).orElseGet(DataReplicatorFactorySpi::new))
+                                                                   .newDataReplicator(uri);
+        }
+        
+        /**
+         * @param uri   the uri 
+         * @return the default configured data repliactor 
+         */
+        protected DataReplicator newDataReplicator(final URI uri) {
+            return new DataReplicator(uri, 
+                                      DEFAULT_FAIL_ON_INITFAILURE, 
+                                      DEFAULT_CACHEDIR, 
+                                      DEFAULT_MAX_CACHETIME, 
+                                      DEFAULT_REFRESHPERIOD, 
+                                      null); 
+        }
     }
 }

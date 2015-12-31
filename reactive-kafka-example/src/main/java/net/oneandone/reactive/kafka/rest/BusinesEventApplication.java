@@ -75,6 +75,8 @@ public class BusinesEventApplication extends ResourceConfig {
         register(new GenericExceptionMapper().withProblemMapper(AvroSerializationException.class, e -> StdProblem.newMalformedRequestDataProblem())
                                              .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("type", e.getType()))
                                              .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
+        
+        System.setProperty("javax.ws.rs.client.ClientBuilder", net.oneandone.commons.incubator.hammer.http.client.RestClientBuilder.class.getName());
     } 
     
     //

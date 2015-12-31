@@ -27,7 +27,7 @@ import java.util.UUID;
 import javax.json.Json;
 import javax.ws.rs.ClientErrorException;
 import javax.ws.rs.client.Client;
-
+import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -79,8 +79,7 @@ public class KafkaResourceTest {
                                                                         .put("log.dirs", new File("kafkalog").getAbsolutePath())
                                                                         .put("zookeeper.connect", "localhost:" + zookeeperPort).build());
         kafka.start();
-       
-        
+
         // Why JerseyClientBuilder?-> force to use jersey (depending on the classpath resteasy client may used instead)
         client = JerseyClientBuilder.createClient();
     }

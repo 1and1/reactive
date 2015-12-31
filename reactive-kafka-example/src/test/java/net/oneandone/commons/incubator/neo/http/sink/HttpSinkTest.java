@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.oneandone.commons.incubator.neo.httpsink;
+package net.oneandone.commons.incubator.neo.http.sink;
 
 
 
 import java.io.File;
 
 import java.io.IOException;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -31,6 +32,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
 import javax.ws.rs.client.Client;
+import javax.ws.rs.client.Entity;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import org.glassfish.jersey.client.JerseyClientBuilder;
@@ -42,9 +44,10 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 
-import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer;
-import net.oneandone.commons.incubator.neo.httpsink.EntityConsumer.Submission;
-import net.oneandone.commons.incubator.neo.httpsink.HttpSink;
+import net.oneandone.commons.incubator.neo.http.sink.EntityConsumer;
+import net.oneandone.commons.incubator.neo.http.sink.HttpSink;
+import net.oneandone.commons.incubator.neo.http.sink.EntityConsumer.Submission;
+import net.oneandone.commons.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.commons.incubator.neotest.WebServer;
 
 
@@ -115,6 +118,9 @@ public class HttpSinkTest {
         client.close();
     }
 
+
+    
+    
     
     @Test
     public void testSuccess() throws Exception {
@@ -145,9 +151,9 @@ public class HttpSinkTest {
              Thread.sleep(1000);
          } catch (InterruptedException ignore) { }
         
-         Assert.assertEquals(1, sink.getNumDiscarded());
-         Assert.assertEquals(2, sink.getNumRetries());
-         Assert.assertEquals(0, sink.getNumSuccess());
+         Assert.assertEquals(1, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         
          sink.close();
     }
@@ -164,10 +170,10 @@ public class HttpSinkTest {
              Assert.fail("BadRequestException expected");
          } catch (BadRequestException expected) { }
         
-         Assert.assertEquals(1, sink.getNumRejected());
-         Assert.assertEquals(0, sink.getNumDiscarded());
-         Assert.assertEquals(0, sink.getNumRetries());
-         Assert.assertEquals(0, sink.getNumSuccess());
+         Assert.assertEquals(1, sink.getMetrics().getNumRejected().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumRetries().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         
          sink.close();
     }
@@ -185,9 +191,9 @@ public class HttpSinkTest {
              Thread.sleep(1000);
          } catch (InterruptedException ignore) { }
         
-         Assert.assertEquals(0, sink.getNumDiscarded());
-         Assert.assertEquals(2, sink.getNumRetries());
-         Assert.assertEquals(0, sink.getNumSuccess());
+         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         
          sink.close();
     }
@@ -207,9 +213,9 @@ public class HttpSinkTest {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getNumDiscarded());
-        Assert.assertEquals(1, sink.getNumRetries());
-        Assert.assertEquals(1, sink.getNumSuccess());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
         
         sink.close();
     }
@@ -233,9 +239,9 @@ public class HttpSinkTest {
         } catch (InterruptedException ignore) { }
         
         Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
-        Assert.assertEquals(0, sink.getNumDiscarded());
-        Assert.assertEquals(2, sink.getNumRetries());
-        Assert.assertEquals(1, sink.getNumSuccess());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
         
         sink.close();
     }
@@ -270,12 +276,17 @@ public class HttpSinkTest {
     public void testReschedulePersistentQuery() throws Exception {
         
         File dir = Files.createTempDir();
-        File querysDir = new File("src" + File.separator + "test" + File.separator + "resources" + File.separator + "queries");
         
-        for (File queryFile : querysDir.listFiles()) {
-            Files.copy(queryFile, new File(dir, queryFile.getName()));
-        }
-        Assert.assertTrue(dir.listFiles().length > 0);
+        HttpSink.PersistentQuery query = new HttpSink.PersistentQuery(URI.create("http://localhost:49905/rest/topics"),
+                                                                      Method.POST,
+                                                                      Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                      ImmutableList.of(Duration.ofMillis(100)),
+                                                                      dir);
+        query.close(false);
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        
+        
         
         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
@@ -287,14 +298,14 @@ public class HttpSinkTest {
             Thread.sleep(3000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getNumRejected());
-        Assert.assertEquals(1, sink.getNumDiscarded());
-        Assert.assertEquals(1, sink.getNumRetries());
-        Assert.assertEquals(0, sink.getNumSuccess());
+        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         
         sink.close();
         
-        Assert.assertTrue(dir.listFiles().length == 0);
+        Assert.assertEquals(0, dir.listFiles().length);
         dir.delete();
     }
     

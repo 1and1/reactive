@@ -1,8 +1,0 @@
-retries: 300&200&100
-mediaType: application/vnd.example.event.customerdatachanged+json
-method: POST
-data: eyJoZWFkZXIiOnsiZXZlbnRJZCI6IjBlOTcwZTQ3MmYyNDQ5YTM4MTYyOGY1NGIyYmZhZWNhIiwidGltZXN0YW1wIjoiMjAxNS0xMi0yNVQxMDo0MzozMi40MDRaIiwiYXV0aEluZm8iOm51bGx9LCJhY2NvdW50aWQiOjQ0NTQ1NDUzfQ==
-class: net.oneandone.commons.incubator.neo.httpsink.HttpSinkTest$CustomerChangedEvent
-target: http://localhost:49905/rest/topics
-retries: 200&100
-retries: 100

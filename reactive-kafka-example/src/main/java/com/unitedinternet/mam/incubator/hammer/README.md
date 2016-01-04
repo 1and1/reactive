@@ -17,7 +17,7 @@ To add a dependency on Hammer using Maven, use the following:
 
 ```
 <dependency>
-  <groupId>com.unitedinternet.mam</groupId>
+  <groupId>com.unitedinternet.mam.hammer</groupId>
   <artifactId>hammer</artifactId>
   <version>0.1</version>
 </dependency>

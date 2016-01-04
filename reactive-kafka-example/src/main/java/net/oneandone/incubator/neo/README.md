@@ -52,6 +52,6 @@ Internal implementation notes
 
 3. Neo prefers a fluent interface style. Async methods are suffixed with `Async` and return a CompletableFuture instance 
 
-4. Neo prefers immutable artifacts. For instance Neo makes use of a "immutable builder pattern". Here, the builder method (typically prefixed by `with`) returns a new immutable instance of the object to build.   
+4. Neo prefers immutable artifacts. For instance Neo makes use of an "immutable builder pattern". Here, the builder method (typically prefixed by `with`) returns a new immutable instance of the object to build.   
 
 5. The defaults of Neo´s major artefacts are overrideable by using the Java [ServiceLoader](https://docs.oracle.com/javase/8/docs/api/java/util/ServiceLoader.html) approach. Typically the default will be overridden by extension libraries.  

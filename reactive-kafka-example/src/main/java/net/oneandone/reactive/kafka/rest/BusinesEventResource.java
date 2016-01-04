@@ -59,11 +59,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.unitedinternet.mam.incubator.hammer.problem.StdProblem;
 
-import net.oneandone.commons.incubator.hammer.problem.StdProblem;
-import net.oneandone.commons.incubator.neo.collect.Immutables;
-import net.oneandone.commons.incubator.neo.freemarker.Page;
-import net.oneandone.commons.incubator.neo.hypermedia.LinksBuilder;
+import net.oneandone.incubator.neo.collect.Immutables;
+import net.oneandone.incubator.neo.freemarker.Page;
+import net.oneandone.incubator.neo.hypermedia.LinksBuilder;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaMessage;

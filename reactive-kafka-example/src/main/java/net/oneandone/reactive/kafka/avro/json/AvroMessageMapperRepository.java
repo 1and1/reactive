@@ -58,9 +58,9 @@ import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
 
 import jersey.repackaged.com.google.common.collect.Lists;
-import net.oneandone.commons.incubator.neo.collect.Immutables;
-import net.oneandone.commons.incubator.neo.datareplicator.DataReplicator;
-import net.oneandone.commons.incubator.neo.datareplicator.ReplicationJob;
+import net.oneandone.incubator.neo.collect.Immutables;
+import net.oneandone.incubator.neo.datareplicator.DataReplicator;
+import net.oneandone.incubator.neo.datareplicator.ReplicationJob;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.utils.Pair;

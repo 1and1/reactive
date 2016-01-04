@@ -43,8 +43,8 @@ import org.junit.Test;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharSource;
+import com.unitedinternet.mam.incubator.hammer.problem.StdProblem;
 
-import net.oneandone.commons.incubator.hammer.problem.StdProblem;
 import net.oneandone.reactive.ReactiveSource;
 import net.oneandone.reactive.sse.ServerSentEvent;
 import net.oneandone.reactive.sse.client.ClientSseSource;

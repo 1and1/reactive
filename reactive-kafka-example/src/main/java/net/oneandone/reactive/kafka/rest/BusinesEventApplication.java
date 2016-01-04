@@ -30,10 +30,10 @@ import org.springframework.context.annotation.Bean;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.unitedinternet.mam.incubator.hammer.problem.StdProblem;
 
-import net.oneandone.commons.incubator.hammer.problem.StdProblem;
-import net.oneandone.commons.incubator.neo.freemarker.FreemarkerProvider;
-import net.oneandone.commons.incubator.neo.problem.GenericExceptionMapper;
+import net.oneandone.incubator.neo.freemarker.FreemarkerProvider;
+import net.oneandone.incubator.neo.problem.GenericExceptionMapper;
 import net.oneandone.reactive.kafka.CompletableKafkaProducer;
 import net.oneandone.reactive.kafka.KafkaSource;
 import net.oneandone.reactive.kafka.avro.json.AvroMessageMapperRepository;
@@ -76,7 +76,7 @@ public class BusinesEventApplication extends ResourceConfig {
                                              .withProblemMapper(SchemaException.class, "POST", "PUT", e -> StdProblem.newUnsupportedMimeTypeProblem().withParam("type", e.getType()))
                                              .withProblemMapper(SchemaException.class, "GET", e -> StdProblem.newUnacceptedMimeTypeProblem().withParam("type", e.getType())));
         
-        System.setProperty("javax.ws.rs.client.ClientBuilder", net.oneandone.commons.incubator.hammer.http.client.RestClientBuilder.class.getName());
+        System.setProperty("javax.ws.rs.client.ClientBuilder", com.unitedinternet.mam.incubator.hammer.http.client.RestClientBuilder.class.getName());
     } 
     
     //

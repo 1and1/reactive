@@ -3,7 +3,7 @@ Neo: libraries for building Java-based web applications
 
 [![Build Status]()]()
 
-The Neo project contains several core libraries that enable writing resilient, high scalable, web-based applications.
+The Neo project contains several libraries that enable writing resilient, high scalable, web-based applications and services. This includes convenience artifacts in context of Java8 as well as web artifacts 
  
 Neo considers synchronous programming as well as the asynchronous, reactive-oriented programming approach. 
 

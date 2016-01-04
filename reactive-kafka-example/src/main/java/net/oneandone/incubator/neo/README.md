@@ -46,7 +46,7 @@ Links
 Internal implementation notes
 --------------------
 
-1. Minimal usage of 3rd parts libraries. Neo relies on JSE and partly on JEE. Further more Neo makes usage of Google Guava.  
+1. Minimal usage of 3rd parts libraries. Neo relies on JSE and partly on JEE. Further more Neo makes usage of Google Guava, Jersey and the Jackson lib.  
 
 2. Zero configuration. By default the libraries uses production ready defaults
 

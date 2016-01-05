@@ -228,9 +228,13 @@ public class HttpSinkTest {
     public void testServerErrorPersistentRetryWithSuccess() throws Exception {
         servlet.setErrorsToThrow(2);
         
+        
+        
+        
+        
         EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics")
                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .withRetryPersistency(new File(new File("."), "retrydir"))
+                                      .withRetryPersistency(Files.createTempDir())
                                       .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());

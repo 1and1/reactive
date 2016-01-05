@@ -68,12 +68,12 @@ import com.google.common.io.Closeables;
 import joptsimple.internal.Strings;
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.exception.Exceptions;
-import net.oneandone.incubator.neo.http.sink.EntityConsumer.Submission;
+import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
 
-final class HttpSinkImpl implements HttpSink {
-    private static final Logger LOG = LoggerFactory.getLogger(HttpSinkImpl.class);
+final class HttpSinkBuilderImpl implements HttpSinkBuilder {
+    private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
 
     private final URI target;
     private final Client client;
@@ -84,7 +84,7 @@ final class HttpSinkImpl implements HttpSink {
     private final ImmutableList<Duration> remainingRetries;
     private final int numParallelWorkers;
 
-    HttpSinkImpl(final Client client, 
+    HttpSinkBuilderImpl(final Client client, 
              final URI target, 
              final Method method, 
              final int bufferSize, 
@@ -105,9 +105,9 @@ final class HttpSinkImpl implements HttpSink {
 
 
     @Override
-    public HttpSink withClient(final Client client) {
+    public HttpSinkBuilder withClient(final Client client) {
         Preconditions.checkNotNull(client);
-        return new HttpSinkImpl(client, 
+        return new HttpSinkBuilderImpl(client, 
                                 this.target, 
                                 this.method, 
                                 this.bufferSize, 
@@ -118,9 +118,9 @@ final class HttpSinkImpl implements HttpSink {
     }
 
     @Override
-    public HttpSink withMethod(final Method method) {
+    public HttpSinkBuilder withMethod(final Method method) {
         Preconditions.checkNotNull(method);
-        return new HttpSinkImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.client, 
                                 this.target, method, 
                                 this.bufferSize, 
                                 this.dir,
@@ -130,9 +130,9 @@ final class HttpSinkImpl implements HttpSink {
     }
 
     @Override
-    public HttpSink withRetryAfter(final ImmutableList<Duration> retryPauses) {
+    public HttpSinkBuilder withRetryAfter(final ImmutableList<Duration> retryPauses) {
         Preconditions.checkNotNull(retryPauses);
-        return new HttpSinkImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.client, 
                                 this.target, 
                                 this.method,
                                 this.bufferSize, 
@@ -143,14 +143,14 @@ final class HttpSinkImpl implements HttpSink {
     }
     
     @Override
-    public HttpSink withRetryAfter(final Duration... retryPauses) {
+    public HttpSinkBuilder withRetryAfter(final Duration... retryPauses) {
         Preconditions.checkNotNull(retryPauses);
         return withRetryAfter(ImmutableList.copyOf(retryPauses));
     }
     
     @Override
-    public HttpSink withRetryParallelity(final int numParallelWorkers) {
-        return new HttpSinkImpl(this.client,
+    public HttpSinkBuilder withRetryParallelity(final int numParallelWorkers) {
+        return new HttpSinkBuilderImpl(this.client,
                                 this.target, 
                                 this.method, 
                                 this.bufferSize,
@@ -161,8 +161,8 @@ final class HttpSinkImpl implements HttpSink {
     }
 
     @Override
-    public HttpSink withRetryBufferSize(final int bufferSize) {
-        return new HttpSinkImpl(this.client, 
+    public HttpSinkBuilder withRetryBufferSize(final int bufferSize) {
+        return new HttpSinkBuilderImpl(this.client, 
                                 this.target, 
                                 this.method, 
                                 bufferSize, 
@@ -173,9 +173,9 @@ final class HttpSinkImpl implements HttpSink {
     }
 
     @Override
-    public HttpSink withRetryPersistency(final File dir) {
+    public HttpSinkBuilder withRetryPersistency(final File dir) {
         Preconditions.checkNotNull(dir);
-        return new HttpSinkImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.client, 
                                 this.target, 
                                 this.method, 
                                 this.bufferSize, 
@@ -186,9 +186,9 @@ final class HttpSinkImpl implements HttpSink {
     }
 
     @Override
-    public HttpSink withRejectOnStatus(final ImmutableSet<Integer> rejectStatusList) {
+    public HttpSinkBuilder withRejectOnStatus(final ImmutableSet<Integer> rejectStatusList) {
         Preconditions.checkNotNull(rejectStatusList);
-        return new HttpSinkImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.client, 
                                 this.target, 
                                 this.method, 
                                 this.bufferSize, 
@@ -202,7 +202,7 @@ final class HttpSinkImpl implements HttpSink {
     /**
      * @return the sink reference
      */
-    public EntityConsumer open() {
+    public HttpSink build() {
         return new QueryQueue();
     }
 
@@ -211,7 +211,7 @@ final class HttpSinkImpl implements HttpSink {
     }
     
 
-    private final class QueryQueue implements EntityConsumer, Metrics, Closeable {
+    private final class QueryQueue implements HttpSink, Metrics, Closeable {
         private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
         private final AtomicReference<Client> defaultClientRef = new AtomicReference<>();
         
@@ -392,7 +392,7 @@ final class HttpSinkImpl implements HttpSink {
         protected final Method method;
         protected final URI target;
         protected final Entity<?> entity;
-        protected final AtomicReference<EntityConsumer.Submission.Status> status = new AtomicReference<>(EntityConsumer.Submission.Status.PENDING);
+        protected final AtomicReference<HttpSink.Submission.Status> status = new AtomicReference<>(HttpSink.Submission.Status.PENDING);
         protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
         
         
@@ -421,11 +421,11 @@ final class HttpSinkImpl implements HttpSink {
         }
 
         public boolean isOpen() {
-            return (getStatus() == EntityConsumer.Submission.Status.PENDING);
+            return (getStatus() == HttpSink.Submission.Status.PENDING);
         }
         
         public void close(boolean isSuccess) {
-            status.set(isSuccess ? EntityConsumer.Submission.Status.COMPLETED : EntityConsumer.Submission.Status.DISCARDED);
+            status.set(isSuccess ? HttpSink.Submission.Status.COMPLETED : HttpSink.Submission.Status.DISCARDED);
         }
 
         public String getId() {

@@ -20,16 +20,16 @@ import java.net.URI;
 import com.google.common.base.Preconditions;
 import com.unitedinternet.mam.incubator.hammer.http.client.RestClientBuilder;
 
-import net.oneandone.incubator.neo.http.sink.HttpSink;
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder;
 
 
-public interface MamHttpSink extends HttpSink  {
+public interface MamHttpSinkBuilder extends HttpSinkBuilder  {
     
     /**
      * @param target the target uri
      * @return a new instance of the http sink
      */
-    static HttpSink create(final String target) {
+    static HttpSinkBuilder create(final String target) {
         Preconditions.checkNotNull(target);
         return create(URI.create(target));
     }
@@ -39,9 +39,9 @@ public interface MamHttpSink extends HttpSink  {
      * @param target the target uri
      * @return a new instance of the http sink
      */
-    static HttpSink create(final URI target) {
+    static HttpSinkBuilder create(final URI target) {
         Preconditions.checkNotNull(target);
-        return HttpSink.create(target)
-                       .withClient(new RestClientBuilder().build());
+        return HttpSinkBuilder.create(target)
+                              .withClient(new RestClientBuilder().build());
     }
 }

@@ -43,6 +43,7 @@ import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
+import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
 import net.oneandone.incubator.neo.http.sink.EntityConsumer;
 import net.oneandone.incubator.neo.http.sink.HttpSink;
@@ -181,7 +182,7 @@ public class HttpSinkTest {
     @Test
     public void testServerErrorIncompletedRetries() throws Exception {
          EntityConsumer sink = HttpSink.create(server.getBasepath() + "rest/topics?status=500")
-                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000)))
+                                       .withRetryAfter(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000))
                                        .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
          Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
@@ -277,11 +278,11 @@ public class HttpSinkTest {
         
         File dir = Files.createTempDir();
         
-        HttpSink.PersistentQuery query = new HttpSink.PersistentQuery(URI.create("http://localhost:49905/rest/topics"),
-                                                                      Method.POST,
-                                                                      Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                      ImmutableList.of(Duration.ofMillis(100)),
-                                                                      dir);
+        HttpSinkImpl.PersistentQuery query = new HttpSinkImpl.PersistentQuery(URI.create("http://localhost:49905/rest/topics"),
+                                                                              Method.POST,
+                                                                              Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                              ImmutableList.of(Duration.ofMillis(100)),
+                                                                              dir);
         query.close(false);
         
         Assert.assertEquals(1, dir.listFiles().length);
@@ -307,6 +308,21 @@ public class HttpSinkTest {
         
         Assert.assertEquals(0, dir.listFiles().length);
         dir.delete();
+    }
+    
+    
+    
+    
+    @Test
+    public void testExtendedHttpSink() throws Exception {
+        
+        EntityConsumer sink = MamHttpSink.create(server.getBasepath() + "rest/topics")
+                                         .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                         .open();
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
+        
+        sink.close();
     }
     
     

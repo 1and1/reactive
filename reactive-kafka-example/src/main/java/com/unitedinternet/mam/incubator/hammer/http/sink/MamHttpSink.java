@@ -17,17 +17,31 @@ package com.unitedinternet.mam.incubator.hammer.http.sink;
 
 import java.net.URI;
 
+import com.google.common.base.Preconditions;
 import com.unitedinternet.mam.incubator.hammer.http.client.RestClientBuilder;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink;
-import net.oneandone.incubator.neo.http.sink.HttpSink.HttpSinkFactorySpi;
 
 
-class CustomizedHtpSinkFactory extends HttpSinkFactorySpi {
+public interface MamHttpSink extends HttpSink  {
     
-    @Override
-    protected HttpSink newHttpSink(URI target) {
-        return super.newHttpSink(target)
-                    .withClient(new RestClientBuilder().build()); 
+    /**
+     * @param target the target uri
+     * @return a new instance of the http sink
+     */
+    static HttpSink create(final String target) {
+        Preconditions.checkNotNull(target);
+        return create(URI.create(target));
+    }
+
+    
+    /**
+     * @param target the target uri
+     * @return a new instance of the http sink
+     */
+    static HttpSink create(final URI target) {
+        Preconditions.checkNotNull(target);
+        return HttpSink.create(target)
+                       .withClient(new RestClientBuilder().build());
     }
 }

@@ -39,8 +39,9 @@ import com.google.common.collect.ImmutableList;
  *      private final ReplicationJob replicationJob;
  *      
  *      public MyClass() {
- *          this.replicationJob = new DataReplicator(myUri).withCacheDir(myCacheDir)
- *                                                         .startConsumingTextList(this::onListReload);
+ *          this.replicationJob = ReplicationJobBuilder.create(myUri)
+ *                                                     .withCacheDir(myCacheDir)
+ *                                                     .startConsumingTextList(this::onListReload);
  *      }
  *      
  *      void onListReload(ImmutableList<String> list) {
@@ -57,7 +58,7 @@ import com.google.common.collect.ImmutableList;
  * <pre>
  *
  */
-public interface DataReplicator {    
+public interface ReplicationJobBuilder {    
     
     public static final boolean DEFAULT_FAIL_ON_INITFAILURE = false;
     public static final File DEFAULT_CACHEDIR = new File(".");
@@ -72,7 +73,7 @@ public interface DataReplicator {
      *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
      *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
      */
-    static DataReplicator create(final String uri) {
+    static ReplicationJobBuilder create(final String uri) {
         Preconditions.checkNotNull(uri);
         return create(URI.create(uri));
     }
@@ -82,9 +83,9 @@ public interface DataReplicator {
      *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
      *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
      */
-    static DataReplicator create(final URI uri) {
+    static ReplicationJobBuilder create(final URI uri) {
         Preconditions.checkNotNull(uri);
-        return new DataReplicatorImpl(uri, 
+        return new ReplicationJobBuilderImpl(uri, 
                                       DEFAULT_FAIL_ON_INITFAILURE, 
                                       DEFAULT_CACHEDIR, 
                                       DEFAULT_MAX_CACHETIME, 
@@ -98,17 +99,17 @@ public interface DataReplicator {
      *                         should be as low as data is fresh enough. (default is 60 sec) 
      * @return the new instance of the data replicator
      */
-    DataReplicator withRefreshPeriod(final Duration refreshPeriod);
+    ReplicationJobBuilder withRefreshPeriod(final Duration refreshPeriod);
     
     /**
      * 
      * @param maxCacheTime  the max cache time. The max time data is cached. This means it is highly 
      *                      probable that a successfully refresh will be performed within this time 
      *                      period (even though serious incidents occurs). Furthermore the age of the 
-     *                      data is acceptable for the consumer (default is {@link DataReplicator#DEFAULT_MAX_CACHETIME})
+     *                      data is acceptable for the consumer (default is {@link ReplicationJobBuilder#DEFAULT_MAX_CACHETIME})
      * @return the new instance of the data replicator
      */
-    DataReplicator withMaxCacheTime(final Duration maxCacheTime);
+    ReplicationJobBuilder withMaxCacheTime(final Duration maxCacheTime);
     
     /**
      * Sets the value whether the application should terminate the start-up process when the data (source and local copy) 
@@ -120,23 +121,23 @@ public interface DataReplicator {
      * If failOnInitFailure==false and the source is unreachable: If a cached file exists and not 
      * expired ({@link #withMaxCacheTime(Duration)}}), this file will be used. 
      * 
-     * @param failOnInitFailure true, if the application should be aborted, else false. (default is {@link DataReplicator#DEFAULT_FAIL_ON_INITFAILURE})
+     * @param failOnInitFailure true, if the application should be aborted, else false. (default is {@link ReplicationJobBuilder#DEFAULT_FAIL_ON_INITFAILURE})
      * @return the new instance of the data replicator
      */
-    DataReplicator withFailOnInitFailure(final boolean failOnInitFailure);
+    ReplicationJobBuilder withFailOnInitFailure(final boolean failOnInitFailure);
     
     /**
      * 
-     * @param cacheDir  the cache dir (default is {@link DataReplicator#DEFAULT_CACHEDIR})
+     * @param cacheDir  the cache dir (default is {@link ReplicationJobBuilder#DEFAULT_CACHEDIR})
      * @return the new instance of the data replicator
      */
-    DataReplicator withCacheDir(final File cacheDir);
+    ReplicationJobBuilder withCacheDir(final File cacheDir);
     
     /**
      * @param client the client to use
      * @return the new instance of the data replicator
      */
-    DataReplicator withClient(final Client client);
+    ReplicationJobBuilder withClient(final Client client);
     
     /**
      * @param consumer  the binary data consumer which will be called each time updated data is fetched. If a 

@@ -60,8 +60,8 @@ import com.google.common.io.Closeables;
 import com.google.common.io.Files;
 
 
-final class DataReplicatorImpl implements DataReplicator {    
-    private static final Logger LOG = LoggerFactory.getLogger(DataReplicatorImpl.class);
+final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {    
+    private static final Logger LOG = LoggerFactory.getLogger(ReplicationJobBuilderImpl.class);
     
     private final URI uri;
     private final boolean failOnInitFailure;
@@ -71,7 +71,7 @@ final class DataReplicatorImpl implements DataReplicator {
     private final Client client;
     
    
-    DataReplicatorImpl(final URI uri, 
+    ReplicationJobBuilderImpl(final URI uri, 
                        final boolean failOnInitFailure, 
                        final File cacheDir,
                        final Duration maxCacheTime,
@@ -86,9 +86,9 @@ final class DataReplicatorImpl implements DataReplicator {
     }
 
     @Override
-    public DataReplicatorImpl withRefreshPeriod(final Duration refreshPeriod) {
+    public ReplicationJobBuilderImpl withRefreshPeriod(final Duration refreshPeriod) {
         Preconditions.checkNotNull(refreshPeriod);
-        return new DataReplicatorImpl(this.uri, 
+        return new ReplicationJobBuilderImpl(this.uri, 
                                       this.failOnInitFailure, 
                                       this.cacheDir, 
                                       this.maxCacheTime, 
@@ -97,9 +97,9 @@ final class DataReplicatorImpl implements DataReplicator {
     }
     
     @Override
-    public DataReplicatorImpl withMaxCacheTime(final Duration maxCacheTime) {
+    public ReplicationJobBuilderImpl withMaxCacheTime(final Duration maxCacheTime) {
         Preconditions.checkNotNull(maxCacheTime);
-        return new DataReplicatorImpl(this.uri, 
+        return new ReplicationJobBuilderImpl(this.uri, 
                                       this.failOnInitFailure,
                                       this.cacheDir, 
                                       maxCacheTime,
@@ -108,8 +108,8 @@ final class DataReplicatorImpl implements DataReplicator {
     }
     
     @Override
-    public DataReplicatorImpl withFailOnInitFailure(final boolean failOnInitFailure) {
-        return new DataReplicatorImpl(this.uri,
+    public ReplicationJobBuilderImpl withFailOnInitFailure(final boolean failOnInitFailure) {
+        return new ReplicationJobBuilderImpl(this.uri,
                                       failOnInitFailure,
                                       this.cacheDir, 
                                       this.maxCacheTime, 
@@ -118,9 +118,9 @@ final class DataReplicatorImpl implements DataReplicator {
     }
     
     @Override
-    public DataReplicatorImpl withCacheDir(final File cacheDir) {
+    public ReplicationJobBuilderImpl withCacheDir(final File cacheDir) {
         Preconditions.checkNotNull(cacheDir);
-        return new DataReplicatorImpl(this.uri, 
+        return new ReplicationJobBuilderImpl(this.uri, 
                                       this.failOnInitFailure, 
                                       cacheDir, 
                                       this.maxCacheTime,
@@ -129,9 +129,9 @@ final class DataReplicatorImpl implements DataReplicator {
     }
     
     @Override
-    public DataReplicatorImpl withClient(final Client client) {
+    public ReplicationJobBuilderImpl withClient(final Client client) {
         Preconditions.checkNotNull(client);
-        return new DataReplicatorImpl(this.uri, 
+        return new ReplicationJobBuilderImpl(this.uri, 
                                       this.failOnInitFailure, 
                                       this.cacheDir,    
                                       this.maxCacheTime,

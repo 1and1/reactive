@@ -18,20 +18,20 @@ package net.oneandone.incubator.neo.datareplicator;
 
 
 
-public class DatasourceException extends RuntimeException {
+public class ReplicationException extends RuntimeException {
     
     private static final long serialVersionUID = 416902236153346527L;
 
     
-    public DatasourceException(String msg, Throwable cause) {
+    public ReplicationException(String msg, Throwable cause) {
         super(msg, cause);
     }
 
-    public DatasourceException(String msg) {
+    public ReplicationException(String msg) {
         super(msg);
     }
 
-    public DatasourceException(Throwable cause) {
+    public ReplicationException(Throwable cause) {
         super(cause);
     }
 }

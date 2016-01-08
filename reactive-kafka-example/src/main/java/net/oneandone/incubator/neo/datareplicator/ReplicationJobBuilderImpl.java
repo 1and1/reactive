@@ -19,6 +19,7 @@ package net.oneandone.incubator.neo.datareplicator;
 
 import java.io.ByteArrayInputStream;
 
+
 import java.io.Closeable;
 import java.io.File;
 
@@ -45,7 +46,6 @@ import javax.ws.rs.core.Response;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
-import org.glassfish.hk2.runlevel.RunLevelException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
@@ -193,7 +193,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             
             this.maxCacheTime = maxCacheTime;
             this.refreshPeriod = refreshPeriod;
-            this.consumer = new HashProtectedConsumer(consumer);
+            this.consumer = new ConsumerAdapter(consumer);
             this.fileCache = new FileCache(cacheDir, uri.toString(), maxCacheTime);
             
             
@@ -214,9 +214,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath, http, https, file)");
             }
 
-            
+
+            // load on startup
             try {
-                // load on startup
                 loadAndNotifyConsumer();
                 
             } catch (final RuntimeException rt) {
@@ -236,7 +236,6 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                                             refreshPeriod.toMillis(), 
                                             TimeUnit.MILLISECONDS);
         }
-    
         
         @Override
         public void close() {
@@ -244,13 +243,13 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             datasource.close();
         }
         
-        
         private void loadAndNotifyConsumer() {
             try {
                 byte[] data = datasource.load();
                 notifyConsumer(data);
 
-                fileCache.update(data);  // data has been accepted by the consumer -> update cache
+                // data has been accepted by the consumer -> update cache
+                fileCache.update(data); 
                 lastRefreshSuccess.set(Optional.of(Instant.now()));  
                 
             } catch (RuntimeException rt) {
@@ -303,12 +302,11 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         
         
         
-        private static final class HashProtectedConsumer implements Consumer<byte[]> {
-
+        private static final class ConsumerAdapter implements Consumer<byte[]> {
             private final Consumer<byte[]> consumer;
             private final AtomicReference<Long> lastMd5 = new AtomicReference<>(Hashing.md5().newHasher().hash().asLong());
             
-            public HashProtectedConsumer(final Consumer<byte[]> consumer) {
+            public ConsumerAdapter(final Consumer<byte[]> consumer) {
                 this.consumer = consumer;
             }
             
@@ -340,7 +338,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 return uri;
             }
                         
-            public abstract byte[] load();
+            public abstract byte[] load() throws ReplicationException;
             
             @Override
             public String toString() {
@@ -357,7 +355,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
             
             @Override
-            public byte[] load() {
+            public byte[] load() throws ReplicationException {
                 ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 if (classLoader == null) {
                     classLoader = getClass().getClassLoader();
@@ -372,7 +370,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     try {
                         return ByteStreams.toByteArray(classpathUri.openStream());
                     } catch (IOException ioe) {
-                        throw new DatasourceException(ioe);
+                        throw new ReplicationException(ioe);
                     } finally {
                         Closeables.closeQuietly(is);
                     }
@@ -396,11 +394,11 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     try {
                         return Files.toByteArray(file);
                     } catch (IOException ioe) {
-                        throw new DatasourceException(ioe);
+                        throw new ReplicationException(ioe);
                     }
                     
                 } else {
-                    throw new RuntimeException("file " + file.getAbsolutePath() + " not found");
+                    throw new ReplicationException("file " + file.getAbsolutePath() + " not found");
                 }
             }
         }
@@ -470,14 +468,14 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     // not modified
                     } else if (status == 304) {
                         if (cached == null) {
-                            throw new DatasourceException("got" + status + " by performing non-conditional request " + getEndpoint());
+                            throw new ReplicationException("got" + status + " by performing non-conditional request " + getEndpoint());
                         } else {
                             return cached.getData();
                         }
              
                     // other (client error, ...) 
                     } else {
-                        throw new DatasourceException("got" + status + " by calling " + getEndpoint());
+                        throw new ReplicationException("got" + status + " by calling " + getEndpoint());
                     }
                 
                 } finally {
@@ -548,7 +546,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     return URI.create(uri + "/" + artifactId + "-" + version.replace("-SNAPSHOT", "-" + timestamp + "-" + buildNumber + ".jar"));
                      
                 } catch (IOException | ParserConfigurationException | SAXException e) {
-                    throw new RuntimeException(e);
+                    throw new ReplicationException(e);
                 }
             }
         }
@@ -569,7 +567,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     this.genericCacheFileName =  name.replaceAll("[,:/]", "_") + "_";
                     this.cacheDir = new File(cacheDir, "datareplicator").getCanonicalFile();
                 } catch (IOException ioe) {
-                    throw new RunLevelException(ioe);
+                    throw new ReplicationException(ioe);
                 }
             }
             
@@ -617,7 +615,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     // check if cache file is expired
                     final Duration age = Duration.between(Instant.ofEpochMilli(cacheFile.get().lastModified()), Instant.now());
                     if (maxCacheTime.minus(age).isNegative()) {
-                        throw new DatasourceException("cache file is expired. Age is " + age.toDays() + " days");
+                        throw new ReplicationException("cache file is expired. Age is " + age.toDays() + " days");
                     }
                     
                     // if not, will load it 
@@ -626,13 +624,13 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         is = new FileInputStream(cacheFile.get());
                         return ByteStreams.toByteArray(is);
                     } catch (IOException ioe) {
-                        throw new DatasourceException("loading cache file " + cacheFile.get()  + " failed", ioe);
+                        throw new ReplicationException("loading cache file " + cacheFile.get()  + " failed", ioe);
                     } finally {
                         Closeables.closeQuietly(is);
                     }
                     
                 } else {
-                    throw new DatasourceException("no cache file exists");
+                    throw new ReplicationException("cache file not exists");
                 }
             }
             
@@ -651,7 +649,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                                 newestTimestamp = timestamp;
                             }
                         } catch (NumberFormatException nfe) {
-                            LOG.debug(cacheDir.getAbsolutePath() + " contains broken cache file name " + fileName + " ignoring it");
+                            LOG.debug(cacheDir.getAbsolutePath() + " contains broken cache file " + fileName + " ignoring it");
                         }
                     }
                 }

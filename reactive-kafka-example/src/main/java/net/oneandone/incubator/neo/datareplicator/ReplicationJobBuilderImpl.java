@@ -579,23 +579,35 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 cacheFile.getParentFile().mkdirs();
                 final File tempFile = new File(cacheDir, UUID.randomUUID().toString() + ".temp");
                 tempFile.getParentFile().mkdirs();
-
                 
-                final Optional<File> previousCacheFile = getNewestCacheFile(); 
+                /////
+                // why this "newest cache file" approach?
+                // this approach follows the immutable pattern and avoids race conditions by updating existing files. Instead
+                // updating the cache file which could cause trouble in the case of concurrent processes, new cache files will
+                // be written by using a timestamp as part of the file name.
+                //
+                // The code below makes sure that the newest cache file will never been deleted by accident by concurrent processes
+                // In worst case (caused by crashed processes) dead, expired cache files could exist within the cache dir. However,
+                // this does not matter
+                ////
+                
+                final Optional<File> previousCacheFile = getNewestCacheFile();
                 try {
                     
                     FileOutputStream os = null;
                     try {
-                        // write new cached file 
+                        // write the new cache file 
                         os = new FileOutputStream(tempFile);
                         os.write(data);
                         os.close();
 
-                        tempFile.renameTo(cacheFile);
+                        boolean isRenamed = tempFile.renameTo(cacheFile);
                          
                          
-                        // and remove previous one 
-                        previousCacheFile.ifPresent(previous -> previous.delete());
+                        // and remove previous one
+                        if (isRenamed) {
+                            previousCacheFile.ifPresent(previous -> previous.delete());
+                        }
                     } finally {
                         Closeables.close(os, true);  // close os in any case 
                         tempFile.delete();  // make sure that temp file will be deleted even though something failed 

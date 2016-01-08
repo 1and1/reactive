@@ -252,7 +252,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 fileCache.update(data); 
                 lastRefreshSuccess.set(Optional.of(Instant.now()));  
                 
-            } catch (RuntimeException rt) {
+            } catch (final RuntimeException rt) {
                 // loading failed or consumer has not accepted the data 
                 LOG.warn("error occured by loading " + getEndpoint(), rt);
                 lastRefreshError.set(Optional.of(Instant.now()));
@@ -328,7 +328,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         private static abstract class Datasource implements Closeable {
             private final URI uri;
             
-            public Datasource(URI uri) {
+            public Datasource(final URI uri) {
                 this.uri = uri;
             }
 
@@ -370,7 +370,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     InputStream is = null;
                     try {
                         return ByteStreams.toByteArray(classpathUri.openStream());
-                    } catch (IOException ioe) {
+                    } catch (final IOException ioe) {
                         throw new ReplicationException(ioe);
                     } finally {
                         Closeables.closeQuietly(is);
@@ -384,7 +384,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
 
         private static class FileDatasource extends Datasource {
             
-            public FileDatasource(URI uri) {
+            public FileDatasource(final URI uri) {
                 super(uri);
             }
           
@@ -431,7 +431,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 return load(getEndpoint());
             }
                 
-            protected byte[] load(URI uri) {
+            protected byte[] load(final URI uri) {
                 Response response = null;
                 try {
                     
@@ -451,7 +451,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
 
                     // perform query 
                     response = builder.get();
-                    int status = response.getStatus();
+                    final int status = response.getStatus();
                     
                     
                     // success
@@ -469,14 +469,14 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     // not modified
                     } else if (status == 304) {
                         if (cached == null) {
-                            throw new ReplicationException("got" + status + " by performing non-conditional request " + getEndpoint());
+                            throw new ReplicationException("got " + status + " by performing non-conditional request " + getEndpoint());
                         } else {
                             return cached.getData();
                         }
              
                     // other (client error, ...) 
                     } else {
-                        throw new ReplicationException("got" + status + " by calling " + getEndpoint());
+                        throw new ReplicationException("got " + status + " by calling " + getEndpoint());
                     }
                 
                 } finally {
@@ -526,27 +526,26 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             
             @Override
             public byte[] load() {
-                URI xmlUri = URI.create(getEndpoint().getSchemeSpecificPart() + "/maven-metadata.xml"); 
-                final byte[] xmlFile = load(xmlUri);
+                final byte[] xmlFile = load(URI.create(getEndpoint().getSchemeSpecificPart() + "/maven-metadata.xml"));
                 return load(parseNewestSnapshotUri(getEndpoint().getSchemeSpecificPart(), xmlFile));
             }
             
             
-            private URI parseNewestSnapshotUri(String uri, byte[] xmlFile) {
+            private URI parseNewestSnapshotUri(final String uri, final byte[] xmlFile) {
                 try {
-                    Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(xmlFile));
+                    final Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(xmlFile));
                     
-                    String artifactId = ((Element) document.getElementsByTagName("artifactId").item(0)).getTextContent();
-                    String version = ((Element) document.getElementsByTagName("version").item(0)).getTextContent();
+                    final String artifactId = ((Element) document.getElementsByTagName("artifactId").item(0)).getTextContent();
+                    final String version = ((Element) document.getElementsByTagName("version").item(0)).getTextContent();
                     
                     Element node = (Element) document.getElementsByTagName("versioning").item(0);
                     node = (Element) node.getElementsByTagName("snapshot").item(0);
-                    String timestamp = ((Element) node.getElementsByTagName("timestamp").item(0)).getTextContent();
-                    String buildNumber = ((Element) node.getElementsByTagName("buildNumber").item(0)).getTextContent();
+                    final String timestamp = ((Element) node.getElementsByTagName("timestamp").item(0)).getTextContent();
+                    final String buildNumber = ((Element) node.getElementsByTagName("buildNumber").item(0)).getTextContent();
                     
                     return URI.create(uri + "/" + artifactId + "-" + version.replace("-SNAPSHOT", "-" + timestamp + "-" + buildNumber + ".jar"));
                      
-                } catch (IOException | ParserConfigurationException | SAXException e) {
+                } catch (final IOException | ParserConfigurationException | SAXException e) {
                     throw new ReplicationException(e);
                 }
             }
@@ -567,7 +566,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     this.maxCacheTime = maxCacheTime;
                     this.genericCacheFileName =  name.replaceAll("[,:/]", "_") + "_";
                     this.cacheDir = new File(cacheDir, "datareplicator").getCanonicalFile();
-                } catch (IOException ioe) {
+                } catch (final IOException ioe) {
                     throw new ReplicationException(ioe);
                 }
             }
@@ -601,7 +600,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         os.write(data);
                         os.close();
 
-                        boolean isNewCacheFileCommitted = tempFile.renameTo(cacheFile);
+                        final boolean isNewCacheFileCommitted = tempFile.renameTo(cacheFile);
                          
                          
                         // and try to remove previous one
@@ -613,7 +612,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         tempFile.delete();  // make sure that temp file will be deleted even though something failed 
                     }
                     
-                } catch (IOException ioe) {
+                } catch (final IOException ioe) {
                     LOG.warn("writing cache file " + cacheFile.getAbsolutePath() + " failed", ioe);
                 }
             }
@@ -628,7 +627,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     try {
                         is = new FileInputStream(cacheFile.get());
                         return ByteStreams.toByteArray(is);
-                    } catch (IOException ioe) {
+                    } catch (final IOException ioe) {
                         throw new ReplicationException("loading cache file " + cacheFile.get()  + " failed", ioe);
                     } finally {
                         Closeables.closeQuietly(is);
@@ -649,7 +648,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     final String fileName = file.getName();  
                     if (fileName.startsWith(genericCacheFileName)) {
                         try {
-                            long timestamp = Long.parseLong(fileName.substring(fileName.lastIndexOf("_") + 1, fileName.length()));
+                            final long timestamp = Long.parseLong(fileName.substring(fileName.lastIndexOf("_") + 1, fileName.length()));
                             if (timestamp > newestTimestamp) {
                                 newestCacheFile = file;
                                 newestTimestamp = timestamp;

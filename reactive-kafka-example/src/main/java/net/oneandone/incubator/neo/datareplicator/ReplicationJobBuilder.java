@@ -17,14 +17,13 @@ package net.oneandone.incubator.neo.datareplicator;
 
 
 import java.io.File;
-import java.net.URI;
 import java.time.Duration;
 import java.util.function.Consumer;
 
 import javax.ws.rs.client.Client;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+
 
 
 
@@ -39,9 +38,9 @@ import com.google.common.collect.ImmutableList;
  *      private final ReplicationJob replicationJob;
  *      
  *      public MyClass() {
- *          this.replicationJob = ReplicationJobBuilder.create(myUri)
- *                                                     .withCacheDir(myCacheDir)
- *                                                     .startConsumingTextList(this::onListReload);
+ *          this.replicationJob = ReplicationJob.source(myUri)
+ *                                              .withCacheDir(myCacheDir)
+ *                                              .startConsumingTextList(this::onListReload);
  *      }
  *      
  *      void onListReload(ImmutableList<String> list) {
@@ -59,44 +58,12 @@ import com.google.common.collect.ImmutableList;
  *
  */
 public interface ReplicationJobBuilder {    
-    
-    public static final boolean DEFAULT_FAIL_ON_INITFAILURE = false;
-    public static final File DEFAULT_CACHEDIR = new File(".");
-    public static final Duration DEFAULT_MAX_CACHETIME = Duration.ofDays(4);
-    public static final Duration DEFAULT_REFRESHPERIOD = Duration.ofSeconds(60);
 
 
-
-    
-    /**
-     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
-     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
-     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
-     */
-    static ReplicationJobBuilder create(final String uri) {
-        Preconditions.checkNotNull(uri);
-        return create(URI.create(uri));
-    }
-    
-    /**
-     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
-     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
-     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
-     */
-    static ReplicationJobBuilder create(final URI uri) {
-        Preconditions.checkNotNull(uri);
-        return new ReplicationJobBuilderImpl(uri, 
-                                      DEFAULT_FAIL_ON_INITFAILURE, 
-                                      DEFAULT_CACHEDIR, 
-                                      DEFAULT_MAX_CACHETIME, 
-                                      DEFAULT_REFRESHPERIOD, 
-                                      null); 
-    }
-    
     /**
      * @param refreshPeriod   the refresh period. The period should be as high as no unnecessary 
-     *                        extra load on the resource server is generated. Furthermore is
-     *                         should be as low as data is fresh enough. (default is 60 sec) 
+     *                        extra load on the resource server is generated. Furthermore it
+     *                        should be as low as data is fresh enough. (default is 60 sec) 
      * @return the new instance of the data replicator
      */
     ReplicationJobBuilder withRefreshPeriod(final Duration refreshPeriod);

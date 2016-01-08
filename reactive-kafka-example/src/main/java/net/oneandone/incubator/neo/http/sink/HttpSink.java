@@ -16,13 +16,30 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.Closeable;
+import java.io.File;
+import java.net.URI;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
+
 
 public interface HttpSink extends BiConsumer<Object, String>, Closeable {
-
+    
+    public static Method DEFAULT_METHOD = Method.POST;
+    public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
+    public static File DEFAULT_PERSISTENCY_DIR = null;
+    public static ImmutableSet<Integer> DEFAULT_REJECTSTATUS_LIST = ImmutableSet.of(400, 403, 405, 406, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417);
+    public static ImmutableList<Duration> DEFAULT_RETRY_PAUSES = ImmutableList.of();
+    public static int DEFAULT_PARALLELITY = 1;
+    
+    
     @Override
     default void accept(Object entity, String mediaType) {
         submit(entity, mediaType);
@@ -57,4 +74,22 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
         
         Status getStatus();
     }
+    
+
+    static HttpSinkBuilder target(final String target) {
+        return target(URI.create(target));
+    }
+
+    
+    static HttpSinkBuilder target(final URI target) {
+        Preconditions.checkNotNull(target);
+        return new HttpSinkBuilderImpl(null, 
+                                       target, 
+                                       DEFAULT_METHOD, 
+                                       DEFAULT_BUFFERSIZE,
+                                       DEFAULT_PERSISTENCY_DIR,
+                                       DEFAULT_REJECTSTATUS_LIST,
+                                       DEFAULT_RETRY_PAUSES,
+                                       DEFAULT_PARALLELITY);
+    }   
 }

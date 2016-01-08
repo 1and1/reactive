@@ -20,20 +20,21 @@ import java.net.URI;
 import com.google.common.base.Preconditions;
 import com.unitedinternet.mam.incubator.hammer.http.client.RestClientBuilder;
 
+import net.oneandone.incubator.neo.datareplicator.ReplicationJob;
 import net.oneandone.incubator.neo.datareplicator.ReplicationJobBuilder;
 
 
 
-public interface MamReplicationJobBuilder extends ReplicationJobBuilder {
+public interface MamReplicationJob extends ReplicationJob {
     
     /**
      * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
      *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
      *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
      */
-    static ReplicationJobBuilder create(final String uri) {
+    static ReplicationJobBuilder target(final String uri) {
         Preconditions.checkNotNull(uri);
-        return create(URI.create(uri));
+        return target(URI.create(uri));
     }
     
     /**
@@ -41,10 +42,10 @@ public interface MamReplicationJobBuilder extends ReplicationJobBuilder {
      *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
      *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
      */
-    static ReplicationJobBuilder create(final URI uri) {
+    static ReplicationJobBuilder target(final URI uri) {
         Preconditions.checkNotNull(uri);
-        return ReplicationJobBuilder.create(uri)
-                                    .withClient(new RestClientBuilder().build()); 
+        return ReplicationJob.source(uri)
+                             .withClient(new RestClientBuilder().build()); 
     }
     
 }

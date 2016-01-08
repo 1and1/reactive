@@ -31,6 +31,7 @@ import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,7 @@ import javax.ws.rs.core.Response;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import org.glassfish.hk2.runlevel.RunLevelException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
@@ -53,6 +55,7 @@ import org.xml.sax.SAXException;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
@@ -72,11 +75,11 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
     
    
     ReplicationJobBuilderImpl(final URI uri, 
-                       final boolean failOnInitFailure, 
-                       final File cacheDir,
-                       final Duration maxCacheTime,
-                       final Duration refreshPeriod,
-                       final Client client) {
+                              final boolean failOnInitFailure, 
+                              final File cacheDir,
+                              final Duration maxCacheTime,
+                              final Duration refreshPeriod,
+                              final Client client) {
         this.uri = uri;
         this.failOnInitFailure = failOnInitFailure;
         this.refreshPeriod = refreshPeriod;
@@ -89,54 +92,54 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
     public ReplicationJobBuilderImpl withRefreshPeriod(final Duration refreshPeriod) {
         Preconditions.checkNotNull(refreshPeriod);
         return new ReplicationJobBuilderImpl(this.uri, 
-                                      this.failOnInitFailure, 
-                                      this.cacheDir, 
-                                      this.maxCacheTime, 
-                                      refreshPeriod,
-                                      this.client);
+                                             this.failOnInitFailure, 
+                                             this.cacheDir, 
+                                             this.maxCacheTime, 
+                                             refreshPeriod,
+                                             this.client);
     }
     
     @Override
     public ReplicationJobBuilderImpl withMaxCacheTime(final Duration maxCacheTime) {
         Preconditions.checkNotNull(maxCacheTime);
         return new ReplicationJobBuilderImpl(this.uri, 
-                                      this.failOnInitFailure,
-                                      this.cacheDir, 
-                                      maxCacheTime,
-                                      this.refreshPeriod,
-                                      this.client);
+                                             this.failOnInitFailure,
+                                             this.cacheDir, 
+                                             maxCacheTime,
+                                             this.refreshPeriod,
+                                             this.client);
     }
     
     @Override
     public ReplicationJobBuilderImpl withFailOnInitFailure(final boolean failOnInitFailure) {
         return new ReplicationJobBuilderImpl(this.uri,
-                                      failOnInitFailure,
-                                      this.cacheDir, 
-                                      this.maxCacheTime, 
-                                      this.refreshPeriod,
-                                      this.client);
+                                             failOnInitFailure,
+                                             this.cacheDir, 
+                                             this.maxCacheTime, 
+                                             this.refreshPeriod,
+                                             this.client);
     }
     
     @Override
     public ReplicationJobBuilderImpl withCacheDir(final File cacheDir) {
         Preconditions.checkNotNull(cacheDir);
         return new ReplicationJobBuilderImpl(this.uri, 
-                                      this.failOnInitFailure, 
-                                      cacheDir, 
-                                      this.maxCacheTime,
-                                      this.refreshPeriod,
-                                      this.client);
+                                             this.failOnInitFailure, 
+                                             cacheDir, 
+                                             this.maxCacheTime,
+                                             this.refreshPeriod,
+                                             this.client);
     }
     
     @Override
     public ReplicationJobBuilderImpl withClient(final Client client) {
         Preconditions.checkNotNull(client);
         return new ReplicationJobBuilderImpl(this.uri, 
-                                      this.failOnInitFailure, 
-                                      this.cacheDir,    
-                                      this.maxCacheTime,
-                                      this.refreshPeriod,
-                                      client);
+                                             this.failOnInitFailure, 
+                                             this.cacheDir,    
+                                             this.maxCacheTime,
+                                             this.refreshPeriod,
+                                             client);
     }
     
     @Override
@@ -166,8 +169,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
     }
  
     
+    
+    
     private static final class ReplicatonJobImpl implements ReplicationJob {
-        
         private final Datasource datasource; 
         private final FileCache fileCache;
         private final Consumer<byte[]> consumer;
@@ -178,8 +182,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         private final AtomicReference<Optional<Instant>> lastRefreshSuccess = new AtomicReference<>(Optional.empty());
         private final AtomicReference<Optional<Instant>> lastRefreshError = new AtomicReference<>(Optional.empty());
 
-        
-        
+                
         public ReplicatonJobImpl(final URI uri,
                                  final boolean failOnInitFailure, 
                                  final File cacheDir, 
@@ -192,6 +195,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             this.refreshPeriod = refreshPeriod;
             this.consumer = new HashProtectedConsumer(consumer);
             this.fileCache = new FileCache(cacheDir, uri.toString(), maxCacheTime);
+            
             
             // create proper data source 
             if (uri.getScheme().equalsIgnoreCase("classpath")) {
@@ -207,34 +211,30 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 this.datasource = new FileDatasource(uri);
              
             } else {
-                throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath, http, https)");
+                throw new RuntimeException("scheme of " + uri + " is not supported (supported: classpath, http, https, file)");
             }
 
             
-            
-            // load on startup
             try {
-                load();
-
+                // load on startup
+                loadAndNotifyConsumer();
+                
             } catch (final RuntimeException rt) {
-            
                 if (failOnInitFailure) {
                     throw rt;
-                    
                 } else {
-                    // try to load from cache 
-                    try {
-                        consumer.accept(fileCache.load().get());
-                    } catch (RuntimeException rt2) {
-                        throw rt;
-                    }
+                    // fallback -> try to load from cache (will throw a runtime exception, if fails)
+                    notifyConsumer(fileCache.load());  
                 } 
             }
             
             
-            // start scheduler
+            // start scheduler for periodically reloadings
             this.executor = Executors.newScheduledThreadPool(0);
-            executor.scheduleWithFixedDelay(() -> load(), refreshPeriod.toMillis(), refreshPeriod.toMillis(), TimeUnit.MILLISECONDS);
+            executor.scheduleWithFixedDelay(() -> loadAndNotifyConsumer(), 
+                                            refreshPeriod.toMillis(),
+                                            refreshPeriod.toMillis(), 
+                                            TimeUnit.MILLISECONDS);
         }
     
         
@@ -245,14 +245,13 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         }
         
         
-        private void load() {
+        private void loadAndNotifyConsumer() {
             try {
-                datasource.load().ifPresent(binary -> {
-                                                        consumer.accept(binary); 
-                                                        fileCache.update(binary);  // data has been accepted by the consumer -> update cache
-                                                      });
-                
-                lastRefreshSuccess.set(Optional.of(Instant.now()));  // will be updated event though optional is empty
+                byte[] data = datasource.load();
+                notifyConsumer(data);
+
+                fileCache.update(data);  // data has been accepted by the consumer -> update cache
+                lastRefreshSuccess.set(Optional.of(Instant.now()));  
                 
             } catch (RuntimeException rt) {
                 LOG.warn("error occured by loading " + getEndpoint(), rt);
@@ -262,6 +261,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
         }
         
+        private void notifyConsumer(final byte[] data) {
+            consumer.accept(data);   // let the consumer handle the new data
+        }
         
         @Override
         public URI getEndpoint() {
@@ -313,7 +315,10 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             @Override
             public void accept(final byte[] binary) {
                 final long md5 = Hashing.md5().newHasher().putBytes(binary).hash().asLong();
+                
+                // data changed (new or modified)?   
                 if (md5 != lastMd5.get()) {
+                    // yes   
                     consumer.accept(binary);
                     lastMd5.set(md5);
                 }
@@ -335,7 +340,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 return uri;
             }
                         
-            public abstract Optional<byte[]> load();
+            public abstract byte[] load();
             
             @Override
             public String toString() {
@@ -352,7 +357,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
             
             @Override
-            public Optional<byte[]> load() {
+            public byte[] load() {
                 ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 if (classLoader == null) {
                     classLoader = getClass().getClassLoader();
@@ -365,7 +370,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 } else {
                     InputStream is = null;
                     try {
-                        return Optional.of(ByteStreams.toByteArray(classpathUri.openStream()));
+                        return ByteStreams.toByteArray(classpathUri.openStream());
                     } catch (IOException ioe) {
                         throw new DatasourceException(ioe);
                     } finally {
@@ -385,11 +390,11 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
           
             @Override
-            public Optional<byte[]> load() {
+            public byte[] load() {
                 final File file = new File(getEndpoint().getPath());
                 if (file.exists()) {
                     try {
-                        return Optional.of(Files.toByteArray(file));
+                        return Files.toByteArray(file);
                     } catch (IOException ioe) {
                         throw new DatasourceException(ioe);
                     }
@@ -404,9 +409,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 
         
         private static class HttpDatasource extends Datasource {
-            private final AtomicReference<String> etag = new AtomicReference<String>();
             private final Client client;
             private final boolean isUserClient;
+            private final AtomicReference<CachedResponseData> cacheResponseDate = new AtomicReference<>(CachedResponseData.EMPTY);
             
             public HttpDatasource(final URI uri, final Client client) {
                 super(uri);
@@ -423,29 +428,52 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
             
             @Override
-            public Optional<byte[]> load() {
+            public byte[] load() {
                 return load(getEndpoint());
             }
                 
-            protected Optional<byte[]> load(URI uri) {
-                
+            protected byte[] load(URI uri) {
                 Response response = null;
                 try {
-
-                    Builder builder = client.target(uri).request();
-                    if (etag.get() != null) {
-                        builder = builder.header("etag", etag.get());
+                    
+                    CachedResponseData cached = cacheResponseDate.get();
+                    if (!cached.getUri().equals(uri)) {
+                        cached = null;
                     }
-                    response = builder.get();
+                    
+                    
+                    Builder builder = client.target(uri).request();
 
-                    int status = response.getStatus(); 
+                    // will make request conditional, if a response has already been a received 
+                    if (cached != null) {
+                        builder = builder.header("etag", cached.getEtag());
+                    }
+                    
+
+                    // perform query 
+                    response = builder.get();
+                    int status = response.getStatus();
+                    
+                    
+                    // success
                     if ((status / 100) == 2) {
-                        etag.set(response.getHeaderString("etag"));
-                        return Optional.of(response.readEntity(byte[].class));
+                        final byte[] data = response.readEntity(byte[].class);
+                        
+                        final String etag = response.getHeaderString("etag");
+                        if (!Strings.isNullOrEmpty(etag)) {
+                            // add response to cache
+                            cacheResponseDate.set(new CachedResponseData(uri, data, etag));
+                        }
+                        
+                        return data;
                         
                     // not modified
                     } else if (status == 304) {
-                        return Optional.empty();
+                        if (cached == null) {
+                            throw new DatasourceException("got" + status + " by performing non-conditional request " + getEndpoint());
+                        } else {
+                            return cached.getData();
+                        }
              
                     // other (client error, ...) 
                     } else {
@@ -458,10 +486,38 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                     }
                 }
             }
+            
+            
+            private static class CachedResponseData {
+                final static CachedResponseData EMPTY = new CachedResponseData(URI.create("http://example.org"), new byte[0], ""); 
+                
+                private final URI uri;
+                private final byte[] data;
+                private final String etag;
+                
+                public CachedResponseData(final URI uri, final byte[] data, final String etag) {
+                    this.uri = uri;
+                    this.data = data;
+                    this.etag = etag;
+                }
+                
+                public URI getUri() {
+                    return uri;
+                }
+                
+                public String getEtag() {
+                    return etag;
+                }
+                
+                public byte[] getData() {
+                    return data;
+                }
+            }
         }
 
         
         
+        // MavenSnapshotDatasource will be removed. Implemented for test purposes only 
         private static class MavenSnapshotDatasource extends HttpDatasource {
             
             public MavenSnapshotDatasource(final URI uri, final Client client) {
@@ -470,14 +526,14 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             
             
             @Override
-            public Optional<byte[]> load() {
+            public byte[] load() {
                 URI xmlUri = URI.create(getEndpoint().getSchemeSpecificPart() + "/maven-metadata.xml"); 
-                return load(xmlUri).map(xmlFile -> parseNewesetSnapshotUri(getEndpoint().getSchemeSpecificPart(), xmlFile))
-                                   .flatMap(newestSnapshotUri -> load(newestSnapshotUri));
+                final byte[] xmlFile = load(xmlUri);
+                return load(parseNewestSnapshotUri(getEndpoint().getSchemeSpecificPart(), xmlFile));
             }
             
             
-            private URI parseNewesetSnapshotUri(String uri, byte[] xmlFile) {
+            private URI parseNewestSnapshotUri(String uri, byte[] xmlFile) {
                 try {
                     Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(xmlFile));
                     
@@ -500,96 +556,107 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         
         
         private static final class FileCache extends Datasource {
-            private final String cacheFileName;
+            private final File cacheDir;
+            private final String genericCacheFileName;
             private final Duration maxCacheTime;
-            
+
             
             public FileCache(final File cacheDir, final String name, final Duration maxCacheTime) {
-                this(new File(new File(cacheDir, "datareplicator"), name.replaceAll("[,:/]", "_")), maxCacheTime);
-            }
-                
-            public FileCache(final File cacheFile, final Duration maxCacheTime) {
-                super(cacheFile.toURI());
+                super(cacheDir.toURI());
 
-                this.maxCacheTime = maxCacheTime;
-                
-                cacheFile.getParentFile().mkdirs();
-                cacheFileName = cacheFile.getAbsolutePath();
+                try {
+                    this.maxCacheTime = maxCacheTime;
+                    this.genericCacheFileName =  name.replaceAll("[,:/]", "_") + "_";
+                    this.cacheDir = new File(cacheDir, "datareplicator").getCanonicalFile();
+                } catch (IOException ioe) {
+                    throw new RunLevelException(ioe);
+                }
             }
             
+            
             public void update(final byte[] data) {
+                // creates a new cache file with timestamp
+                final File cacheFile = new File(cacheDir, genericCacheFileName + Instant.now().toEpochMilli());
+                cacheFile.getParentFile().mkdirs();
+                final File tempFile = new File(cacheDir, UUID.randomUUID().toString() + ".temp");
+                tempFile.getParentFile().mkdirs();
+
+                
+                final Optional<File> previousCacheFile = getNewestCacheFile(); 
                 try {
-                    final File tempFile = new File(cacheFileName + ".temp");
-                    if (tempFile.exists()) {
-                        tempFile.delete();
-                    }
                     
                     FileOutputStream os = null;
                     try {
+                        // write new cached file 
                         os = new FileOutputStream(tempFile);
                         os.write(data);
                         os.close();
 
-                        
-                        //////////
-                        // if the process crashes after deleting the cacheFile and
-                        // before renaming the tempFile into the cacheFile, the 
-                        // cache file will be lost.
-                        // However this does not matter and is very unlikely
-                        
-                        final File cacheFile = new File(cacheFileName);
-                        if (cacheFile.exists()) {
-                            cacheFile.delete();
-                        }
                         tempFile.renameTo(cacheFile);
-                        
-                        //
-                        ///////////
-                        
-                        
+                         
+                         
+                        // and remove previous one 
+                        previousCacheFile.ifPresent(previous -> previous.delete());
                     } finally {
-                        Closeables.close(os, true);
+                        Closeables.close(os, true);  // close os in any case 
+                        tempFile.delete();  // make sure that temp file will be deleted, even though something failed 
                     }
                     
-                    
                 } catch (IOException ioe) {
-                    LOG.warn("updating cache file " + cacheFileName + " failed", ioe);
+                    LOG.warn("writing cache file " + cacheFile.getAbsolutePath() + " failed", ioe);
                 }
             }
-             
-            private Optional<Duration> getExpiredTimeSinceRefresh() {
-                final File cacheFile = new File(cacheFileName);
-                if (cacheFile.exists()) {
-                    return Optional.of(Duration.between(Instant.ofEpochMilli(cacheFile.lastModified()), Instant.now()));
-                } else  {
-                    return Optional.empty();
-                }
-            }
-   
-            @Override
-            public Optional<byte[]> load() {
 
-                // check if cache file is expired
-                final Duration age = getExpiredTimeSinceRefresh().orElseThrow(() -> new DatasourceException("no cache entry exists"));
-                if (maxCacheTime.minus(age).isNegative()) {
-                    throw new DatasourceException("cache file is expired. Age is " + age.toDays() + " days");
-                }
-                
-                // if not load it 
-                final File cacheFile = new File(cacheFileName);
-                if (cacheFile.exists()) {
+          
+            @Override
+            public byte[] load() {
+
+                final Optional<File> cacheFile = getNewestCacheFile();
+                if (cacheFile.isPresent()) {
+
+                    // check if cache file is expired
+                    final Duration age = Duration.between(Instant.ofEpochMilli(cacheFile.get().lastModified()), Instant.now());
+                    if (maxCacheTime.minus(age).isNegative()) {
+                        throw new DatasourceException("cache file is expired. Age is " + age.toDays() + " days");
+                    }
+                    
+                    // if not, will load it 
                     FileInputStream is = null;
                     try {
-                        is = new FileInputStream(cacheFile);
-                        return Optional.of(ByteStreams.toByteArray(is));
+                        is = new FileInputStream(cacheFile.get());
+                        return ByteStreams.toByteArray(is);
                     } catch (IOException ioe) {
-                        throw new DatasourceException("loading cache file " + cacheFileName + " failed", ioe);
+                        throw new DatasourceException("loading cache file " + cacheFile.get()  + " failed", ioe);
                     } finally {
                         Closeables.closeQuietly(is);
                     }
+                    
                 } else {
                     throw new DatasourceException("no cache file exists");
                 }
+            }
+            
+            
+            private Optional<File> getNewestCacheFile() {
+                long newestTimestamp = 0;
+                File newestCacheFile = null;
+                
+                for (File file : cacheDir.listFiles()) {
+                    final String fileName = file.getName();  
+                    if (fileName.startsWith(genericCacheFileName)) {
+                        try {
+                            long timestamp = Long.parseLong(fileName.substring(fileName.lastIndexOf("_") + 1, fileName.length()));
+                            if (timestamp > newestTimestamp) {
+                                newestCacheFile = file;
+                                newestTimestamp = timestamp;
+                            }
+                        } catch (NumberFormatException nfe) {
+                            LOG.debug(cacheDir.getAbsolutePath() + " contains broken cache file name " + fileName + " ignoring it");
+                        }
+                    }
+                }
+                 
+                return Optional.ofNullable(newestCacheFile);
             }
         }        
     }

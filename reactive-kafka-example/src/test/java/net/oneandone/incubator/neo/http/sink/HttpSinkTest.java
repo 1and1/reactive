@@ -19,6 +19,7 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.io.File;
 
+
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
@@ -43,10 +44,9 @@ import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
-import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSinkBuilder;
+import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
 import net.oneandone.incubator.neotest.WebServer;
@@ -108,10 +108,10 @@ public class HttpSinkTest {
         
         Client client = JerseyClientBuilder.createClient();
         
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                      .withClient(client)
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withClient(client)
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         
@@ -126,9 +126,9 @@ public class HttpSinkTest {
     @Test
     public void testSuccess() throws Exception {
         
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         
@@ -141,9 +141,9 @@ public class HttpSinkTest {
     
     @Test
     public void testServerErrorRetriesExceeded() throws Exception {
-         HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics?status=500")
-                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                       .build();
+         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
+                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                 .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
          Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
          
@@ -162,9 +162,9 @@ public class HttpSinkTest {
     
     @Test
     public void testRejectingError() throws Exception {
-         HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics?status=400")
-                                       .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                       .build();
+         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=400")
+                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                 .open();
          
          try {
              sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
@@ -181,9 +181,9 @@ public class HttpSinkTest {
     
     @Test
     public void testServerErrorIncompletedRetries() throws Exception {
-         HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics?status=500")
-                                       .withRetryAfter(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000))
-                                       .build();
+         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
+                                 .withRetryAfter(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000))
+                                 .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
          Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
 
@@ -204,9 +204,9 @@ public class HttpSinkTest {
     public void testServerErrorRetryWithSuccess() throws Exception {
         servlet.setErrorsToThrow(1);
         
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
 
@@ -229,13 +229,10 @@ public class HttpSinkTest {
         servlet.setErrorsToThrow(2);
         
         
-        
-        
-        
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .withRetryPersistency(Files.createTempDir())
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withRetryPersistency(Files.createTempDir())
+                                .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
         
@@ -262,10 +259,10 @@ public class HttpSinkTest {
         
         Client client = JerseyClientBuilder.createClient();
         
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics?status=400")
-                                      .withClient(client)
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=400")
+                                .withClient(client)
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .open();
         
         try {
             sink.accept(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
@@ -283,20 +280,20 @@ public class HttpSinkTest {
         File dir = Files.createTempDir();
         
         HttpSinkBuilderImpl.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQuery(URI.create("http://localhost:49905/rest/topics"),
-                                                                              Method.POST,
-                                                                              Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                              ImmutableList.of(Duration.ofMillis(100)),
-                                                                              dir);
+                                                                                            Method.POST,
+                                                                                            Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                                            ImmutableList.of(Duration.ofMillis(100)),
+                                                                                            dir);
         query.close(false);
         
         Assert.assertEquals(1, dir.listFiles().length);
         
         
         
-        HttpSink sink = HttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                      .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                      .withRetryPersistency(dir)
-                                      .build();
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withRetryPersistency(dir)
+                                .open();
         
         
         try {
@@ -320,9 +317,9 @@ public class HttpSinkTest {
     @Test
     public void testExtendedHttpSink() throws Exception {
         
-        HttpSink sink = MamHttpSinkBuilder.create(server.getBasepath() + "rest/topics")
-                                         .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                         .build();
+        HttpSink sink = MamHttpSink.target(server.getBasepath() + "rest/topics")
+                                   .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                   .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
         

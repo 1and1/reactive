@@ -19,6 +19,7 @@ import java.io.ByteArrayOutputStream;
 
 
 
+
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -84,14 +85,15 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private final ImmutableList<Duration> remainingRetries;
     private final int numParallelWorkers;
 
+    
     HttpSinkBuilderImpl(final Client client, 
-             final URI target, 
-             final Method method, 
-             final int bufferSize, 
-             final File dir, 
-             final ImmutableSet<Integer> rejectStatusList,
-             final ImmutableList<Duration> remainingRetries, 
-             final int numParallelWorkers) {
+                        final URI target, 
+                        final Method method, 
+                        final int bufferSize, 
+                        final File dir, 
+                        final ImmutableSet<Integer> rejectStatusList,
+                        final ImmutableList<Duration> remainingRetries, 
+                        final int numParallelWorkers) {
         this.client = client;
         this.target = target;
         this.method = method;
@@ -202,7 +204,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     /**
      * @return the sink reference
      */
-    public HttpSink build() {
+    public HttpSink open() {
         return new QueryQueue();
     }
 

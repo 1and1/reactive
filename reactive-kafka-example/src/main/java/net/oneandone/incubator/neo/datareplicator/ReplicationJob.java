@@ -16,9 +16,12 @@
 package net.oneandone.incubator.neo.datareplicator;
 
 import java.io.Closeable;
+import java.io.File;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
+
+import com.google.common.base.Preconditions;
 
 
 /**
@@ -26,6 +29,12 @@ import java.util.Optional;
  *
  */
 public interface ReplicationJob extends Closeable {
+    
+    public static final boolean DEFAULT_FAIL_ON_INITFAILURE = false;
+    public static final File DEFAULT_CACHEDIR = new File(".");
+    public static final Duration DEFAULT_MAX_CACHETIME = Duration.ofDays(4);
+    public static final Duration DEFAULT_REFRESHPERIOD = Duration.ofSeconds(60);
+
     
     /**
      * @return  the resource end point
@@ -56,4 +65,32 @@ public interface ReplicationJob extends Closeable {
      * terminates the replication job 
      */
     void close();
+    
+    
+
+    
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
+    static ReplicationJobBuilder source(final String uri) {
+        Preconditions.checkNotNull(uri);
+        return source(URI.create(uri));
+    }
+    
+    /**
+     * @param uri  the source uri. Supported schemes are <i>file</i>, <i>http</i>, <i>https</i> and <i>classpath</i> 
+     *             (e.g. file:/C:/dev/workspace/reactive2/reactive-kafka-example/src/main/resources/schemas.zip, 
+     *              classpath:schemas/schemas.zip, http://myserver/schemas.zip)  
+     */
+    static ReplicationJobBuilder source(final URI uri) {
+        Preconditions.checkNotNull(uri);
+        return new ReplicationJobBuilderImpl(uri, 
+                                             DEFAULT_FAIL_ON_INITFAILURE, 
+                                             DEFAULT_CACHEDIR, 
+                                             DEFAULT_MAX_CACHETIME, 
+                                             DEFAULT_REFRESHPERIOD, 
+                                             null); 
+    }
 }

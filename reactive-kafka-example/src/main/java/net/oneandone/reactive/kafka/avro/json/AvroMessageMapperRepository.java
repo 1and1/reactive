@@ -59,7 +59,6 @@ import com.google.common.io.ByteStreams;
 
 import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.incubator.neo.collect.Immutables;
-import net.oneandone.incubator.neo.datareplicator.ReplicationJobBuilder;
 import net.oneandone.incubator.neo.datareplicator.ReplicationJob;
 import net.oneandone.reactive.kafka.KafkaMessageIdList;
 import net.oneandone.reactive.sse.ServerSentEvent;
@@ -83,9 +82,9 @@ public class AvroMessageMapperRepository implements Closeable {
     
     
     public AvroMessageMapperRepository(final URI uri) {
-        this.replicationJob = ReplicationJobBuilder.create(uri)
-                                                   .withRefreshPeriod(Duration.ofMinutes(1))
-                                                   .startConsumingBinary(this::onRefresh);
+        this.replicationJob = ReplicationJob.source(uri)
+                                            .withRefreshPeriod(Duration.ofMinutes(1))
+                                            .startConsumingBinary(this::onRefresh);
     }
  
     

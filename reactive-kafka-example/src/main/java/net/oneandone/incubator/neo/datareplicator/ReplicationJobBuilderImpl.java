@@ -586,7 +586,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 // updating the cache file which could cause trouble in the case of concurrent processes, new cache files will
                 // be written by using a timestamp as part of the file name.
                 //
-                // The code below makes sure that the newest cache file will never been deleted by accident by concurrent processes
+                // The code below makes sure that the newest cache file will never been deleted by concurrent processes
                 // In worst case (-> crashed processes) dead, expired cache files could exist within the cache dir. However,
                 // this does not matter
                 ////
@@ -601,11 +601,11 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         os.write(data);
                         os.close();
 
-                        boolean isRenamed = tempFile.renameTo(cacheFile);
+                        boolean isNewCacheFileCommitted = tempFile.renameTo(cacheFile);
                          
                          
                         // and try to remove previous one
-                        if (isRenamed) {
+                        if (isNewCacheFileCommitted) {
                             previousCacheFile.ifPresent(previous -> previous.delete());
                         }
                     } finally {

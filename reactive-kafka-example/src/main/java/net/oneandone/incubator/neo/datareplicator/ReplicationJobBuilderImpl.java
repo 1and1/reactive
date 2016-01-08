@@ -253,6 +253,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 lastRefreshSuccess.set(Optional.of(Instant.now()));  
                 
             } catch (RuntimeException rt) {
+                // loading failed or consumer has not accepted the data 
                 LOG.warn("error occured by loading " + getEndpoint(), rt);
                 lastRefreshError.set(Optional.of(Instant.now()));
                 
@@ -597,7 +598,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         previousCacheFile.ifPresent(previous -> previous.delete());
                     } finally {
                         Closeables.close(os, true);  // close os in any case 
-                        tempFile.delete();  // make sure that temp file will be deleted, even though something failed 
+                        tempFile.delete();  // make sure that temp file will be deleted even though something failed 
                     }
                     
                 } catch (IOException ioe) {
@@ -611,14 +612,6 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
 
                 final Optional<File> cacheFile = getNewestCacheFile();
                 if (cacheFile.isPresent()) {
-
-                    // check if cache file is expired
-                    final Duration age = Duration.between(Instant.ofEpochMilli(cacheFile.get().lastModified()), Instant.now());
-                    if (maxCacheTime.minus(age).isNegative()) {
-                        throw new ReplicationException("cache file is expired. Age is " + age.toDays() + " days");
-                    }
-                    
-                    // if not, will load it 
                     FileInputStream is = null;
                     try {
                         is = new FileInputStream(cacheFile.get());
@@ -639,6 +632,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 long newestTimestamp = 0;
                 File newestCacheFile = null;
                 
+                // find newest cache file 
                 for (File file : cacheDir.listFiles()) {
                     final String fileName = file.getName();  
                     if (fileName.startsWith(genericCacheFileName)) {
@@ -649,11 +643,19 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                                 newestTimestamp = timestamp;
                             }
                         } catch (NumberFormatException nfe) {
-                            LOG.debug(cacheDir.getAbsolutePath() + " contains broken cache file " + fileName + " ignoring it");
+                            LOG.debug(cacheDir.getAbsolutePath() + " contains cache file with invalid name " + fileName + " Ignoring it");
                         }
                     }
                 }
                  
+                
+                // check if newest cache file is expired
+                final Duration age = Duration.between(Instant.ofEpochMilli(newestCacheFile.lastModified()), Instant.now());
+                if (maxCacheTime.minus(age).isNegative()) {
+                    LOG.warn("cache file is expired. Age is " + age.toDays() + " days.");
+                    newestCacheFile = null;
+                }
+                
                 return Optional.ofNullable(newestCacheFile);
             }
         }        

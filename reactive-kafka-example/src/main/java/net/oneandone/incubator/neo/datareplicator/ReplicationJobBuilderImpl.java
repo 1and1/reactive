@@ -587,12 +587,12 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 // be written by using a timestamp as part of the file name.
                 //
                 // The code below makes sure that the newest cache file will never been deleted by accident by concurrent processes
-                // In worst case (caused by crashed processes) dead, expired cache files could exist within the cache dir. However,
+                // In worst case (-> crashed processes) dead, expired cache files could exist within the cache dir. However,
                 // this does not matter
                 ////
                 
-                final Optional<File> previousCacheFile = getNewestCacheFile();
                 try {
+                    final Optional<File> previousCacheFile = getNewestCacheFile();
                     
                     FileOutputStream os = null;
                     try {
@@ -604,7 +604,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         boolean isRenamed = tempFile.renameTo(cacheFile);
                          
                          
-                        // and remove previous one
+                        // and try to remove previous one
                         if (isRenamed) {
                             previousCacheFile.ifPresent(previous -> previous.delete());
                         }
@@ -664,7 +664,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 // check if newest cache file is expired
                 final Duration age = Duration.between(Instant.ofEpochMilli(newestCacheFile.lastModified()), Instant.now());
                 if (maxCacheTime.minus(age).isNegative()) {
-                    LOG.warn("cache file is expired. Age is " + age.toDays() + " days.");
+                    LOG.warn("cache file is expired. Age is " + age.toDays() + " days. Ignoring it");
                     newestCacheFile = null;
                 }
                 

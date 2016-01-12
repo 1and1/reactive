@@ -140,7 +140,7 @@ public class AvroMessage {
             
             return withHeader(avroMessage.getSchema(), os.toByteArray()); 
         } catch(IOException | RuntimeException rt) {
-            throw new AvroSerializationException("serializing avro message failed (wrong schema type?)", avroMessage.getSchema().getFullName(), rt);
+            throw new AvroSerializationException("serializing avro message failed (wrong schema type?) " + rt.getMessage(), avroMessage.getSchema().getFullName(), rt);
         }
     }
     

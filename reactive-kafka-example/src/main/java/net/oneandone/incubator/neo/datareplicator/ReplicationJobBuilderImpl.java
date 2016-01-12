@@ -31,6 +31,9 @@ import java.net.URI;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.AbstractMap;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -38,6 +41,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -57,10 +61,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
 import com.google.common.io.Files;
+
+import net.oneandone.incubator.neo.collect.Immutables;
 
 
 final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {    
@@ -554,6 +561,8 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
         
         
         private static final class FileCache extends Datasource {
+            private static final String TEMPFILE_SUFFIX = ".temp";
+            private static final String CACHEFILE_SUFFIX = ".cache";
             private final File cacheDir;
             private final String genericCacheFileName;
             private final Duration maxCacheTime;
@@ -574,9 +583,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             
             public void update(final byte[] data) {
                 // creates a new cache file with timestamp
-                final File cacheFile = new File(cacheDir, genericCacheFileName + Instant.now().toEpochMilli());
+                final File cacheFile = new File(cacheDir, genericCacheFileName + Instant.now().toEpochMilli() + CACHEFILE_SUFFIX);
                 cacheFile.getParentFile().mkdirs();
-                final File tempFile = new File(cacheDir, UUID.randomUUID().toString() + ".temp");
+                final File tempFile = new File(cacheDir, UUID.randomUUID().toString() + TEMPFILE_SUFFIX);
                 tempFile.getParentFile().mkdirs();
                 
                 /////
@@ -586,13 +595,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 // be written by using a timestamp as part of the file name.
                 //
                 // The code below makes sure that the newest cache file will never been deleted by concurrent processes
-                // In worst case (-> crashed processes) dead, expired cache files could exist within the cache dir. However,
-                // this does not matter
                 ////
                 
                 try {
-                    final Optional<File> previousCacheFile = getNewestCacheFile();
-                    
                     FileOutputStream os = null;
                     try {
                         // write the new cache file 
@@ -600,17 +605,15 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                         os.write(data);
                         os.close();
 
-                        final boolean isNewCacheFileCommitted = tempFile.renameTo(cacheFile);
-                         
-                         
-                        // and try to remove previous one
-                        if (isNewCacheFileCommitted) {
-                            previousCacheFile.ifPresent(previous -> previous.delete());
-                        }
+                        // and commit it
+                        tempFile.renameTo(cacheFile);
                     } finally {
                         Closeables.close(os, true);  // close os in any case 
                         tempFile.delete();  // make sure that temp file will be deleted even though something failed 
                     }
+                    
+                    // perform clean up to remove expired file  
+                    cleanup();
                     
                 } catch (final IOException ioe) {
                     LOG.warn("writing cache file " + cacheFile.getAbsolutePath() + " failed", ioe);
@@ -646,9 +649,9 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                 // find newest cache file 
                 for (File file : cacheDir.listFiles()) {
                     final String fileName = file.getName();  
-                    if (fileName.startsWith(genericCacheFileName)) {
+                    if (fileName.endsWith(CACHEFILE_SUFFIX) && fileName.startsWith(genericCacheFileName)) {
                         try {
-                            final long timestamp = Long.parseLong(fileName.substring(fileName.lastIndexOf("_") + 1, fileName.length()));
+                            final long timestamp = parseNameAndTimestamp(fileName).getValue();
                             if (timestamp > newestTimestamp) {
                                 newestCacheFile = file;
                                 newestTimestamp = timestamp;
@@ -661,13 +664,64 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
                  
                 
                 // check if newest cache file is expired
-                final Duration age = Duration.between(Instant.ofEpochMilli(newestCacheFile.lastModified()), Instant.now());
-                if (maxCacheTime.minus(age).isNegative()) {
-                    LOG.warn("cache file is expired. Age is " + age.toDays() + " days. Ignoring it");
-                    newestCacheFile = null;
+                if (newestCacheFile != null) {
+                    final Duration age = Duration.between(Instant.ofEpochMilli(newestCacheFile.lastModified()), Instant.now());
+                    if (maxCacheTime.minus(age).isNegative()) {
+                        LOG.warn("cache file is expired. Age is " + age.toDays() + " days. Ignoring it");
+                        newestCacheFile = null;
+                    }
                 }
                 
                 return Optional.ofNullable(newestCacheFile);
+            }
+            
+            
+            private Entry<String, Long> parseNameAndTimestamp(String fileName) {
+                final String name = fileName.substring(0, fileName.lastIndexOf("_"));
+                final long timestamp = Long.parseLong(fileName.substring(fileName.lastIndexOf("_") + 1, fileName.length() - CACHEFILE_SUFFIX.length()));
+                return new AbstractMap.SimpleEntry<>(name, timestamp);
+            }
+             
+            
+            private void cleanup() {
+
+                // remove expired temp files
+                final long minAgeTime = Instant.now().minus(Duration.ofDays(7)).toEpochMilli();
+                listFile(TEMPFILE_SUFFIX, file -> file.lastModified() < minAgeTime).forEach(file -> file.delete());
+                
+                
+                // remove expired cache files
+                final Map<String, Long> newest = Maps.newHashMap();
+                listFile(CACHEFILE_SUFFIX).forEach(file -> {
+                                                            final Entry<String , Long> nameTimstampPair = parseNameAndTimestamp(file.getName());
+                                                            final Long newestTimestamp = newest.get(nameTimstampPair.getKey());
+                                                            if ((newestTimestamp == null) || (nameTimstampPair.getValue() > newestTimestamp)) {
+                                                                newest.put(nameTimstampPair.getKey(),  nameTimstampPair.getValue());
+                                                            }
+
+                                                           });
+                                
+                listFile(CACHEFILE_SUFFIX).forEach(file -> {
+                                                            final Entry<String , Long> nameTimstampPair = parseNameAndTimestamp(file.getName());
+                                                            final Long newestTimestamp = newest.get(nameTimstampPair.getKey());
+                                                            if ((newestTimestamp != null) && (nameTimstampPair.getValue() < newestTimestamp)) {
+                                                                LOG.info("remove expired cache file " + file.getAbsolutePath());
+                                                                file.delete();
+                                                            }
+                                                           });
+            }
+            
+            
+            private ImmutableList<File> listFile(String suffix) {
+                return listFile(suffix, file -> true);
+            }
+            
+            private ImmutableList<File> listFile(String suffix, Predicate<File> filter) {
+                return ImmutableList.copyOf(cacheDir.listFiles())
+                                    .stream()
+                                    .filter(file -> file.getName().endsWith(suffix))
+                                    .filter(filter)
+                                    .collect(Immutables.toList());
             }
         }        
     }

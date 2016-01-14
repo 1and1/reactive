@@ -9,6 +9,8 @@ Neo considers synchronous programming as well as the asynchronous, reactive-orie
 
 Requires JDK 1.8 or higher
 
+**This project is still on alpha level. Interfaces are subject of change**
+
 Latest release
 --------------
 

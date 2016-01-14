@@ -636,6 +636,10 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             }
             
             
+            /**
+             * @return the (most likely) newest cache file. It could happen that concurrent processes writes an new cache
+             *         file in parallel.      
+             */
             private Optional<File> getNewestCacheFile() {
                 long newestTimestamp = 0;
                 File newestCacheFile = null;
@@ -701,7 +705,7 @@ final class ReplicationJobBuilderImpl implements ReplicationJobBuilder {
             
             
             private void removeExpiredCacheFiles() {
-                // get newest cache file. Concurrently a new cache file could be written by a other process. However, this 
+                // get newest cache file. Concurrently a new cache file could be written by another process. However, this 
                 // does not matter    
                 final Optional<File> newest = getNewestCacheFile(); 
                 if (newest.isPresent()) {

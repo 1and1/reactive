@@ -10,7 +10,7 @@ Server-side usage
 
 
 
-**Example 1 - mapping a non http problem-aware exception (such as NumberFormatException) by mapping**
+**Example 1 - mapping a non http-aware exception (such as NumberFormatException) by using mapping**
 ```
 @GET
 @Path("/topics/{topicname}")
@@ -25,7 +25,7 @@ public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
 ```
 
 
-**Example 2 - using a problem exceptions** 
+**Example 2 - using http-aware problem exceptions** 
 ```
 @GET
 @Path("/topics/{topicname}")

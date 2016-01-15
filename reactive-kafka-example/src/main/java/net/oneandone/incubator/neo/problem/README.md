@@ -19,7 +19,8 @@ public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
 							            final @PathParam("topicname") String topicname) {
      
      long id = Long.paseLong(topicname); // may throw a NumberFormatException   
-	 //...    
+	
+     //...    
 }
 ```
 
@@ -33,9 +34,11 @@ public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
 							            final @PathParam("topicname") String topicname) {
         
      if (topicname.startsWith("@")) {
-         // ToDo here a problem exception should be thrown
+         // <<ToDo update this example>>  here a problem exception should be thrown
 		 //...
      }    
+
+     // ...
 }
 ```
 
@@ -49,9 +52,11 @@ public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
 							            final @PathParam("topicname") String topicname) {
      
      if (topicname.startsWith("@")) {
-         // ToDo here a problem error response should be returned
+         // <<ToDo update this example>> here a problem error response should be returned
 		 // ...
-     }        
+     }   
+
+     // ...     
 }
 ```
 
@@ -72,7 +77,7 @@ if ((resp.getStatus() / 100) == 2) {
     //...
 
 } else if ((resp.getStatus() / 100) == 4) {
-    // ToDo identifying and handling dedicated problem types   
+    // <<ToDo update this example>> identifying and handling dedicated problem types   
 
 } else {
    //...
@@ -88,14 +93,15 @@ try {
                                        .request()
                                        .post(myEntity, DeliveryInfo.class);
 
+   //...
 } catch (BadRequestException badRequestError) {
-    // ToDo identifying and handling dedicated problem types
+    // <<ToDo update this example>> identifying and handling dedicated problem types
 
 } catch (ClientErrorException genericClientError) {
-    // ToDo identifying and handling dedicated problem types
+    // <<ToDo update this example>> identifying and handling dedicated problem types
             
 } catch (RuntimeException rt) {
-
+    //...
 }
 
 ```
@@ -114,4 +120,4 @@ The problem reporting should support
 
 4. a fluent interface style. 
 
-5. immutable artifacts.    
+5. prefer immutable artifacts.    

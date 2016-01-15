@@ -111,7 +111,7 @@ public class BusinesEventResource {
         return ImmutableMap.of("_links", LinksBuilder.create(uriInfo).withHref("topics").build());
     }
  
-    
+ 
     @GET
     @Path("/")
     @Produces("text/html; qs=0.4")

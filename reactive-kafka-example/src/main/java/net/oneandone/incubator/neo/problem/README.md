@@ -40,7 +40,7 @@ public TopicRepresentation getTopicJson(final @Context UriInfo uriInfo,
 ```
 
 
-**Example 3 - generating a http response**
+**Example 3 - generating a http response in a direct way**
 ```
 @GET
 @Path("/topics/{topicname}")
@@ -61,7 +61,44 @@ Client-side usage
 --------------
 
 
+**Example 1 - response code oriented way**
+```
+Response resp = client.target(uri + "/rest/topics/" + topicName + "/454")
+                      .request()
+                      .post(myEntity);
 
+if ((resp.getStatus() / 100) == 2) {
+    final DeliveryInfo delivery = resp.readEntity(DeliveryInfo.class);
+    //...
+
+} else if ((resp.getStatus() / 100) == 4) {
+    // ToDo identifying and handling dedicated problem types   
+
+} else {
+   //...
+}
+
+```
+
+
+**Example 2 - try-catch oriented way**
+```
+try {
+   final DeliveryInfo delivery = client.target(uri + "/rest/topics/" + topicName + "/454")
+                                       .request()
+                                       .post(myEntity, DeliveryInfo.class);
+
+} catch (BadRequestException badRequestError) {
+    // ToDo identifying and handling dedicated problem types
+
+} catch (ClientErrorException genericClientError) {
+    // ToDo identifying and handling dedicated problem types
+            
+} catch (RuntimeException rt) {
+
+}
+
+```
 
 
 Internal implementation notes

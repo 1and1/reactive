@@ -64,15 +64,16 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
     
     Metrics getMetrics();
 
+    boolean isOpen();
+    
     @Override
     void close();
     
-    
     public interface Submission {
         
-        public enum Status { PENDING, COMPLETED, DISCARDED } 
+        public enum State { PENDING, COMPLETED, DISCARDED } 
         
-        Status getStatus();
+        State getState();
     }
     
 

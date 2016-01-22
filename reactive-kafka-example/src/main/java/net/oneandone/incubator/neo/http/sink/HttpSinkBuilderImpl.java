@@ -31,13 +31,17 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -60,17 +64,15 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
-import joptsimple.internal.Strings;
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.exception.Exceptions;
-import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
-
 
 
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
@@ -110,38 +112,38 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     public HttpSinkBuilder withClient(final Client client) {
         Preconditions.checkNotNull(client);
         return new HttpSinkBuilderImpl(client, 
-                                this.target, 
-                                this.method, 
-                                this.bufferSize, 
-                                this.dir, 
-                                this.rejectStatusList,
-                                this.remainingRetries, 
-                                this.numParallelWorkers);
+                                       this.target, 
+                                       this.method, 
+                                       this.bufferSize, 
+                                       this.dir, 
+                                       this.rejectStatusList,
+                                       this.remainingRetries, 
+                                       this.numParallelWorkers);
     }
 
     @Override
     public HttpSinkBuilder withMethod(final Method method) {
         Preconditions.checkNotNull(method);
         return new HttpSinkBuilderImpl(this.client, 
-                                this.target, method, 
-                                this.bufferSize, 
-                                this.dir,
-                                this.rejectStatusList,
-                                this.remainingRetries,
-                                this.numParallelWorkers);
+                                       this.target, method, 
+                                       this.bufferSize, 
+                                       this.dir,
+                                       this.rejectStatusList,
+                                       this.remainingRetries,
+                                       this.numParallelWorkers);
     }
 
     @Override
     public HttpSinkBuilder withRetryAfter(final ImmutableList<Duration> retryPauses) {
         Preconditions.checkNotNull(retryPauses);
         return new HttpSinkBuilderImpl(this.client, 
-                                this.target, 
-                                this.method,
-                                this.bufferSize, 
-                                this.dir, 
-                                this.rejectStatusList,
-                                retryPauses,
-                                this.numParallelWorkers);
+                                       this.target, 
+                                       this.method,
+                                       this.bufferSize, 
+                                       this.dir, 
+                                       this.rejectStatusList,
+                                       retryPauses,
+                                       this.numParallelWorkers);
     }
     
     @Override
@@ -153,51 +155,51 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSinkBuilder withRetryParallelity(final int numParallelWorkers) {
         return new HttpSinkBuilderImpl(this.client,
-                                this.target, 
-                                this.method, 
-                                this.bufferSize,
-                                this.dir,
-                                this.rejectStatusList,
-                                this.remainingRetries,
-                                numParallelWorkers);
+                                       this.target, 
+                                       this.method, 
+                                       this.bufferSize,
+                                       this.dir,
+                                       this.rejectStatusList,
+                                       this.remainingRetries,
+                                       numParallelWorkers);
     }
 
     @Override
     public HttpSinkBuilder withRetryBufferSize(final int bufferSize) {
         return new HttpSinkBuilderImpl(this.client, 
-                                this.target, 
-                                this.method, 
-                                bufferSize, 
-                                this.dir,
-                                this.rejectStatusList,
-                                this.remainingRetries,
-                                this.numParallelWorkers);
+                                       this.target, 
+                                       this.method, 
+                                       bufferSize, 
+                                       this.dir,
+                                       this.rejectStatusList,
+                                       this.remainingRetries,
+                                       this.numParallelWorkers);
     }
 
     @Override
     public HttpSinkBuilder withRetryPersistency(final File dir) {
         Preconditions.checkNotNull(dir);
         return new HttpSinkBuilderImpl(this.client, 
-                                this.target, 
-                                this.method, 
-                                this.bufferSize, 
-                                dir,
-                                this.rejectStatusList,
-                                this.remainingRetries, 
-                                this.numParallelWorkers);
+                                       this.target, 
+                                       this.method, 
+                                       this.bufferSize, 
+                                       dir,
+                                       this.rejectStatusList,
+                                       this.remainingRetries, 
+                                       this.numParallelWorkers);
     }
 
     @Override
     public HttpSinkBuilder withRejectOnStatus(final ImmutableSet<Integer> rejectStatusList) {
         Preconditions.checkNotNull(rejectStatusList);
         return new HttpSinkBuilderImpl(this.client, 
-                                this.target, 
-                                this.method, 
-                                this.bufferSize, 
-                                this.dir,
-                                rejectStatusList,
-                                this.remainingRetries, 
-                                this.numParallelWorkers);
+                                       this.target, 
+                                       this.method, 
+                                       this.bufferSize, 
+                                       this.dir,
+                                       rejectStatusList,
+                                       this.remainingRetries, 
+                                       this.numParallelWorkers);
     }
 
     
@@ -205,17 +207,50 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
      * @return the sink reference
      */
     public HttpSink open() {
-        return new QueryQueue();
+
+        // if dir is set, sink will run in persistent mode  
+        return (dir == null) ? new TransientQueryQueue(client,                 // queries will be stored in-memory only      
+                                                       target, 
+                                                       method, 
+                                                       bufferSize, 
+                                                       rejectStatusList, 
+                                                       remainingRetries,
+                                                       numParallelWorkers)               
+                             : new PersistentQueryQueue(client,                // queries will be stored on file system as well
+                                                        target, 
+                                                        method,
+                                                        bufferSize, 
+                                                        rejectStatusList,
+                                                        remainingRetries,
+                                                        numParallelWorkers, 
+                                                        dir);    
     }
 
-    private boolean isPersistentQueue() {
-        return dir != null;
+    
+    
+    
+    static interface QueryLifeCycleListener {
+        
+        void onQueryCompleted(TransientQueryQueue.Query query, boolean isSuccess);
+        
+        void onQueryCreated(TransientQueryQueue.Query query);
     }
     
+    
 
-    private final class QueryQueue implements HttpSink, Metrics, Closeable {
-        private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
-        private final AtomicReference<Client> defaultClientRef = new AtomicReference<>();
+
+    
+    static class TransientQueryQueue implements HttpSink, QueryLifeCycleListener, Metrics, Closeable {
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+        private final ImmutableSet<Integer> rejectStatusList;
+        private final Optional<Client> clientToClose;
+        protected final Client client;
+        protected final ScheduledThreadPoolExecutor executor;
+        protected final URI target;
+        protected final Method method;
+        protected final ImmutableList<Duration> remainingRetries;
+
+        protected final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
         
         // statistics
         private final MetricRegistry metrics = new MetricRegistry();
@@ -223,25 +258,46 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         private final Counter retries = metrics.counter("retries");
         private final Counter discarded = metrics.counter("discarded");
         private final Counter rejected = metrics.counter("rejected");
+
         
-        
-        public QueryQueue() {
-            if (isPersistentQueue()) {
-                new PersistentQueryScanner().run();
+        protected TransientQueryQueue(final Client client, 
+                                      final URI target, 
+                                      final Method method, 
+                                      final int bufferSize, 
+                                      final ImmutableSet<Integer> rejectStatusList,
+                                      final ImmutableList<Duration> remainingRetries, 
+                                      final int numParallelWorkers) {
+            this.target = target;
+            this.method = method;
+            this.rejectStatusList = rejectStatusList;
+            this.remainingRetries = remainingRetries;
+            this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
+    
+            // using default client?
+            if (client == null) {
+                final Client defaultClient = ClientBuilder.newClient();
+                this.client = defaultClient;
+                this.clientToClose = Optional.of(defaultClient);
+                
+            // .. no client is given by user 
+            } else {
+                this.client = client;
+                this.clientToClose = Optional.empty();
             }
         }
         
+        @Override
+        public boolean isOpen() {
+            return isOpen.get();
+        }
         
         @Override
         public void close() {
-            final Client defaultClient = defaultClientRef.get();
-            if (defaultClient != null) {
-                defaultClient.close();
+            if (isOpen.getAndSet(false)) {
+                clientToClose.ifPresent(client -> client.close());
+                executor.shutdown();
             }
-            
-            executor.shutdown();
         }
-        
         
         @Override
         public Metrics getMetrics() {
@@ -270,398 +326,469 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
         @Override
         public int getQueueSize() {
-            return 0;
+            return executor.getQueue().size();
         }
-
-        private Client getClient() {
-            if (client == null) {
-                synchronized (this) {
-                    Client defaultClient = defaultClientRef.get();
-                    if (defaultClient == null) {
-                        defaultClient = ClientBuilder.newClient();
-                        defaultClientRef.set(defaultClient);
-                    }
-                    return defaultClient;
-                }
-            } else {
-                return client;
-            }
-        }
-
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            if (isPersistentQueue() && !(mediaType.startsWith("application") && mediaType.endsWith("json"))) {
-                throw new IllegalStateException("persistent retry supports JSON types only");
-            }
-
-            final Query query = (dir == null) ?  new Query(target, 
-                                                           method, 
-                                                           Entity.entity(entity, mediaType), 
-                                                           remainingRetries)
-                                              : new PersistentQuery(target, 
-                                                                    method, 
-                                                                    Entity.entity(entity, mediaType), 
-                                                                    remainingRetries,
-                                                                    dir);
-            
-            LOG.debug("query " + query.getId() + " submitted: " + query);
-            return execute(query);
+            final Query query = newQuery(entity, mediaType);
+            LOG.debug("submitting query " + query.getId() + " " + query);
+            return submitAsync(query);
         }
-
         
-        private CompletableFuture<Submission> execute(final Query query) {
-
-            return query.executeWith(getClient())
-                        .thenApply(Void -> { 
-                                              success.inc();
-                                              query.close(true);
-                                              return (Submission) query;
-                                    })
+        private Query newQuery(final Object entity, final String mediaType) {
+            final Query query = new Query(target, method, Entity.entity(entity, mediaType), this, remainingRetries);
+            onQueryCreated(query);
+            return query;
+        }
+        
+        protected CompletableFuture<Submission> submitAsync(final Query query) {
+            if (!isOpen()) {
+                throw new IllegalStateException("queue is alreday closed. query " + query.getId() + " will not enqueued");
+            }
+            
+            return query.executeWith(client)
+                        .thenApply(Void -> {      
+                                                  // success   
+                                                  success.inc();
+                                                  return (Submission) query;
+                                           })
                         .exceptionally(error -> {
-                                                  error = Exceptions.unwrap(error);
-                                                  int status = (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
-                                                                                                          : 500;
+                                                  // error
+                                                  LOG.warn("query " + query.getId() + " failed: " + query);
 
                                                   // rejecting error?
-                                                  if (rejectStatusList.contains(status)) {
+                                                  if (rejectStatusList.contains(readAssociatedStatus(error))) {
                                                       LOG.debug("got client error for query " + query.getId() + " completing exceptionally", error);
-                                                      query.close(false);
                                                       rejected.inc();
-                                                      throw Exceptions.propagate(error);
-                                        
-                                                  // ..no try reschedule    
+                                                      throw Exceptions.propagate(error);                                        
+                                                  // ..no     
                                                   } else {
-                                                      LOG.warn("query " + query.getId() + " failed: " + query);
-                                                      Optional<Duration> nextExecutionDelay = query.nextExecutionDelay();
-                                                      if (nextExecutionDelay.isPresent()) {
-                                                          LOG.warn("will retry query " + query.getId() + " after " + nextExecutionDelay.get());
-                                                          executor.schedule(() -> executeRetry(query), 
-                                                                            nextExecutionDelay.get().toMillis(),
-                                                                            TimeUnit.MILLISECONDS);
-                                                      } else {                                                    
-                                                          LOG.warn("no retries left for " + query.getId() + " discarding query");
-                                                          discarded.inc();
-                                                          query.close(false);
-                                                      }
+                                                      tryReschedule(query);
                                                       return (Submission) query;
                                                 }
                                     });
         }
         
-        
-        void executeRetry(final Query query) {
-            retries.inc();
-            
-            execute(query).thenAccept(submission -> { 
-                                                        if (submission.getStatus() == Submission.Status.COMPLETED) { 
-                                                            LOG.warn("retry for query " + query.getId() + " was succesfully");
-                                                        }
-                                                    });
-        }
-        
-        
-        
-        private final class PersistentQueryScanner implements Runnable { 
+        void tryReschedule(final Query query) {
+            final Optional<Duration> nextExecutionDelay = query.getNextExecutionDelay();
 
-            @Override
-            public void run() {
-                
-                for (File file : ImmutableList.copyOf(dir.listFiles())) {
-                    if (file.getName().endsWith(".query")) {
-                        PersistentQuery.readFrom(file)
-                                       .ifPresent(query -> {
-                                                              Optional<Duration> nextExecutionDelay = query.nextExecutionDelay();
-                                                              if (nextExecutionDelay.isPresent()) {
-                                                                  LOG.info("query  " + query.getId() + " found (" + query.getQueryFile().getAbsolutePath() + 
-                                                                           ") Retrying it after " + nextExecutionDelay.get());
-                                                                  executor.schedule(() -> executeRetry(query), 
-                                                                                          nextExecutionDelay.get().toMillis(),
-                                                                                          TimeUnit.MILLISECONDS);
-                                                              }
-                                                           });
-                    }
-                }
-            }
-        }
-    }
+            // retries left?
+            if (nextExecutionDelay.isPresent()) {
+                LOG.debug("will retry query " + query.getId() + " after " + nextExecutionDelay.get());
 
-
-
-    
-    private static class Query implements Submission {
-        protected final String id;
-        protected final Method method;
-        protected final URI target;
-        protected final Entity<?> entity;
-        protected final AtomicReference<HttpSink.Submission.Status> status = new AtomicReference<>(HttpSink.Submission.Status.PENDING);
-        protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
-        
-        
-        public Query(final URI target, 
-                     final Method method, 
-                     final Entity<?> entity, 
-                     final ImmutableList<Duration> remainingRetrys) {
-            this(UUID.randomUUID().toString(), target, method, entity, remainingRetrys);
-        }
-        
-        protected Query(final String id,
-                        final URI target, 
-                        final Method method,    
-                        final Entity<?> entity, 
-                        final ImmutableList<Duration> remainingRetrys) {
-
-            Preconditions.checkNotNull(id);
-            Preconditions.checkNotNull(target);
-            Preconditions.checkNotNull(method);
-            Preconditions.checkNotNull(entity);
-            this.id = id;
-            this.target = target;
-            this.method = method;
-            this.entity = entity;
-            this.remainingRetrysRef = new AtomicReference<>(remainingRetrys);
-        }
-
-        public boolean isOpen() {
-            return (getStatus() == HttpSink.Submission.Status.PENDING);
-        }
-        
-        public void close(boolean isSuccess) {
-            status.set(isSuccess ? HttpSink.Submission.Status.COMPLETED : HttpSink.Submission.Status.DISCARDED);
-        }
-
-        public String getId() {
-            return id;
-        }
-        
-        @Override
-        public Status getStatus() {
-            return status.get();
-        }
-        
-        public Optional<Duration> nextExecutionDelay() {
-            final ImmutableList<Duration> remaingDelays = remainingRetrysRef.get();
-            if (remaingDelays.isEmpty()) {
-                return Optional.empty();
+                final Runnable delayedTask = () -> {
+                                                    submitAsync(query).thenAccept(submission -> LOG.debug("retry for query " + query.getId() + " was " +
+                                                                                                          ((submission.getState() == Submission.State.COMPLETED) ? "" : "not ") + 
+                                                                                                          "succesfully"));
+                                                    query.removeNextExecutionDelay();  // query has been submitted -> decrement retries    
+                                                    retries.inc();
+                };
+                executor.schedule(delayedTask, nextExecutionDelay.get().toMillis(), TimeUnit.MILLISECONDS);                
+               
+            // no 
             } else {
-                ImmutableList<Duration> remainingRetrys = remainingRetrysRef.get();
-                updateRemaingDelays(remainingRetrys.subList(1, remainingRetrys.size()));
-                return  Optional.of(remainingRetrys.get(0));
+                discarded.inc();
+            }            
+        }
+        
+        private static int readAssociatedStatus(final Throwable t) { 
+            final Throwable error = Exceptions.unwrap(t);
+            return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
+                                                              : 500;
+        }        
+
+        @Override
+        public void onQueryCreated(Query query) {
+            synchronized (runningQuery) {
+                runningQuery.add(query);
             }
         }
         
-        public CompletableFuture<Void> executeWith(Client client) {
-            final ResponseHandler responseHandler = new ResponseHandler();
-
-            final Builder builder = client.target(target).request();
-            if (method == Method.POST) {
-                builder.async().post(entity, responseHandler);
-            } else {
-                builder.async().put(entity, responseHandler);
+        @Override
+        public void onQueryCompleted(Query query, boolean isSuccess) {
+            synchronized (runningQuery) {
+                runningQuery.remove(query);
+            }
+        }
+   
+        protected ImmutableList<Query> drainRunningQueries() {
+            ImmutableList<Query> pendings;
+            synchronized (runningQuery) {
+                pendings = ImmutableList.copyOf(runningQuery);
+                runningQuery.clear();
+            }
+            return pendings;
+        }
+        
+        protected static class Query implements Submission {
+            protected final QueryLifeCycleListener queryLifeCycleListener;
+            protected final String id;
+            protected final Method method;
+            protected final URI target;
+            protected final Entity<?> entity;
+            protected final AtomicReference<HttpSink.Submission.State> stateRef = new AtomicReference<>(HttpSink.Submission.State.PENDING);
+            protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
+            
+            
+            public Query(final URI target, 
+                         final Method method, 
+                         final Entity<?> entity,
+                         final QueryLifeCycleListener queryLifeCycleListener,
+                         final ImmutableList<Duration> remainingRetrys) {
+                this(UUID.randomUUID().toString(), target, method, entity, queryLifeCycleListener, remainingRetrys);
+            }
+            
+            protected Query(final String id,
+                            final URI target, 
+                            final Method method,    
+                            final Entity<?> entity,
+                            final QueryLifeCycleListener queryLifeCycleListener,
+                            final ImmutableList<Duration> remainingRetrys) {
+                Preconditions.checkNotNull(id);
+                Preconditions.checkNotNull(target);
+                Preconditions.checkNotNull(method);
+                Preconditions.checkNotNull(entity);
+                
+                this.id = id;
+                this.target = target;
+                this.method = method;
+                this.entity = entity;
+                this.queryLifeCycleListener = queryLifeCycleListener;
+                this.remainingRetrysRef = new AtomicReference<>(remainingRetrys);
             }
 
-            return responseHandler;
-        }
-
-        private final class ResponseHandler extends CompletableFuture<Void> implements InvocationCallback<String> {
-
+            public String getId() {
+                return id;
+            }
+            
             @Override
-            public void failed(Throwable ex) {
-                if (ex instanceof ResponseProcessingException) {
-                    ex = ((ResponseProcessingException) ex).getCause();
-                }
-                completeExceptionally(ex);
-            }
-
-            @Override
-            public void completed(String responseEntity) {
-                updateRemaingDelays(ImmutableList.of());
-                complete(null);
-            }
-        }
-
-        protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
-            remainingRetrysRef.set(newRemainingRetrys);
-        }
-
-        @Override
-        public String toString() {
-            return method + " " + target.toString();
-        }
-    }
-    
-    
-    
-    static final class PersistentQuery extends Query {
-        private final File queryFile;
-        private final RandomAccessFile raf;
-        private final FileChannel channel;
-        private final Writer writer;
-
-        
-        private PersistentQuery(final String id,
-                                final File queryFile, 
-                                final RandomAccessFile raf, 
-                                final FileChannel channel, 
-                                final Writer writer, 
-                                final URI target, 
-                                final Method method, 
-                                final Entity<?> entity, 
-                                final ImmutableList<Duration> remainingRetrys) {
-            super(id, target, method, entity, remainingRetrys);
-            
-            Preconditions.checkNotNull(queryFile);
-            Preconditions.checkState(channel.isOpen());
-            
-            this.queryFile = queryFile;
-            this.raf = raf;
-            this.channel = channel;
-            this.writer = writer;
-        }
-        
-        public PersistentQuery(final URI target, 
-                               final Method method, 
-                               final Entity<?> entity, 
-                               final ImmutableList<Duration> remainingRetrys, 
-                               final File dir) {
-            super(target, method, entity, remainingRetrys);
-            
-            try {
-                queryFile = new File(dir.getCanonicalFile(), UUID.randomUUID().toString() + ".query");
-                raf = new RandomAccessFile(queryFile, "rw");
-                channel = raf.getChannel();
-                channel.lock();                          // get lock. lock will not been release until query is completed! 
-                writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
-
-                
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                new ObjectMapper().writeValue(bos, entity.getEntity());
-                
-                MapEncoding.create()
-                           .with("id", id)
-                           .with("method", method.toString())
-                           .with("mediaType", entity.getMediaType().toString())
-                           .with("target", target.toString())
-                           .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
-                           .with("retries", Joiner.on("&")
-                                                  .join(remainingRetrys.stream()
-                                                                       .map(duration -> duration.toMillis())
-                                                                       .collect(Immutables.toList())))
-                           .writeTo(writer);
-                
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
-            }
-        }
-        
-        
-        public File getQueryFile() {
-            return queryFile;
-        }
-        
-        @Override
-        protected void updateRemaingDelays(ImmutableList<Duration> newRemaingDelays) {
-            super.updateRemaingDelays(newRemaingDelays);
-
-            if (isOpen()) {
-                MapEncoding.create()
-                          .with("retries", Joiner.on("&").join(newRemaingDelays.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
-                          .writeTo(writer);
-                
-                if (newRemaingDelays.isEmpty()) {
-                    close(false);
-                }
-            }
-        }
-
-        
-        @Override
-        public void close(boolean isSuccess) {
-            
-            try {
-                if (isOpen()) {
-                    Closeables.close(writer, true);
-                    Closeables.close(channel, true);
-                    Closeables.close(raf, true);
-
-                    if (isSuccess || remainingRetrysRef.get().isEmpty()) {
-                        queryFile.delete();
-                    }
-                }
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
+            public State getState() {
+                return stateRef.get();
             }
             
-            super.close(isSuccess);
-        }
-        
-
-        public static Optional<PersistentQuery> readFrom(File queryFile) {
-
-            RandomAccessFile raf = null;
-            FileChannel channel = null;
-
-            try {
-                raf = new RandomAccessFile(queryFile, "rw");
-                channel = raf.getChannel();
-                
-                if (channel.tryLock() == null) {
-                    LOG.debug("query file " + queryFile.getAbsolutePath() + " is locked. ignoring it");
-                    raf.close();
+            Optional<Duration> getNextExecutionDelay() {
+                final ImmutableList<Duration> remaingDelays = remainingRetrysRef.get();
+                if (remaingDelays.isEmpty()) {
                     return Optional.empty();
-                    
                 } else {
-                    LineNumberReader reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
-                    Writer writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
-                    
-                    MapEncoding protocol = MapEncoding.readFrom(reader);
-                    String id = protocol.get("id");
-                    Method method = protocol.get("method", txt -> Method.valueOf(txt));
-                    URI target = protocol.get("target", txt -> URI.create(txt));
-                    MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
-                    byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
-                    ImmutableList<Duration> retries = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
-                                                                                                                : Splitter.on("&")
-                                                                                                                .trimResults()
-                                                                                                                .splitToList(txt)
-                                                                                                                .stream()
-                                                                                                                .map(milisString -> Duration.ofMillis(Long.parseLong(milisString)))
-                                                                                                                .collect(Immutables.<Duration>toList()));
-    
-                                                                                      
-           
-                    if (retries.isEmpty()) {
-                        LOG.warn("deleting expired query file " + queryFile);
-                        raf.close();
-                        queryFile.delete();
-                        return Optional.empty();
-                        
+                    return Optional.of(remaingDelays.get(0));
+                }
+            }
+            
+            boolean removeNextExecutionDelay() {
+                final ImmutableList<Duration> remaingDelays = remainingRetrysRef.get();
+                if (remaingDelays.isEmpty()) {
+                    return false;
+                } else {
+                    final ImmutableList<Duration> remainingRetrys = remainingRetrysRef.get();
+                    updateRemaingDelays(remainingRetrys.subList(1, remainingRetrys.size()));
+                    return true;
+                }
+            }
+            
+            public CompletableFuture<Void> executeWith(Client client) {
+                final ResponseHandler responseHandler = new ResponseHandler();
+
+                try {
+                    final Builder builder = client.target(target).request();
+                    if (method == Method.POST) {
+                        builder.async().post(entity, responseHandler);
                     } else {
-                        return Optional.of(new PersistentQuery(id,  
-                                                               queryFile,
-                                                               raf, 
-                                                               channel, 
-                                                               writer,
-                                                               target,
-                                                               method, 
-                                                               Entity.entity(data, mediaType),
-                                                               retries));
+                        builder.async().put(entity, responseHandler);
                     }
+                } catch (RuntimeException rt) {
+                    responseHandler.failed(rt);
+                }
+
+                return responseHandler;
+            }
+
+            private final class ResponseHandler extends CompletableFuture<Void> implements InvocationCallback<String> {
+
+                @Override
+                public void failed(final Throwable ex) {
+                    
+                    // no retries left?
+                    if (!getNextExecutionDelay().isPresent()) {
+                        LOG.warn("no retries left for " + getId() + " discarding query");
+                        updateState(HttpSink.Submission.State.DISCARDED);
+                    }
+
+                    final Throwable error;
+                    if (ex instanceof ResponseProcessingException) {
+                        error = ((ResponseProcessingException) ex).getCause();
+                    } else {
+                        error = ex;
+                    }
+                    completeExceptionally(error);
+                }
+
+                @Override
+                public void completed(String responseEntity) {
+                    updateState(State.COMPLETED);
+                    complete(null);
+                }
+            }
+            
+            private void updateState(State newState) {
+                if ((newState == State.COMPLETED) || (newState == State.DISCARDED)) {
+                    updateRemaingDelays(ImmutableList.of());
                 }
                 
-            } catch (IOException | RuntimeException e) {
-                LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be corrupt. ignoring it");
+                stateRef.set(newState);
+            }
+
+            protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
+                remainingRetrysRef.set(newRemainingRetrys);
+            }
+
+            @Override
+            public String toString() {
+                return method + " " + target.toString();
+            }
+        }
+    }
+
+    
+    
+    
+    static final class PersistentQueryQueue extends TransientQueryQueue {
+        private final File dir;
+        
+        public PersistentQueryQueue(final Client client, 
+                                    final URI target, 
+                                    final Method method, 
+                                    final int bufferSize, 
+                                    final ImmutableSet<Integer> rejectStatusList,
+                                    final ImmutableList<Duration> remainingRetries, 
+                                    final int numParallelWorkers,
+                                    final File dir) {
+            
+            super(client, target, method, bufferSize, rejectStatusList, remainingRetries, numParallelWorkers);
+            this.dir = dir;
+            
+            // looks for old jobs and process it
+            readUnlockedPersistentJobs().forEach(query -> tryReschedule(query));            
+        }
+        
+        @Override
+        public void close() {
+            super.close();
+            
+            for (Query query : drainRunningQueries()) {
+                ((PersistentQuery) query).close();
+            }
+        }
+        
+        private ImmutableList<PersistentQuery> readUnlockedPersistentJobs() {
+            return ImmutableList.copyOf(dir.listFiles())
+                                .stream()
+                                .filter(file -> file.getName().endsWith(".query"))
+                                .map(file -> PersistentQuery.tryReadFrom(PersistentQueryQueue.this, file))
+                                .filter(optionalQuery -> optionalQuery.isPresent())
+                                .map(optionalQuery -> optionalQuery.get())
+                                .map(query -> { onQueryCreated(query); return query; })
+                                .collect(Immutables.toList());
+        }
+        
+        @Override
+        public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
+            // Currently, persistent query supports json only
+            if (!(mediaType.startsWith("application") && mediaType.endsWith("json"))) {
+                throw new IllegalStateException("persistent retry supports JSON types only");
+            }
+
+            final Query query = newQuery(entity, mediaType);
+            LOG.debug("submitting persistent query " + query.getId() + " " + query);
+
+            return submitAsync(query);
+        }
+        
+        private Query newQuery(final Object entity, final String mediaType) {
+            final Query query = new PersistentQuery(target, method, Entity.entity(entity, mediaType), PersistentQueryQueue.this, remainingRetries, dir);
+            onQueryCreated(query);
+            return query;
+        }
+
+        static final class PersistentQuery extends Query {
+            private final File queryFile;
+            private final RandomAccessFile raf;
+            private final FileChannel channel;
+            private final Writer writer;
+
+            
+            private PersistentQuery(final String id,
+                                    final File queryFile, 
+                                    final RandomAccessFile raf, 
+                                    final FileChannel channel, 
+                                    final Writer writer, 
+                                    final URI target, 
+                                    final Method method, 
+                                    final Entity<?> entity, 
+                                    final QueryLifeCycleListener queryLifeCycleListener,
+                                    final ImmutableList<Duration> remainingRetrys) throws IOException {
+                super(id, target, method, entity, queryLifeCycleListener, remainingRetrys);
+                
+                Preconditions.checkNotNull(queryFile);
+                Preconditions.checkState(channel.isOpen());
+                
+                this.queryFile = queryFile;
+                this.raf = raf;
+                this.channel = channel;
+                this.writer = writer;
+            }
+            
+            
+            public PersistentQuery(final URI target, 
+                                   final Method method, 
+                                   final Entity<?> entity, 
+                                   final QueryLifeCycleListener queryLifeCycleListener,
+                                   final ImmutableList<Duration> remainingRetrys, 
+                                   final File dir) {
+                super(target, method, entity, queryLifeCycleListener, remainingRetrys);
+                
+                /*
+                 * By creating a new persistent query file a file lock will be acquired and not been released
+                 * until query is completed! This avoids concurrent handling of the same queue (file).
+                 */
                 
                 try {
-                    Closeables.close(channel, true);
-                    Closeables.close(raf, true);
-                } catch (IOException ignore) { }
+                    queryFile = new File(dir.getCanonicalFile(), UUID.randomUUID().toString() + ".query");
+                    raf = new RandomAccessFile(queryFile, "rw");
+                    channel = raf.getChannel();
+                    channel.lock();                           
+                    writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
+
+                    final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    new ObjectMapper().writeValue(bos, entity.getEntity());
+                    
+                    MapEncoding.create()
+                               .with("id", id)
+                               .with("method", method.toString())
+                               .with("mediaType", entity.getMediaType().toString())
+                               .with("target", target.toString())
+                               .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
+                               .with("retries", Joiner.on("&")
+                                                      .join(remainingRetrys.stream()
+                                                                           .map(duration -> duration.toMillis())
+                                                                           .collect(Immutables.toList())))
+                               .writeTo(writer);
+                    
+                } catch (IOException ioe) {
+                    throw new RuntimeException(ioe);
+                }
+            }
+            
+            
+            public File getQueryFile() {
+                return queryFile;
+            }
+            
+            @Override
+            protected void updateRemaingDelays(ImmutableList<Duration> newRemaingDelays) {
+                super.updateRemaingDelays(newRemaingDelays);
+
+                try {
+                    MapEncoding.create()
+                               .with("retries", Joiner.on("&").join(newRemaingDelays.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
+                               .writeTo(writer);
+                } catch (RuntimeException rt) {
+                    LOG.warn("could not update remaining delays of " + getId() + "  with " + newRemaingDelays, rt);
+                }
                 
-                return Optional.empty();
+                if (newRemaingDelays.isEmpty()) {
+                    close();
+                }
+            }
+
+            void close() {
+                try {
+                    if (channel.isOpen()) {
+                        // by closing the file handles the lock will be released
+                        Closeables.close(writer, true);
+                        Closeables.close(channel, true);
+                        Closeables.close(raf, true);
+
+                        if (remainingRetrysRef.get().isEmpty()) {
+                            queryFile.delete();
+                        }
+                    }
+                } catch (IOException ioe) {
+                    throw new RuntimeException(ioe);
+                }
+            }
+
+            public static Optional<PersistentQuery> tryReadFrom(final QueryLifeCycleListener queryLifeCycleListener, final File queryFile) {
+                RandomAccessFile raf = null;
+                FileChannel channel = null;
+               
+                /*
+                 * By deserializing the underlying query file a file lock will be acquired 
+                 * and not been released until query is completed!
+                 * This avoids concurrent handling of the same queue (file).
+                 */
+                
+                try {
+                    raf = new RandomAccessFile(queryFile, "rw");
+                    channel = raf.getChannel();
+                    
+                    // is already locked?
+                    if (channel.tryLock() == null) {
+                        LOG.debug("query file " + queryFile.getAbsolutePath() + " is locked. ignoring it");
+                        raf.close();
+                        return Optional.empty();
+                        
+                        
+                    // no, go ahead by deserializing it
+                    } else {
+                        final LineNumberReader reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
+                        final Writer writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
+                        
+                        final MapEncoding protocol = MapEncoding.readFrom(reader);
+                        final String id = protocol.get("id");
+                        final Method method = protocol.get("method", txt -> Method.valueOf(txt));
+                        final URI target = protocol.get("target", txt -> URI.create(txt));
+                        final MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
+                        final byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
+                        final ImmutableList<Duration> retries = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
+                                                                                                                          : Splitter.on("&")
+                                                                                                                                    .trimResults()
+                                                                                                                                    .splitToList(txt)
+                                                                                                                                    .stream()
+                                                                                                                                    .map(milisString -> Duration.ofMillis(Long.parseLong(milisString)))
+                                                                                                                                    .collect(Immutables.<Duration>toList()));        
+                        // no retries left?
+                        if (retries.isEmpty()) {
+                            LOG.warn("deleting expired query file " + queryFile);
+                            raf.close();
+                            queryFile.delete();
+                            return Optional.empty();
+                        
+                        // retries are available; return query (lock will not been released to avoid parallel processing of the query file) 
+                        } else {
+                            return Optional.of(new PersistentQuery(id,  
+                                                                   queryFile,
+                                                                   raf, 
+                                                                   channel, 
+                                                                   writer,
+                                                                   target,
+                                                                   method, 
+                                                                   Entity.entity(data, mediaType),
+                                                                   queryLifeCycleListener,
+                                                                   retries));
+                        }
+                    }
+                } catch (IOException | RuntimeException e) {
+                    LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be corrupt. ignoring it");
+                    try {
+                        Closeables.close(channel, true);
+                        Closeables.close(raf, true);
+                    } catch (IOException ignore) { }
+                    return Optional.empty();
+                }
             }
         }
-        
-        
         
         private static final class MapEncoding {
             private final ImmutableMap<String, String> data;
@@ -726,5 +853,5 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 }
             }
         }
-    }   
+    }      
 }

@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -42,13 +43,19 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.PersistentQueryQueue;
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.QueryLifeCycleListener;
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.TransientQueryQueue.Query;
 import net.oneandone.incubator.neotest.WebServer;
 
 
@@ -113,7 +120,7 @@ public class HttpSinkTest {
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
+        Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
         sink.close();
         client.close();
@@ -130,7 +137,7 @@ public class HttpSinkTest {
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
+        Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
         sink.close();
     }
@@ -145,7 +152,7 @@ public class HttpSinkTest {
                                  .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                  .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+         Assert.assertEquals(Submission.State.PENDING, submission.getState());
          
         
          try {
@@ -182,20 +189,29 @@ public class HttpSinkTest {
     @Test
     public void testServerErrorIncompletedRetries() throws Exception {
          HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
-                                 .withRetryAfter(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(5000))
+                                 .withRetryAfter(Duration.ofMillis(100), Duration.ofMillis(100), Duration.ofMillis(2000))
                                  .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-         Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+         Assert.assertEquals(Submission.State.PENDING, submission.getState());
 
         
          try {
              Thread.sleep(1000);
          } catch (InterruptedException ignore) { }
         
-         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(1, sink.getMetrics().getQueueSize());
          Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
          Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
-        
+         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+
+         try {
+             Thread.sleep(2000);
+         } catch (InterruptedException ignore) { }
+         
+         Assert.assertEquals(0, sink.getMetrics().getQueueSize());
+         Assert.assertEquals(3, sink.getMetrics().getNumRetries().getCount());
+         
+         
          sink.close();
     }
   
@@ -208,7 +224,7 @@ public class HttpSinkTest {
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-        Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+        Assert.assertEquals(Submission.State.PENDING, submission.getState());
 
         try {
             Thread.sleep(1000);
@@ -234,13 +250,13 @@ public class HttpSinkTest {
                                 .withRetryPersistency(Files.createTempDir())
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-        Assert.assertEquals(Submission.Status.PENDING, submission.getStatus());
+        Assert.assertEquals(Submission.State.PENDING, submission.getState());
         
         try {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
+        Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
@@ -275,16 +291,17 @@ public class HttpSinkTest {
 
     
     @Test
-    public void testReschedulePersistentQuery() throws Exception {
+    public void testReschedulePersistentQueryWithDiscardResult() throws Exception {
         
         File dir = Files.createTempDir();
         
-        HttpSinkBuilderImpl.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQuery(URI.create("http://localhost:49905/rest/topics"),
-                                                                                            Method.POST,
-                                                                                            Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                                            ImmutableList.of(Duration.ofMillis(100)),
-                                                                                            dir);
-        query.close(false);
+        HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create("http://localhost:1/rest/topics"),
+                                                                                                                 Method.POST,
+                                                                                                                 Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                                                                 new QueryLifeCycleListenerImpl(),
+                                                                                                                 ImmutableList.of(Duration.ofMillis(100)),
+                                                                                                                 dir);
+        query.close();
         
         Assert.assertEquals(1, dir.listFiles().length);
         
@@ -310,7 +327,92 @@ public class HttpSinkTest {
         Assert.assertEquals(0, dir.listFiles().length);
         dir.delete();
     }
+
     
+    
+    @Test
+    public void testReschedulePersistentQueryWithStillRetryResult() throws Exception {
+        
+        File dir = Files.createTempDir();
+        
+        HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create("http://localhost:1/rest/topics"),
+                                                                                                                 Method.POST,
+                                                                                                                 Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                                                                 new QueryLifeCycleListenerImpl(),
+                                                                                                                 ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
+                                                                                                                 dir);
+        query.close();
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        String content = Joiner.on("\n").join(Files.readLines(query.getQueryFile(), Charsets.UTF_8));
+        Assert.assertTrue(content.contains("retries: 100&36000000"));
+        
+        
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withRetryPersistency(dir)
+                                .open();
+        
+        
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+        
+        sink.close();
+        
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        File file = dir.listFiles()[0];
+        content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
+        Assert.assertTrue(content.endsWith("retries: 36000000"));
+
+        System.out.println(content);
+        dir.delete();
+    }
+    
+    
+    @Test
+    public void testReschedulePersistentQueryWithSuccessResult() throws Exception {
+        
+        File dir = Files.createTempDir();
+        
+        HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create(server.getBasepath() + "rest/topics"),
+                                                                                                                 Method.POST,
+                                                                                                                 Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                                                                 new QueryLifeCycleListenerImpl(),
+                                                                                                                 ImmutableList.of(Duration.ofMillis(100)),
+                                                                                                                 dir);
+        query.close();
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        
+        
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withRetryPersistency(dir)
+                                .open();
+        
+        
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
+        
+        sink.close();
+        
+        Assert.assertEquals(0, dir.listFiles().length);
+        dir.delete();
+    }
+
     
     
     
@@ -321,7 +423,7 @@ public class HttpSinkTest {
                                    .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                    .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
-        Assert.assertEquals(Submission.Status.COMPLETED, submission.getStatus());
+        Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
         sink.close();
     }
@@ -378,5 +480,16 @@ public class HttpSinkTest {
         
         public String principalname;
         public AuthenticationScheme scheme;
+    }
+    
+    
+    
+    private final class QueryLifeCycleListenerImpl implements QueryLifeCycleListener {
+        
+        @Override
+        public void onQueryCreated(Query query) { }
+        
+        @Override
+        public void onQueryCompleted(Query query, boolean isSuccess) { }
     }
 }

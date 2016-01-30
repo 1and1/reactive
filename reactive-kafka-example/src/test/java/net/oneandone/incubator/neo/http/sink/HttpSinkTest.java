@@ -20,11 +20,11 @@ package net.oneandone.incubator.neo.http.sink;
 import java.io.File;
 
 
+
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -46,16 +46,14 @@ import org.junit.Test;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.PersistentQueryQueue;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.QueryLifeCycleListener;
 import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.TransientQueryQueue.Query;
+import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.TransientQueryQueue.QueryLifeClyceListener;
 import net.oneandone.incubator.neotest.WebServer;
 
 
@@ -298,9 +296,9 @@ public class HttpSinkTest {
         HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create("http://localhost:1/rest/topics"),
                                                                                                                  Method.POST,
                                                                                                                  Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                                                                 new QueryLifeCycleListenerImpl(),
                                                                                                                  ImmutableList.of(Duration.ofMillis(100)),
-                                                                                                                 dir);
+                                                                                                                 dir,
+                                                                                                                 new QueryLifeClyceListenerImpl());
         query.close();
         
         Assert.assertEquals(1, dir.listFiles().length);
@@ -338,9 +336,9 @@ public class HttpSinkTest {
         HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create("http://localhost:1/rest/topics"),
                                                                                                                  Method.POST,
                                                                                                                  Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                                                                 new QueryLifeCycleListenerImpl(),
                                                                                                                  ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
-                                                                                                                 dir);
+                                                                                                                 dir,
+                                                                                                                 new QueryLifeClyceListenerImpl());
         query.close();
         
         Assert.assertEquals(1, dir.listFiles().length);
@@ -376,6 +374,91 @@ public class HttpSinkTest {
     }
     
     
+    
+    @Test
+    public void testPersistentConcurrentAccess() throws Exception {
+        
+        File dir = Files.createTempDir();
+        
+        
+        // create a query file to simulate a former crash
+        HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create("http://localhost:1/rest/topics"),
+                                                                                                                 Method.POST,
+                                                                                                                 Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                                                                                                 ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
+                                                                                                                 dir,
+                                                                                                                 new QueryLifeClyceListenerImpl());
+        query.close();
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        String content = Joiner.on("\n").join(Files.readLines(query.getQueryFile(), Charsets.UTF_8));
+        Assert.assertTrue(content.contains("retries: 100&36000000"));
+        
+       
+        
+        // open the sink (former query should be processed and failed again -> uri is bad) 
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withRetryPersistency(dir)
+                                .open();
+       
+        try {
+            Thread.sleep(300);
+        } catch (InterruptedException ignore) { }
+        
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getQueueSize());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+
+        
+        
+
+        // start a second, concurrent sink 
+        HttpSink sink2 = HttpSink.target(server.getBasepath() + "rest/topics")
+                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                 .withRetryPersistency(dir)
+                                 .open();
+       
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        // the crashed query will not be visible for the second sink -> locked by the other one 
+        Assert.assertEquals(0, sink2.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(0, sink2.getMetrics().getQueueSize());
+        Assert.assertEquals(0, sink2.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(0, sink2.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink2.getMetrics().getNumSuccess().getCount());
+       
+        
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getQueueSize());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+        
+        
+       
+        
+        sink.close();
+        
+        
+        Assert.assertEquals(1, dir.listFiles().length);
+        File file = dir.listFiles()[0];
+        content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
+        Assert.assertTrue(content.endsWith("retries: 36000000"));
+        
+        
+        sink2.close();
+
+        dir.delete();
+    }
+    
+    
     @Test
     public void testReschedulePersistentQueryWithSuccessResult() throws Exception {
         
@@ -384,9 +467,9 @@ public class HttpSinkTest {
         HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery query = new HttpSinkBuilderImpl.PersistentQueryQueue.PersistentQuery(URI.create(server.getBasepath() + "rest/topics"),
                                                                                                                  Method.POST,
                                                                                                                  Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                                                                                                 new QueryLifeCycleListenerImpl(),
                                                                                                                  ImmutableList.of(Duration.ofMillis(100)),
-                                                                                                                 dir);
+                                                                                                                 dir,
+                                                                                                                 new QueryLifeClyceListenerImpl());
         query.close();
         
         Assert.assertEquals(1, dir.listFiles().length);
@@ -483,13 +566,12 @@ public class HttpSinkTest {
     }
     
     
-    
-    private final class QueryLifeCycleListenerImpl implements QueryLifeCycleListener {
+    private static class QueryLifeClyceListenerImpl implements QueryLifeClyceListener  {
+
+        @Override
+        public void onOpened(Query query) {  }
         
         @Override
-        public void onQueryCreated(Query query) { }
-        
-        @Override
-        public void onQueryCompleted(Query query, boolean isSuccess) { }
+        public void onClosed(Query query) { }
     }
 }

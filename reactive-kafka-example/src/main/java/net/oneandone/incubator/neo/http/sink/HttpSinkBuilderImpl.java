@@ -18,8 +18,6 @@ package net.oneandone.incubator.neo.http.sink;
 import java.io.ByteArrayOutputStream;
 
 
-
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -228,19 +226,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
     
     
-    
-    static interface QueryLifeCycleListener {
-        
-        void onQueryCompleted(TransientQueryQueue.Query query, boolean isSuccess);
-        
-        void onQueryCreated(TransientQueryQueue.Query query);
-    }
-    
-    
 
 
     
-    static class TransientQueryQueue implements HttpSink, QueryLifeCycleListener, Metrics, Closeable {
+    static class TransientQueryQueue implements HttpSink, Metrics, Closeable {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final ImmutableSet<Integer> rejectStatusList;
         private final Optional<Client> clientToClose;
@@ -250,7 +239,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         protected final Method method;
         protected final ImmutableList<Duration> remainingRetries;
 
-        protected final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
+        protected final QueryMonitor queryMonitor = new QueryMonitor();
         
         // statistics
         private final MetricRegistry metrics = new MetricRegistry();
@@ -259,6 +248,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         private final Counter discarded = metrics.counter("discarded");
         private final Counter rejected = metrics.counter("rejected");
 
+        
         
         protected TransientQueryQueue(final Client client, 
                                       final URI target, 
@@ -294,10 +284,16 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         @Override
         public void close() {
             if (isOpen.getAndSet(false)) {
+                
+                for (Query query : queryMonitor.drainRunningQueries()) {
+                    query.close();
+                }
+                
                 clientToClose.ifPresent(client -> client.close());
                 executor.shutdown();
             }
         }
+        
         
         @Override
         public Metrics getMetrics() {
@@ -326,19 +322,18 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
         @Override
         public int getQueueSize() {
-            return executor.getQueue().size();
+            return queryMonitor.size();
         }
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            final Query query = newQuery(entity, mediaType);
+            final Query query = newQuery(entity, mediaType, queryMonitor);
             LOG.debug("submitting query " + query.getId() + " " + query);
             return submitAsync(query);
         }
         
-        private Query newQuery(final Object entity, final String mediaType) {
-            final Query query = new Query(target, method, Entity.entity(entity, mediaType), this, remainingRetries);
-            onQueryCreated(query);
+        private Query newQuery(final Object entity, final String mediaType, final QueryLifeClyceListener lifeClyceListener) {
+            final Query query = new Query(target, method, Entity.entity(entity, mediaType), remainingRetries, lifeClyceListener);
             return query;
         }
         
@@ -398,31 +393,50 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                                               : 500;
         }        
 
-        @Override
-        public void onQueryCreated(Query query) {
-            synchronized (runningQuery) {
-                runningQuery.add(query);
+        
+        private static class QueryMonitor implements QueryLifeClyceListener { 
+            private final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
+
+            @Override
+            public void onOpened(Query query) {
+                synchronized (this) {
+                    runningQuery.add(query);
+                }
+            }
+            
+            @Override
+            public void onClosed(Query query) {
+                synchronized (this) {
+                    runningQuery.remove(query);
+                }
+            }
+            
+            public int size() {
+                return runningQuery.size();
+            }
+
+            public ImmutableList<Query> drainRunningQueries() {
+                ImmutableList<Query> pendings;
+                synchronized (this) {
+                    pendings = ImmutableList.copyOf(runningQuery);
+                    runningQuery.clear();
+                }
+                return pendings;
             }
         }
         
-        @Override
-        public void onQueryCompleted(Query query, boolean isSuccess) {
-            synchronized (runningQuery) {
-                runningQuery.remove(query);
-            }
+                
+        
+        protected static interface QueryLifeClyceListener {
+            
+            void onOpened(Query query);
+            
+            void onClosed(Query query);
         }
-   
-        protected ImmutableList<Query> drainRunningQueries() {
-            ImmutableList<Query> pendings;
-            synchronized (runningQuery) {
-                pendings = ImmutableList.copyOf(runningQuery);
-                runningQuery.clear();
-            }
-            return pendings;
-        }
+
+        
         
         protected static class Query implements Submission {
-            protected final QueryLifeCycleListener queryLifeCycleListener;
             protected final String id;
             protected final Method method;
             protected final URI target;
@@ -430,21 +444,22 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             protected final AtomicReference<HttpSink.Submission.State> stateRef = new AtomicReference<>(HttpSink.Submission.State.PENDING);
             protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
             
+            private final QueryLifeClyceListener lifeClyceListener;
             
             public Query(final URI target, 
                          final Method method, 
                          final Entity<?> entity,
-                         final QueryLifeCycleListener queryLifeCycleListener,
-                         final ImmutableList<Duration> remainingRetrys) {
-                this(UUID.randomUUID().toString(), target, method, entity, queryLifeCycleListener, remainingRetrys);
+                         final ImmutableList<Duration> remainingRetrys,
+                         final QueryLifeClyceListener lifeClyceListener) {
+                this(UUID.randomUUID().toString(), target, method, entity, remainingRetrys, lifeClyceListener);
             }
             
             protected Query(final String id,
                             final URI target, 
                             final Method method,    
                             final Entity<?> entity,
-                            final QueryLifeCycleListener queryLifeCycleListener,
-                            final ImmutableList<Duration> remainingRetrys) {
+                            final ImmutableList<Duration> remainingRetrys,
+                            final QueryLifeClyceListener lifeClyceListener) {
                 Preconditions.checkNotNull(id);
                 Preconditions.checkNotNull(target);
                 Preconditions.checkNotNull(method);
@@ -454,8 +469,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 this.target = target;
                 this.method = method;
                 this.entity = entity;
-                this.queryLifeCycleListener = queryLifeCycleListener;
                 this.remainingRetrysRef = new AtomicReference<>(remainingRetrys);
+                this.lifeClyceListener = lifeClyceListener;
+                
+                lifeClyceListener.onOpened(this);
             }
 
             public String getId() {
@@ -541,12 +558,14 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
             protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
                 remainingRetrysRef.set(newRemainingRetrys);
+                if (newRemainingRetrys.isEmpty()) {
+                    close();
+                }
             }
 
-            @Override
-            public String toString() {
-                return method + " " + target.toString();
-            }
+            protected void close() { 
+                lifeClyceListener.onClosed(this);
+            }             
         }
     }
 
@@ -559,7 +578,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         public PersistentQueryQueue(final Client client, 
                                     final URI target, 
                                     final Method method, 
-                                    final int bufferSize, 
+                                    final int bufferSize,  
                                     final ImmutableSet<Integer> rejectStatusList,
                                     final ImmutableList<Duration> remainingRetries, 
                                     final int numParallelWorkers,
@@ -572,23 +591,13 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             readUnlockedPersistentJobs().forEach(query -> tryReschedule(query));            
         }
         
-        @Override
-        public void close() {
-            super.close();
-            
-            for (Query query : drainRunningQueries()) {
-                ((PersistentQuery) query).close();
-            }
-        }
-        
         private ImmutableList<PersistentQuery> readUnlockedPersistentJobs() {
             return ImmutableList.copyOf(dir.listFiles())
                                 .stream()
                                 .filter(file -> file.getName().endsWith(".query"))
-                                .map(file -> PersistentQuery.tryReadFrom(PersistentQueryQueue.this, file))
+                                .map(file -> PersistentQuery.tryReadFrom(file, queryMonitor))
                                 .filter(optionalQuery -> optionalQuery.isPresent())
                                 .map(optionalQuery -> optionalQuery.get())
-                                .map(query -> { onQueryCreated(query); return query; })
                                 .collect(Immutables.toList());
         }
         
@@ -599,15 +608,14 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 throw new IllegalStateException("persistent retry supports JSON types only");
             }
 
-            final Query query = newQuery(entity, mediaType);
+            final Query query = newQuery(entity, mediaType, queryMonitor);
             LOG.debug("submitting persistent query " + query.getId() + " " + query);
 
             return submitAsync(query);
         }
         
-        private Query newQuery(final Object entity, final String mediaType) {
-            final Query query = new PersistentQuery(target, method, Entity.entity(entity, mediaType), PersistentQueryQueue.this, remainingRetries, dir);
-            onQueryCreated(query);
+        private Query newQuery(final Object entity, final String mediaType, final QueryLifeClyceListener lifeClyceListener) {
+            final Query query = new PersistentQuery(target, method, Entity.entity(entity, mediaType), remainingRetries, dir, lifeClyceListener);
             return query;
         }
 
@@ -626,9 +634,9 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                     final URI target, 
                                     final Method method, 
                                     final Entity<?> entity, 
-                                    final QueryLifeCycleListener queryLifeCycleListener,
-                                    final ImmutableList<Duration> remainingRetrys) throws IOException {
-                super(id, target, method, entity, queryLifeCycleListener, remainingRetrys);
+                                    final ImmutableList<Duration> remainingRetrys,
+                                    final QueryLifeClyceListener lifeClyceListener) throws IOException {
+                super(id, target, method, entity, remainingRetrys, lifeClyceListener);
                 
                 Preconditions.checkNotNull(queryFile);
                 Preconditions.checkState(channel.isOpen());
@@ -643,10 +651,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             public PersistentQuery(final URI target, 
                                    final Method method, 
                                    final Entity<?> entity, 
-                                   final QueryLifeCycleListener queryLifeCycleListener,
                                    final ImmutableList<Duration> remainingRetrys, 
-                                   final File dir) {
-                super(target, method, entity, queryLifeCycleListener, remainingRetrys);
+                                   final File dir,
+                                   final QueryLifeClyceListener lifeClyceListener) {
+                super(target, method, entity, remainingRetrys, lifeClyceListener);
                 
                 /*
                  * By creating a new persistent query file a file lock will be acquired and not been released
@@ -686,23 +694,21 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             }
             
             @Override
-            protected void updateRemaingDelays(ImmutableList<Duration> newRemaingDelays) {
-                super.updateRemaingDelays(newRemaingDelays);
-
+            protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
                 try {
                     MapEncoding.create()
-                               .with("retries", Joiner.on("&").join(newRemaingDelays.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
+                               .with("retries", Joiner.on("&").join(newRemainingRetrys.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
                                .writeTo(writer);
                 } catch (RuntimeException rt) {
-                    LOG.warn("could not update remaining delays of " + getId() + "  with " + newRemaingDelays, rt);
+                    LOG.warn("could not update remaining delays of " + getId() + "  with " + newRemainingRetrys, rt);
                 }
-                
-                if (newRemaingDelays.isEmpty()) {
-                    close();
-                }
+
+                super.updateRemaingDelays(newRemainingRetrys);
             }
 
-            void close() {
+            
+            @Override
+            protected void close() {
                 try {
                     if (channel.isOpen()) {
                         // by closing the file handles the lock will be released
@@ -714,12 +720,15 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                             queryFile.delete();
                         }
                     }
+                    
+                    super.close();
+
                 } catch (IOException ioe) {
                     throw new RuntimeException(ioe);
                 }
             }
 
-            public static Optional<PersistentQuery> tryReadFrom(final QueryLifeCycleListener queryLifeCycleListener, final File queryFile) {
+            public static Optional<PersistentQuery> tryReadFrom(final File queryFile, final QueryLifeClyceListener lifeClyceListener) {
                 RandomAccessFile raf = null;
                 FileChannel channel = null;
                
@@ -775,8 +784,8 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                                                    target,
                                                                    method, 
                                                                    Entity.entity(data, mediaType),
-                                                                   queryLifeCycleListener,
-                                                                   retries));
+                                                                   retries, 
+                                                                   lifeClyceListener));
                         }
                     }
                 } catch (IOException | RuntimeException e) {

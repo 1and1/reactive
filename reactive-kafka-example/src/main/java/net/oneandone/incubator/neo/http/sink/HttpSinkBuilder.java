@@ -75,7 +75,7 @@ public interface HttpSinkBuilder {
      *            the retry jobs will be stored in-memory (default is {@link HttpSinkBuilder#DEFAULT_PERSISTENCY_DIR})
      * @return a new instance of the http sink
      */
-    HttpSinkBuilder withRetryPersistency(File dir);
+    HttpSinkBuilder withPersistency(File dir);
     
     /**
      * 

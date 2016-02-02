@@ -27,5 +27,5 @@ public interface Metrics {
     
     Counter getNumDiscarded();
 
-    int getQueueSize();
+    int getNumPending();
 }

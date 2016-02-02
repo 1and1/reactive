@@ -16,8 +16,6 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.ByteArrayOutputStream;
-
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -40,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -73,6 +72,7 @@ import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.exception.Exceptions;
 
 
+
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
 
@@ -82,7 +82,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private final int bufferSize;
     private final File dir;
     private final ImmutableSet<Integer> rejectStatusList;
-    private final ImmutableList<Duration> remainingRetries;
+    private final ImmutableList<Duration> retryDelays;
     private final int numParallelWorkers;
 
     
@@ -92,7 +92,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                         final int bufferSize, 
                         final File dir, 
                         final ImmutableSet<Integer> rejectStatusList,
-                        final ImmutableList<Duration> remainingRetries, 
+                        final ImmutableList<Duration> retryDelays, 
                         final int numParallelWorkers) {
         this.client = client;
         this.target = target;
@@ -100,7 +100,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         this.bufferSize = bufferSize;
         this.dir = dir;
         this.rejectStatusList = rejectStatusList;
-        this.remainingRetries = remainingRetries;
+        this.retryDelays = retryDelays;
         this.numParallelWorkers = numParallelWorkers;
     }
 
@@ -115,7 +115,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.bufferSize, 
                                        this.dir, 
                                        this.rejectStatusList,
-                                       this.remainingRetries, 
+                                       this.retryDelays, 
                                        this.numParallelWorkers);
     }
 
@@ -127,7 +127,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.bufferSize, 
                                        this.dir,
                                        this.rejectStatusList,
-                                       this.remainingRetries,
+                                       this.retryDelays,
                                        this.numParallelWorkers);
     }
 
@@ -158,7 +158,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.bufferSize,
                                        this.dir,
                                        this.rejectStatusList,
-                                       this.remainingRetries,
+                                       this.retryDelays,
                                        numParallelWorkers);
     }
 
@@ -170,12 +170,12 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        bufferSize, 
                                        this.dir,
                                        this.rejectStatusList,
-                                       this.remainingRetries,
+                                       this.retryDelays,
                                        this.numParallelWorkers);
     }
 
     @Override
-    public HttpSinkBuilder withRetryPersistency(final File dir) {
+    public HttpSinkBuilder withPersistency(final File dir) {
         Preconditions.checkNotNull(dir);
         return new HttpSinkBuilderImpl(this.client, 
                                        this.target, 
@@ -183,7 +183,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.bufferSize, 
                                        dir,
                                        this.rejectStatusList,
-                                       this.remainingRetries, 
+                                       this.retryDelays, 
                                        this.numParallelWorkers);
     }
 
@@ -196,7 +196,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.bufferSize, 
                                        this.dir,
                                        rejectStatusList,
-                                       this.remainingRetries, 
+                                       this.retryDelays, 
                                        this.numParallelWorkers);
     }
 
@@ -207,60 +207,48 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     public HttpSink open() {
 
         // if dir is set, sink will run in persistent mode  
-        return (dir == null) ? new TransientQueryQueue(client,                 // queries will be stored in-memory only      
-                                                       target, 
-                                                       method, 
-                                                       bufferSize, 
-                                                       rejectStatusList, 
-                                                       remainingRetries,
-                                                       numParallelWorkers)               
-                             : new PersistentQueryQueue(client,                // queries will be stored on file system as well
-                                                        target, 
-                                                        method,
-                                                        bufferSize, 
-                                                        rejectStatusList,
-                                                        remainingRetries,
-                                                        numParallelWorkers, 
-                                                        dir);    
+        return (dir == null) ? new TransientHttpSink(client,                 // queries will be stored in-memory only      
+                                                     target, 
+                                                     method, 
+                                                     bufferSize, 
+                                                     rejectStatusList, 
+                                                     retryDelays,
+                                                     numParallelWorkers)               
+                             : new PersistentHttpSink(client,                // queries will be stored on file system as well
+                                                      target, 
+                                                      method,
+                                                      bufferSize, 
+                                                      rejectStatusList,
+                                                      retryDelays,
+                                                      numParallelWorkers, 
+                                                      dir);    
     }
 
-    
-    
-
 
     
-    static class TransientQueryQueue implements HttpSink, Metrics, Closeable {
+    static class TransientHttpSink implements HttpSink {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final ImmutableSet<Integer> rejectStatusList;
         private final Optional<Client> clientToClose;
-        protected final Client client;
-        protected final ScheduledThreadPoolExecutor executor;
-        protected final URI target;
-        protected final Method method;
-        protected final ImmutableList<Duration> remainingRetries;
+        private final Client client;
+        private final ScheduledThreadPoolExecutor executor;
+        private final URI target;
+        private final Method method;
+        private final ImmutableList<Duration> retryDelays;
+        private final Monitor monitor = new Monitor();
 
-        protected final QueryMonitor queryMonitor = new QueryMonitor();
-        
-        // statistics
-        private final MetricRegistry metrics = new MetricRegistry();
-        private final Counter success = metrics.counter("success");
-        private final Counter retries = metrics.counter("retries");
-        private final Counter discarded = metrics.counter("discarded");
-        private final Counter rejected = metrics.counter("rejected");
 
-        
-        
-        protected TransientQueryQueue(final Client client, 
-                                      final URI target, 
-                                      final Method method, 
-                                      final int bufferSize, 
-                                      final ImmutableSet<Integer> rejectStatusList,
-                                      final ImmutableList<Duration> remainingRetries, 
-                                      final int numParallelWorkers) {
+        public TransientHttpSink(final Client client, 
+                                 final URI target, 
+                                 final Method method, 
+                                 final int bufferSize, 
+                                 final ImmutableSet<Integer> rejectStatusList,
+                                 final ImmutableList<Duration> retryDelays, 
+                                 final int numParallelWorkers) {
             this.target = target;
             this.method = method;
             this.rejectStatusList = rejectStatusList;
-            this.remainingRetries = remainingRetries;
+            this.retryDelays = retryDelays;
             this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
     
             // using default client?
@@ -284,9 +272,8 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         @Override
         public void close() {
             if (isOpen.getAndSet(false)) {
-                
-                for (Query query : queryMonitor.drainRunningQueries()) {
-                    query.close();
+                for (Query query : monitor.getAll()) {
+                    query.release();
                 }
                 
                 clientToClose.ifPresent(client -> client.close());
@@ -294,380 +281,462 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             }
         }
         
-        
         @Override
         public Metrics getMetrics() {
-            return this;
+            return monitor;
         }
         
         @Override
-        public Counter getNumSuccess() {
-            return success;
-        }
-
-        @Override
-        public Counter getNumRetries() {
-            return retries;
-        }
-
-        @Override
-        public Counter getNumRejected() {
-            return rejected;
-        }
-
-        @Override
-        public Counter getNumDiscarded() {
-            return discarded;
-        }
-
-        @Override
-        public int getQueueSize() {
-            return queryMonitor.size();
+        public CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
+            return Query.openAsync(client, 
+                                   target, 
+                                   method, 
+                                   Entity.entity(entity, mediaType),
+                                   rejectStatusList,
+                                   retryDelays,
+                                   executor,
+                                   monitor)
+                        .thenApply(query -> (Submission) query);
         }
         
+        
         @Override
-        public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            final Query query = newQuery(entity, mediaType, queryMonitor);
-            LOG.debug("submitting query " + query.getId() + " " + query);
-            return submitAsync(query);
+        public String toString() {
+            return method + " " + target + "\r\n" + getMetrics();
         }
+ 
         
-        private Query newQuery(final Object entity, final String mediaType, final QueryLifeClyceListener lifeClyceListener) {
-            final Query query = new Query(target, method, Entity.entity(entity, mediaType), remainingRetries, lifeClyceListener);
-            return query;
-        }
-        
-        protected CompletableFuture<Submission> submitAsync(final Query query) {
-            if (!isOpen()) {
-                throw new IllegalStateException("queue is alreday closed. query " + query.getId() + " will not enqueued");
+        static final class Monitor implements Metrics, QueryLifeClyceListener {
+            private final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
+            private final MetricRegistry metrics = new MetricRegistry();
+            private final Counter success = metrics.counter("success");
+            private final Counter retries = metrics.counter("retries");
+            private final Counter discarded = metrics.counter("discarded");
+            private final Counter rejected = metrics.counter("rejected");
+
+            public void incSuccess() {
+                success.inc();
             }
             
-            return query.executeWith(client)
-                        .thenApply(Void -> {      
-                                                  // success   
-                                                  success.inc();
-                                                  return (Submission) query;
-                                           })
-                        .exceptionally(error -> {
-                                                  // error
-                                                  LOG.warn("query " + query.getId() + " failed: " + query);
-
-                                                  // rejecting error?
-                                                  if (rejectStatusList.contains(readAssociatedStatus(error))) {
-                                                      LOG.debug("got client error for query " + query.getId() + " completing exceptionally", error);
-                                                      rejected.inc();
-                                                      throw Exceptions.propagate(error);                                        
-                                                  // ..no     
-                                                  } else {
-                                                      tryReschedule(query);
-                                                      return (Submission) query;
-                                                }
-                                    });
-        }
-        
-        void tryReschedule(final Query query) {
-            final Optional<Duration> nextExecutionDelay = query.getNextExecutionDelay();
-
-            // retries left?
-            if (nextExecutionDelay.isPresent()) {
-                LOG.debug("will retry query " + query.getId() + " after " + nextExecutionDelay.get());
-
-                final Runnable delayedTask = () -> {
-                                                    submitAsync(query).thenAccept(submission -> LOG.debug("retry for query " + query.getId() + " was " +
-                                                                                                          ((submission.getState() == Submission.State.COMPLETED) ? "" : "not ") + 
-                                                                                                          "succesfully"));
-                                                    query.removeNextExecutionDelay();  // query has been submitted -> decrement retries    
-                                                    retries.inc();
-                };
-                executor.schedule(delayedTask, nextExecutionDelay.get().toMillis(), TimeUnit.MILLISECONDS);                
-               
-            // no 
-            } else {
-                discarded.inc();
-            }            
-        }
-        
-        private static int readAssociatedStatus(final Throwable t) { 
-            final Throwable error = Exceptions.unwrap(t);
-            return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
-                                                              : 500;
-        }        
-
-        
-        private static class QueryMonitor implements QueryLifeClyceListener { 
-            private final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
+            @Override
+            public Counter getNumSuccess() {
+                return success;
+            }
+            
+            public void incRetry() {
+                retries.inc();
+            }
 
             @Override
-            public void onOpened(Query query) {
+            public Counter getNumRetries() {
+                return retries;
+            }
+            
+            public void incReject() {
+                rejected.inc();
+            }
+
+            @Override
+            public Counter getNumRejected() {
+                return rejected;
+            }
+
+            public void incDiscard() {
+                discarded.inc();
+            }
+            
+            @Override
+            public Counter getNumDiscarded() {
+                return discarded;
+            }
+            
+            @Override
+            public int getNumPending() {
+                return getAll().size();
+            }
+            
+            
+            @Override
+            public void onAcquired(Query query) {
                 synchronized (this) {
                     runningQuery.add(query);
                 }
             }
             
             @Override
-            public void onClosed(Query query) {
+            public void onReleased(Query query) {
                 synchronized (this) {
                     runningQuery.remove(query);
                 }
             }
-            
-            public int size() {
-                return runningQuery.size();
-            }
 
-            public ImmutableList<Query> drainRunningQueries() {
-                ImmutableList<Query> pendings;
+            public ImmutableSet<Query> getAll() {
+                ImmutableSet<Query> runnings;
                 synchronized (this) {
-                    pendings = ImmutableList.copyOf(runningQuery);
-                    runningQuery.clear();
+                    runnings = ImmutableSet.copyOf(runningQuery);
                 }
-                return pendings;
+                return runnings;
+            }
+            
+            @Override
+            public String toString() {
+                return new StringBuilder().append("panding=" + getNumPending())
+                                          .append("success=" + getNumSuccess().getCount())
+                                          .append("retries=" + getNumRetries().getCount())
+                                          .append("discarded=" + getNumDiscarded().getCount())
+                                          .append("rejected=" + getNumRejected().getCount())
+                                          .toString();
             }
         }
-        
                 
-        
-        protected static interface QueryLifeClyceListener {
+
+        public static interface QueryLifeClyceListener {
+                
+            void onAcquired(Query query);
             
-            void onOpened(Query query);
-            
-            void onClosed(Query query);
+            void onReleased(Query query);
         }
 
-        
         
         protected static class Query implements Submission {
-            protected final String id;
+            protected final Client client;
+            private final String id;
             protected final Method method;
-            protected final URI target;
-            protected final Entity<?> entity;
-            protected final AtomicReference<HttpSink.Submission.State> stateRef = new AtomicReference<>(HttpSink.Submission.State.PENDING);
-            protected final AtomicReference<ImmutableList<Duration>> remainingRetrysRef;
+            private final URI target;
+            private final Entity<?> entity;
+            private final AtomicReference<HttpSink.Submission.State> stateRef = new AtomicReference<>(HttpSink.Submission.State.PENDING);
+            private final ImmutableSet<Integer> rejectStatusList;
+            private final ScheduledThreadPoolExecutor executor;
+            private final ImmutableList<Duration> retryDelays;
+            private final AtomicInteger numRetries;
             
-            private final QueryLifeClyceListener lifeClyceListener;
+            protected final Monitor monitor;
+          
             
-            public Query(final URI target, 
-                         final Method method, 
-                         final Entity<?> entity,
-                         final ImmutableList<Duration> remainingRetrys,
-                         final QueryLifeClyceListener lifeClyceListener) {
-                this(UUID.randomUUID().toString(), target, method, entity, remainingRetrys, lifeClyceListener);
-            }
-            
-            protected Query(final String id,
+            protected Query(final Client client,
+                            final String id,
                             final URI target, 
                             final Method method,    
                             final Entity<?> entity,
-                            final ImmutableList<Duration> remainingRetrys,
-                            final QueryLifeClyceListener lifeClyceListener) {
+                            ImmutableSet<Integer> rejectStatusList,
+                            final ImmutableList<Duration> retryDelays,
+                            final int numRetries,
+                            final ScheduledThreadPoolExecutor executor,
+                            final Monitor monitor) {
                 Preconditions.checkNotNull(id);
                 Preconditions.checkNotNull(target);
                 Preconditions.checkNotNull(method);
                 Preconditions.checkNotNull(entity);
                 
+                this.client = client;
                 this.id = id;
                 this.target = target;
                 this.method = method;
                 this.entity = entity;
-                this.remainingRetrysRef = new AtomicReference<>(remainingRetrys);
-                this.lifeClyceListener = lifeClyceListener;
+                this.retryDelays = retryDelays;
+                this.numRetries = new AtomicInteger(numRetries); 
+                this.rejectStatusList = rejectStatusList;
+                this.executor = executor;
+                this.monitor = monitor;
                 
-                lifeClyceListener.onOpened(this);
+                monitor.onAcquired(this);
             }
 
+            public static CompletableFuture<Query> openAsync(final Client client,
+                                                             final URI target, 
+                                                             final Method method,    
+                                                             final Entity<?> entity,
+                                                             final ImmutableSet<Integer> rejectStatusList,
+                                                             final ImmutableList<Duration> remainingRetrys,
+                                                             final ScheduledThreadPoolExecutor executor,
+                                                             final Monitor monitor) {
+                final Query query = new Query(client, 
+                                              UUID.randomUUID().toString(), 
+                                              target, 
+                                              method, 
+                                              entity,
+                                              rejectStatusList,
+                                              remainingRetrys,
+                                              0,
+                                              executor,
+                                              monitor);
+                
+                LOG.debug("submitting " + query);
+                return query.process();
+            }
+            
             public String getId() {
                 return id;
             }
-            
+
             @Override
             public State getState() {
                 return stateRef.get();
             }
             
-            Optional<Duration> getNextExecutionDelay() {
-                final ImmutableList<Duration> remaingDelays = remainingRetrysRef.get();
-                if (remaingDelays.isEmpty()) {
-                    return Optional.empty();
-                } else {
-                    return Optional.of(remaingDelays.get(0));
+            private void updateState(State newState) {
+                stateRef.set(newState);
+                
+                if ((newState == State.COMPLETED) || (newState == State.DISCARDED)) {
+                    setNumRetries(Integer.MAX_VALUE);
+                }
+            }
+
+            protected void setNumRetries(int num) {
+                numRetries.set(num);
+                
+                if (!isRetriesLeft()) {
+                    release();
                 }
             }
             
-            boolean removeNextExecutionDelay() {
-                final ImmutableList<Duration> remaingDelays = remainingRetrysRef.get();
-                if (remaingDelays.isEmpty()) {
-                    return false;
-                } else {
-                    final ImmutableList<Duration> remainingRetrys = remainingRetrysRef.get();
-                    updateRemaingDelays(remainingRetrys.subList(1, remainingRetrys.size()));
-                    return true;
-                }
+            protected boolean isRetriesLeft() {
+                return (numRetries.get() < retryDelays.size());
             }
             
-            public CompletableFuture<Void> executeWith(Client client) {
+            public void terminate() {
+                updateState(State.DISCARDED);
+            }
+
+            private void completed() {
+                updateState(State.COMPLETED);
+            }
+
+            protected void release() {
+                monitor.onReleased(this);
+            }             
+            
+            @Override
+            public String toString() {
+                return getId() + " - " + method + " " + target;
+            }
+            
+            protected CompletableFuture<Query> process() {
                 final ResponseHandler responseHandler = new ResponseHandler();
 
-                try {
-                    final Builder builder = client.target(target).request();
-                    if (method == Method.POST) {
-                        builder.async().post(entity, responseHandler);
-                    } else {
-                        builder.async().put(entity, responseHandler);
+                if (getState() == State.PENDING) {
+                    try {
+                        final Builder builder = client.target(target).request();
+                        if (method == Method.POST) {
+                            builder.async().post(entity, responseHandler);
+                        } else {
+                            builder.async().put(entity, responseHandler);
+                        }
+                    } catch (RuntimeException rt) {
+                        responseHandler.failed(rt);
                     }
-                } catch (RuntimeException rt) {
-                    responseHandler.failed(rt);
+                    
+                } else {
+                    responseHandler.failed(new IllegalStateException("query in state " + getState()));
                 }
-
+                
                 return responseHandler;
             }
 
-            private final class ResponseHandler extends CompletableFuture<Void> implements InvocationCallback<String> {
-
+            private final class ResponseHandler extends CompletableFuture<Query> implements InvocationCallback<String> {
+             
                 @Override
                 public void failed(final Throwable ex) {
-                    
-                    // no retries left?
-                    if (!getNextExecutionDelay().isPresent()) {
-                        LOG.warn("no retries left for " + getId() + " discarding query");
-                        updateState(HttpSink.Submission.State.DISCARDED);
-                    }
-
                     final Throwable error;
                     if (ex instanceof ResponseProcessingException) {
                         error = ((ResponseProcessingException) ex).getCause();
                     } else {
                         error = ex;
                     }
-                    completeExceptionally(error);
+
+                    LOG.debug("query " + getId() + " failed.", error);
+                    
+                    // rejecting error?
+                    if (rejectStatusList.contains(readAssociatedStatus(error))) {
+                        LOG.warn("rejecting query " + Query.this);
+
+                        monitor.incReject();
+                        terminate();
+                        
+                        completeExceptionally(error);
+                        
+                    // ..no     
+                    } else {
+
+                        // retries left?
+                        boolean isRescheduled = tryReschedule();
+                        if (isRescheduled) {
+                            complete(Query.this);
+                            
+                        // .. no
+                        } else {
+                            completeExceptionally(error);
+                        }
+                    }
                 }
 
                 @Override
                 public void completed(String responseEntity) {
-                    updateState(State.COMPLETED);
-                    complete(null);
+                    LOG.debug("query " + getId() + " executed successfully");
+                    Query.this.completed();
+                    monitor.incSuccess();
+
+                    complete(Query.this);
                 }
             }
             
-            private void updateState(State newState) {
-                if ((newState == State.COMPLETED) || (newState == State.DISCARDED)) {
-                    updateRemaingDelays(ImmutableList.of());
-                }
+            private static int readAssociatedStatus(final Throwable t) { 
+                final Throwable error = Exceptions.unwrap(t);
+                return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
+                                                                  : 500;
+            }
+            
+            
+            protected boolean tryReschedule() {
                 
-                stateRef.set(newState);
-            }
+                if (isRetriesLeft()) {
+                    final int pos = numRetries.get();
+                    final Duration delay = retryDelays.get(pos);
+                    LOG.debug("enqueue query " + getId() + " for retry (" + (pos + 1) + " of " + retryDelays.size() + ") after " + delay);
 
-            protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
-                remainingRetrysRef.set(newRemainingRetrys);
-                if (newRemainingRetrys.isEmpty()) {
-                    close();
+                    final Runnable delayedTask = () -> {
+                                                        LOG.debug("performing retry (" + (pos + 1) + " of " + retryDelays.size() + ") query  " + getId());
+                                                        monitor.incRetry();                            
+                                                        setNumRetries(pos + 1); 
+                                                        process();
+                    };
+                    executor.schedule(delayedTask, delay.toMillis(), TimeUnit.MILLISECONDS);          
+                    return true;
+                    
+                } else {
+                    LOG.debug("no retries left " + getId());
+                    monitor.incDiscard();
+                    terminate();
+
+                    return false;
                 }
             }
-
-            protected void close() { 
-                lifeClyceListener.onClosed(this);
-            }             
         }
     }
 
+
+
     
-    
-    
-    static final class PersistentQueryQueue extends TransientQueryQueue {
-        private final File dir;
+    static final class PersistentHttpSink extends TransientHttpSink {
+        private final File queryDir;
         
-        public PersistentQueryQueue(final Client client, 
-                                    final URI target, 
-                                    final Method method, 
-                                    final int bufferSize,  
-                                    final ImmutableSet<Integer> rejectStatusList,
-                                    final ImmutableList<Duration> remainingRetries, 
-                                    final int numParallelWorkers,
-                                    final File dir) {
-            
-            super(client, target, method, bufferSize, rejectStatusList, remainingRetries, numParallelWorkers);
-            this.dir = dir;
+        public PersistentHttpSink(final Client client, 
+                                  final URI target, 
+                                  final Method method, 
+                                  final int bufferSize,  
+                                  final ImmutableSet<Integer> rejectStatusList,
+                                  final ImmutableList<Duration> remainingRetries, 
+                                  final int numParallelWorkers,
+                                  final File dir) {
+            super(client, 
+                  target, 
+                  method, 
+                  bufferSize,
+                  rejectStatusList,
+                  remainingRetries, 
+                  numParallelWorkers);
+            this.queryDir = createQueryDir(dir, method, target);
+
+            // create dir if not already exists
+            queryDir.mkdirs();
+            if (!queryDir.exists()) {
+                throw new RuntimeException("could not create query dir " + dir.getAbsolutePath());
+            }           
             
             // looks for old jobs and process it
             readUnlockedPersistentJobs().forEach(query -> tryReschedule(query));            
         }
         
+        static File createQueryDir(final File dir, final Method method, final URI target) {
+            return new File(dir, method + "_" + Base64.getEncoder().encodeToString(target.toString().getBytes(Charsets.UTF_8)).replace("=", ""));
+        }
+        
         private ImmutableList<PersistentQuery> readUnlockedPersistentJobs() {
-            return ImmutableList.copyOf(dir.listFiles())
+            return ImmutableList.copyOf(queryDir.listFiles())
                                 .stream()
                                 .filter(file -> file.getName().endsWith(".query"))
-                                .map(file -> PersistentQuery.tryReadFrom(file, queryMonitor))
+                                .map(file -> PersistentQuery.tryReadFrom(file, super.client, super.executor, super.monitor))
                                 .filter(optionalQuery -> optionalQuery.isPresent())
                                 .map(optionalQuery -> optionalQuery.get())
                                 .collect(Immutables.toList());
+        } 
+        
+        private final void tryReschedule(PersistentQuery query) {
+            LOG.warn("found uncompleted persistent query " + query.getId() + " try to rescheduling it");
+            query.tryReschedule();
+        }
+   
+        public File getQueryDir() {
+            return queryDir;
         }
         
         @Override
-        public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            // Currently, persistent query supports json only
-            if (!(mediaType.startsWith("application") && mediaType.endsWith("json"))) {
-                throw new IllegalStateException("persistent retry supports JSON types only");
-            }
-
-            final Query query = newQuery(entity, mediaType, queryMonitor);
-            LOG.debug("submitting persistent query " + query.getId() + " " + query);
-
-            return submitAsync(query);
-        }
+        public CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
+            return PersistentQuery.openAsync(super.client, 
+                                             super.target, 
+                                             super.method, 
+                                             Entity.entity(entity, mediaType),
+                                             super.rejectStatusList,
+                                             super.retryDelays,
+                                             super.executor,
+                                             super.monitor,
+                                             queryDir)
+                                  .thenApply(query -> (Submission) query);
+        }    
         
-        private Query newQuery(final Object entity, final String mediaType, final QueryLifeClyceListener lifeClyceListener) {
-            final Query query = new PersistentQuery(target, method, Entity.entity(entity, mediaType), remainingRetries, dir, lifeClyceListener);
-            return query;
-        }
-
-        static final class PersistentQuery extends Query {
-            private final File queryFile;
-            private final RandomAccessFile raf;
-            private final FileChannel channel;
-            private final Writer writer;
+        static class PersistentQuery extends Query {
+            private final FileRef fileRef;
 
             
-            private PersistentQuery(final String id,
-                                    final File queryFile, 
-                                    final RandomAccessFile raf, 
-                                    final FileChannel channel, 
-                                    final Writer writer, 
+            private PersistentQuery(final Client client, 
+                                    final String id,
                                     final URI target, 
                                     final Method method, 
                                     final Entity<?> entity, 
-                                    final ImmutableList<Duration> remainingRetrys,
-                                    final QueryLifeClyceListener lifeClyceListener) throws IOException {
-                super(id, target, method, entity, remainingRetrys, lifeClyceListener);
+                                    final ImmutableSet<Integer> rejectStatusList,
+                                    final ImmutableList<Duration> retryDelays,
+                                    final int numRetries,
+                                    final ScheduledThreadPoolExecutor executor,
+                                    final Monitor monitor,
+                                    final FileRef fileRef) {
+                super(client, 
+                      id, 
+                      target, 
+                      method,
+                      entity, 
+                      rejectStatusList,
+                      retryDelays,
+                      numRetries,
+                      executor,
+                      monitor);
                 
-                Preconditions.checkNotNull(queryFile);
-                Preconditions.checkState(channel.isOpen());
-                
-                this.queryFile = queryFile;
-                this.raf = raf;
-                this.channel = channel;
-                this.writer = writer;
+                this.fileRef = fileRef;
             }
-            
-            
-            public PersistentQuery(final URI target, 
-                                   final Method method, 
-                                   final Entity<?> entity, 
-                                   final ImmutableList<Duration> remainingRetrys, 
-                                   final File dir,
-                                   final QueryLifeClyceListener lifeClyceListener) {
-                super(target, method, entity, remainingRetrys, lifeClyceListener);
-                
-                /*
-                 * By creating a new persistent query file a file lock will be acquired and not been released
-                 * until query is completed! This avoids concurrent handling of the same queue (file).
-                 */
-                
-                try {
-                    queryFile = new File(dir.getCanonicalFile(), UUID.randomUUID().toString() + ".query");
-                    raf = new RandomAccessFile(queryFile, "rw");
-                    channel = raf.getChannel();
-                    channel.lock();                           
-                    writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
 
+            protected PersistentQuery(final Client client, 
+                                      final String id,
+                                      final URI target, 
+                                      final Method method, 
+                                      final Entity<?> entity, 
+                                      final ImmutableSet<Integer> rejectStatusList,
+                                      final ImmutableList<Duration> retryDelays,
+                                      final int numRetries,
+                                      final ScheduledThreadPoolExecutor executor,
+                                      final Monitor monitor,
+                                      final File queryDir) throws IOException {
+                this(client, 
+                     id, 
+                     target, 
+                     method,
+                     entity, 
+                     rejectStatusList,
+                     retryDelays,
+                     numRetries,
+                     executor,
+                     monitor,
+                     new FileRef(queryDir, UUID.randomUUID().toString()));
+             
+                try {
                     final ByteArrayOutputStream bos = new ByteArrayOutputStream();
                     new ObjectMapper().writeValue(bos, entity.getEntity());
                     
@@ -678,127 +747,216 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                .with("target", target.toString())
                                .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
                                .with("retries", Joiner.on("&")
-                                                      .join(remainingRetrys.stream()
-                                                                           .map(duration -> duration.toMillis())
-                                                                           .collect(Immutables.toList())))
-                               .writeTo(writer);
+                                                      .join(retryDelays.stream()
+                                                                       .map(duration -> duration.toMillis())
+                                                                       .collect(Immutables.toList())))
+                               .with("numRetries", numRetries)
+                               .with("rejectStatusList", Joiner.on("&").join(rejectStatusList))
+                               .writeTo(this.fileRef.getWriter());
+                    
+                    LOG.debug("persistent query " + getId() + " save on disc (with pendding lock) " + fileRef.getQueryFile().getAbsolutePath());
                     
                 } catch (IOException ioe) {
                     throw new RuntimeException(ioe);
                 }
-            }
-            
-            
-            public File getQueryFile() {
-                return queryFile;
-            }
-            
-            @Override
-            protected void updateRemaingDelays(ImmutableList<Duration> newRemainingRetrys) {
-                try {
-                    MapEncoding.create()
-                               .with("retries", Joiner.on("&").join(newRemainingRetrys.stream().map(duration -> duration.toMillis()).collect(Immutables.toList()))) 
-                               .writeTo(writer);
-                } catch (RuntimeException rt) {
-                    LOG.warn("could not update remaining delays of " + getId() + "  with " + newRemainingRetrys, rt);
-                }
-
-                super.updateRemaingDelays(newRemainingRetrys);
-            }
+            } 
 
             
-            @Override
-            protected void close() {
-                try {
-                    if (channel.isOpen()) {
-                        // by closing the file handles the lock will be released
-                        Closeables.close(writer, true);
-                        Closeables.close(channel, true);
-                        Closeables.close(raf, true);
-
-                        if (remainingRetrysRef.get().isEmpty()) {
-                            queryFile.delete();
-                        }
-                    }
-                    
-                    super.close();
-
-                } catch (IOException ioe) {
-                    throw new RuntimeException(ioe);
-                }
-            }
-
-            public static Optional<PersistentQuery> tryReadFrom(final File queryFile, final QueryLifeClyceListener lifeClyceListener) {
-                RandomAccessFile raf = null;
-                FileChannel channel = null;
-               
+            public static Optional<PersistentQuery> tryReadFrom(final File queryFile, 
+                                                                final Client client,    
+                                                                final ScheduledThreadPoolExecutor executor,  
+                                                                final Monitor monitor) {
+                
                 /*
                  * By deserializing the underlying query file a file lock will be acquired 
                  * and not been released until query is completed!
                  * This avoids concurrent handling of the same queue (file).
                  */
-                
+
+                FileRef fileRef = null;
                 try {
-                    raf = new RandomAccessFile(queryFile, "rw");
-                    channel = raf.getChannel();
-                    
-                    // is already locked?
-                    if (channel.tryLock() == null) {
-                        LOG.debug("query file " + queryFile.getAbsolutePath() + " is locked. ignoring it");
-                        raf.close();
-                        return Optional.empty();
+                    fileRef = new FileRef(queryFile);
                         
-                        
-                    // no, go ahead by deserializing it
-                    } else {
-                        final LineNumberReader reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
-                        final Writer writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
-                        
-                        final MapEncoding protocol = MapEncoding.readFrom(reader);
-                        final String id = protocol.get("id");
-                        final Method method = protocol.get("method", txt -> Method.valueOf(txt));
-                        final URI target = protocol.get("target", txt -> URI.create(txt));
-                        final MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
-                        final byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
-                        final ImmutableList<Duration> retries = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
+                    final MapEncoding protocol = MapEncoding.readFrom(fileRef.getReader());
+                    final String id = protocol.get("id");
+                    final Method method = protocol.get("method", txt -> Method.valueOf(txt));
+                    final URI target = protocol.get("target", txt -> URI.create(txt));
+                    final MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
+                    final byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
+                    final ImmutableList<Duration> retryDelays = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
                                                                                                                           : Splitter.on("&")
                                                                                                                                     .trimResults()
                                                                                                                                     .splitToList(txt)
                                                                                                                                     .stream()
-                                                                                                                                    .map(milisString -> Duration.ofMillis(Long.parseLong(milisString)))
-                                                                                                                                    .collect(Immutables.<Duration>toList()));        
-                        // no retries left?
-                        if (retries.isEmpty()) {
-                            LOG.warn("deleting expired query file " + queryFile);
-                            raf.close();
-                            queryFile.delete();
-                            return Optional.empty();
-                        
-                        // retries are available; return query (lock will not been released to avoid parallel processing of the query file) 
-                        } else {
-                            return Optional.of(new PersistentQuery(id,  
-                                                                   queryFile,
-                                                                   raf, 
-                                                                   channel, 
-                                                                   writer,
-                                                                   target,
-                                                                   method, 
-                                                                   Entity.entity(data, mediaType),
-                                                                   retries, 
-                                                                   lifeClyceListener));
-                        }
+                                                                                                                                    .map(millis -> Duration.ofMillis(Long.parseLong(millis)))
+                                                                                                                                    .collect(Immutables.toList()));
+                    final int numRetries = protocol.getInt("numRetries");
+                    final ImmutableSet<Integer> rejectStatusList = Splitter.on("&")
+                                                                           .trimResults()
+                                                                           .splitToList(protocol.get("rejectStatusList"))
+                                                                           .stream()
+                                                                           .map(status -> Integer.parseInt(status))
+                                                                           .collect(Immutables.toSet());
+                    
+                    // no retries left?
+                    if (numRetries >= retryDelays.size()) {
+                        LOG.warn("No retries left. deleting expired query file " + queryFile);
+                        fileRef.delete();
+                        return Optional.empty();
+                    
+                    // retries are available; return query (lock will not been released to avoid parallel processing of the query file) 
+                    } else {
+                        return Optional.of(new PersistentQuery(client, 
+                                                               id, 
+                                                               target, 
+                                                               method, 
+                                                               Entity.entity(data, mediaType), 
+                                                               rejectStatusList, 
+                                                               retryDelays, 
+                                                               numRetries,
+                                                               executor, 
+                                                               monitor, 
+                                                               fileRef));  
                     }
+                    
                 } catch (IOException | RuntimeException e) {
-                    LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be corrupt. ignoring it");
-                    try {
-                        Closeables.close(channel, true);
-                        Closeables.close(raf, true);
-                    } catch (IOException ignore) { }
+                    LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be logged or corrupt. ignoring it");
+                    if (fileRef != null) {
+                        fileRef.close();
+                    }
+                    
                     return Optional.empty();
                 }
             }
-        }
-        
+            
+            
+            private static final class FileRef implements Closeable {
+                private final File queryFile;
+                private final RandomAccessFile raf;
+                private final FileChannel channel;
+                private final Writer writer;
+                private final LineNumberReader reader;
+                
+                FileRef(final File dir, final String id) throws IOException {
+                    this(new File(dir.getCanonicalFile(), id + ".query"));
+                }
+                
+                FileRef(final File queryFile) throws IOException {
+                    /*
+                     * By creating a new persistent query file a file lock will be acquired and not been released
+                     * until query is completed! This avoids concurrent handling of the same queue (file).
+                     */
+                    
+                    this.queryFile = queryFile;
+                    this.raf = new RandomAccessFile(queryFile, "rw");
+                    this.channel = raf.getChannel();
+                    
+                    if (channel.tryLock() == null) {
+                        throw new IOException("query file " + queryFile.getAbsolutePath() + " locked by another process");
+                    }
+                    
+                    this.writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
+                    this.reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
+                }
+                
+                public Writer getWriter() {
+                    return writer;
+                }
+                
+                public LineNumberReader getReader() {
+                    return reader;
+                }
+                
+                public File getQueryFile() {
+                    return queryFile;
+                }
+                
+                @Override
+                public void close() {
+                    if (channel.isOpen()) {
+                        // by closing the file handles the lock will be released
+                        try {
+                            Closeables.close(writer, true);
+                            Closeables.close(reader, true);
+                            Closeables.close(channel, true);
+                            Closeables.close(raf, true);
+                        } catch (IOException ioe) {
+                            LOG.debug("error occured by closing query file " + queryFile.getAbsolutePath(), ioe);
+                        }
+                    }
+                }     
+                
+                public boolean delete() {
+                    close();
+                    return queryFile.delete();
+                }
+            }
+            
+            
+            public static CompletableFuture<Query> openAsync(final Client client,
+                                                             final URI target, 
+                                                             final Method method,    
+                                                             final Entity<?> entity,
+                                                             final ImmutableSet<Integer> rejectStatusList,
+                                                             final ImmutableList<Duration> remainingRetrys,
+                                                             final ScheduledThreadPoolExecutor executor,
+                                                             final Monitor monitor,
+                                                             final File queryDir) {
+                try  {
+                    final PersistentQuery  query = new PersistentQuery(client,
+                                                                       UUID.randomUUID().toString(), 
+                                                                       target, 
+                                                                       method,   
+                                                                       entity,
+                                                                       rejectStatusList,
+                                                                       remainingRetrys,
+                                                                       0,
+                                                                       executor,  
+                                                                       monitor,
+                                                                       queryDir);
+
+                    LOG.debug("submitting persistent query" + query);
+                    return query.process();
+                } catch (IOException ioe) {
+                    throw new RuntimeException("could not create query file: " + ioe.getMessage());
+                }
+            }
+            
+            
+            public File getQueryFile() {
+                return fileRef.getQueryFile();
+            }
+            
+            @Override
+            protected void setNumRetries(int numRetries) {
+                try {
+                    MapEncoding.create()
+                               .with("numRetries", numRetries)
+                               .writeTo(fileRef.getWriter());
+                    
+                    LOG.debug("persistent query " + getId() + " updated (numRetries=" + numRetries + ") " + fileRef.getQueryFile().getAbsolutePath());
+                    
+                } catch (RuntimeException ignore) { }
+
+                super.setNumRetries(numRetries);
+            }
+            
+            @Override
+            protected void release() {
+                fileRef.close();
+                if (!isRetriesLeft()) {
+                    boolean isDeleted = fileRef.delete();
+                    if (isDeleted) {
+                        LOG.debug("persistent query " + getId() + " deleted " + fileRef.getQueryFile().getAbsolutePath());                            
+                    }
+                    return;
+                }
+                    
+                LOG.debug("persistent query " + getId() + " released " + fileRef.getQueryFile().getAbsolutePath());                            
+                super.release();
+            }
+        }            
+
         private static final class MapEncoding {
             private final ImmutableMap<String, String> data;
             
@@ -810,6 +968,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 return new MapEncoding(ImmutableMap.of());
             }
             
+            public MapEncoding with(String name, int value) {
+                return with(name, Integer.toString(value));
+            }
+            
             public MapEncoding with(String name, String value) {
                 if (value == null) {
                     return this;
@@ -817,7 +979,11 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                     return new MapEncoding(Immutables.join(data, name, value));
                 }
             }
-            
+
+            public int getInt(String name) {
+                return Integer.parseInt(get(name));
+            }
+
             public String get(String name) {
                 return get(name, obj -> obj.toString());
             }
@@ -862,5 +1028,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 }
             }
         }
-    }      
+    }
+    
+   
 }

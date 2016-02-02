@@ -136,98 +136,6 @@ class TransientHttpSink implements HttpSink {
     }
 
     
-    static final class Monitor implements Metrics, QueryLifeClyceListener {
-        private final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
-        private final MetricRegistry metrics = new MetricRegistry();
-        private final Counter success = metrics.counter("success");
-        private final Counter retries = metrics.counter("retries");
-        private final Counter discarded = metrics.counter("discarded");
-        private final Counter rejected = metrics.counter("rejected");
-
-        public void incSuccess() {
-            success.inc();
-        }
-        
-        @Override
-        public Counter getNumSuccess() {
-            return success;
-        }
-        
-        public void incRetry() {
-            retries.inc();
-        }
-
-        @Override
-        public Counter getNumRetries() {
-            return retries;
-        }
-        
-        public void incReject() {
-            rejected.inc();
-        }
-
-        @Override
-        public Counter getNumRejected() {
-            return rejected;
-        }
-
-        public void incDiscard() {
-            discarded.inc();
-        }
-        
-        @Override
-        public Counter getNumDiscarded() {
-            return discarded;
-        }
-        
-        @Override
-        public int getNumPending() {
-            return getAll().size();
-        }
-        
-        
-        @Override
-        public void onAcquired(Query query) {
-            synchronized (this) {
-                runningQuery.add(query);
-            }
-        }
-        
-        @Override
-        public void onReleased(Query query) {
-            synchronized (this) {
-                runningQuery.remove(query);
-            }
-        }
-
-        public ImmutableSet<Query> getAll() {
-            ImmutableSet<Query> runnings;
-            synchronized (this) {
-                runnings = ImmutableSet.copyOf(runningQuery);
-            }
-            return runnings;
-        }
-        
-        @Override
-        public String toString() {
-            return new StringBuilder().append("panding=" + getNumPending())
-                                      .append("success=" + getNumSuccess().getCount())
-                                      .append("retries=" + getNumRetries().getCount())
-                                      .append("discarded=" + getNumDiscarded().getCount())
-                                      .append("rejected=" + getNumRejected().getCount())
-                                      .toString();
-        }
-    }
-            
-
-    public static interface QueryLifeClyceListener {
-            
-        void onAcquired(Query query);
-        
-        void onReleased(Query query);
-    }
-
-    
     protected static class Query implements Submission {
         protected final Client client;
         private final String id;
@@ -248,7 +156,7 @@ class TransientHttpSink implements HttpSink {
                         final URI target, 
                         final Method method,    
                         final Entity<?> entity,
-                        ImmutableSet<Integer> rejectStatusList,
+                        final ImmutableSet<Integer> rejectStatusList,
                         final ImmutableList<Duration> retryDelays,
                         final int numRetries,
                         final ScheduledThreadPoolExecutor executor,
@@ -340,6 +248,7 @@ class TransientHttpSink implements HttpSink {
             return responseHandler;
         }
 
+        
         private final class ResponseHandler extends CompletableFuture<Query> implements InvocationCallback<String> {
          
             @Override
@@ -402,11 +311,11 @@ class TransientHttpSink implements HttpSink {
                 LOG.debug("enqueue query " + getId() + " for retry (" + (pos + 1) + " of " + retryDelays.size() + ") after " + delay);
 
                 final Runnable delayedTask = () -> {
-                                                    LOG.debug("performing retry (" + (pos + 1) + " of " + retryDelays.size() + ") query  " + getId());
-                                                    monitor.incRetry();                            
-                                                    setNumRetries(pos + 1); 
-                                                    process();
-                };
+                                                     LOG.debug("performing retry (" + (pos + 1) + " of " + retryDelays.size() + ") query  " + getId());
+                                                     monitor.incRetry();                            
+                                                     setNumRetries(pos + 1); 
+                                                     process();
+                                                   };
                 executor.schedule(delayedTask, delay.toMillis(), TimeUnit.MILLISECONDS);          
                 return true;
                 
@@ -417,6 +326,89 @@ class TransientHttpSink implements HttpSink {
 
                 return false;
             }
+        }
+    }
+    
+    
+   
+    
+    protected static final class Monitor implements Metrics {
+        private final Set<Query> runningQuery = Collections.newSetFromMap(new WeakHashMap<Query, Boolean>());
+        private final MetricRegistry metrics = new MetricRegistry();
+        private final Counter success = metrics.counter("success");
+        private final Counter retries = metrics.counter("retries");
+        private final Counter discarded = metrics.counter("discarded");
+        private final Counter rejected = metrics.counter("rejected");
+
+        public void incSuccess() {
+            success.inc();
+        }
+        
+        @Override
+        public Counter getNumSuccess() {
+            return success;
+        }
+        
+        public void incRetry() {
+            retries.inc();
+        }
+
+        @Override
+        public Counter getNumRetries() {
+            return retries;
+        }
+        
+        public void incReject() {
+            rejected.inc();
+        }
+
+        @Override
+        public Counter getNumRejected() {
+            return rejected;
+        }
+
+        public void incDiscard() {
+            discarded.inc();
+        }
+        
+        @Override
+        public Counter getNumDiscarded() {
+            return discarded;
+        }
+        
+        @Override
+        public int getNumPending() {
+            return getAll().size();
+        }
+        
+        public void onAcquired(Query query) {
+            synchronized (this) {
+                runningQuery.add(query);
+            }
+        }
+        
+        public void onReleased(Query query) {
+            synchronized (this) {
+                runningQuery.remove(query);
+            }
+        }
+
+        public ImmutableSet<Query> getAll() {
+            ImmutableSet<Query> runnings;
+            synchronized (this) {
+                runnings = ImmutableSet.copyOf(runningQuery);
+            }
+            return runnings;
+        }
+        
+        @Override
+        public String toString() {
+            return new StringBuilder().append("panding=" + getNumPending())
+                                      .append("success=" + getNumSuccess().getCount())
+                                      .append("retries=" + getNumRetries().getCount())
+                                      .append("discarded=" + getNumDiscarded().getCount())
+                                      .append("rejected=" + getNumRejected().getCount())
+                                      .toString();
         }
     }
 }

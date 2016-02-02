@@ -53,11 +53,11 @@ import com.google.common.io.Files;
 import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink;
+import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.PersistentHttpSink;
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilderImpl.TransientHttpSink.Monitor;
 import net.oneandone.incubator.neotest.WebServer;
+
+import net.oneandone.incubator.neo.http.sink.TransientHttpSink.Monitor;
 
 
 

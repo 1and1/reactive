@@ -27,7 +27,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import net.oneandone.incubator.neo.http.sink.HttpSinkBuilder.Method;
 
 
 public interface HttpSink extends BiConsumer<Object, String>, Closeable {
@@ -38,6 +37,10 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
     public static ImmutableSet<Integer> DEFAULT_REJECTSTATUS_LIST = ImmutableSet.of(400, 403, 405, 406, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417);
     public static ImmutableList<Duration> DEFAULT_RETRY_PAUSES = ImmutableList.of();
     public static int DEFAULT_PARALLELITY = 1;
+    
+    public enum Method {
+        POST, PUT
+    };
     
     
     @Override

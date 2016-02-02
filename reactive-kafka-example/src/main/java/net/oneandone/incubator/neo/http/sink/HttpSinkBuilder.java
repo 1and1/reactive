@@ -24,15 +24,11 @@ import javax.ws.rs.client.Client;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
+
 
 public interface HttpSinkBuilder {
     
-    public enum Method {
-        POST, PUT
-    };
-    
-    
-
     /**
      * @param client the client to use
      * @return a new instance of the http sink

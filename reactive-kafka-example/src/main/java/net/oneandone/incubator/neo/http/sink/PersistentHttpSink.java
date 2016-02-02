@@ -115,16 +115,24 @@ final class PersistentHttpSink extends TransientHttpSink {
     
     @Override
     public CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
-        return PersistentQuery.openAsync(super.client, 
-                                         super.target, 
-                                         super.method, 
-                                         Entity.entity(entity, mediaType),
-                                         super.rejectStatusList,
-                                         super.retryDelays,
-                                         super.executor,
-                                         super.monitor,
-                                         queryDir)
-                              .thenApply(query -> (Submission) query);
+        try {
+            final PersistentQuery  query = new PersistentQuery(client,
+                                                               UUID.randomUUID().toString(), 
+                                                               target, 
+                                                               method,   
+                                                               Entity.entity(entity, mediaType),
+                                                               rejectStatusList,
+                                                               retryDelays,
+                                                               0,
+                                                               executor,  
+                                                               monitor,
+                                                               queryDir);
+    
+            LOG.debug("submitting persistent query" + query);
+            return query.process().thenApply(q -> (Submission) q);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }    
     
     static class PersistentQuery extends Query {
@@ -335,38 +343,7 @@ final class PersistentHttpSink extends TransientHttpSink {
                 return queryFile.delete();
             }
         }
-        
-        
-        public static CompletableFuture<Query> openAsync(final Client client,
-                                                         final URI target, 
-                                                         final Method method,    
-                                                         final Entity<?> entity,
-                                                         final ImmutableSet<Integer> rejectStatusList,
-                                                         final ImmutableList<Duration> remainingRetrys,
-                                                         final ScheduledThreadPoolExecutor executor,
-                                                         final Monitor monitor,
-                                                         final File queryDir) {
-            try  {
-                final PersistentQuery  query = new PersistentQuery(client,
-                                                                   UUID.randomUUID().toString(), 
-                                                                   target, 
-                                                                   method,   
-                                                                   entity,
-                                                                   rejectStatusList,
-                                                                   remainingRetrys,
-                                                                   0,
-                                                                   executor,  
-                                                                   monitor,
-                                                                   queryDir);
-
-                LOG.debug("submitting persistent query" + query);
-                return query.process();
-            } catch (IOException ioe) {
-                throw new RuntimeException("could not create query file: " + ioe.getMessage());
-            }
-        }
-        
-        
+                
         public File getQueryFile() {
             return fileRef.getQueryFile();
         }

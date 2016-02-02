@@ -114,15 +114,19 @@ class TransientHttpSink implements HttpSink {
     
     @Override
     public CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
-        return Query.openAsync(client, 
-                               target, 
-                               method, 
-                               Entity.entity(entity, mediaType),
-                               rejectStatusList,
-                               retryDelays,
-                               executor,
-                               monitor)
-                    .thenApply(query -> (Submission) query);
+        final Query query = new Query(client, 
+                                      UUID.randomUUID().toString(), 
+                                      target, 
+                                      method, 
+                                      Entity.entity(entity, mediaType),
+                                      rejectStatusList,
+                                      retryDelays,
+                                      0,
+                                      executor,
+                                      monitor);
+
+        LOG.debug("submitting " + query);
+        return query.process().thenApply(q -> (Submission) q);
     }
     
     
@@ -266,29 +270,6 @@ class TransientHttpSink implements HttpSink {
             this.monitor = monitor;
             
             monitor.onAcquired(this);
-        }
-
-        public static CompletableFuture<Query> openAsync(final Client client,
-                                                         final URI target, 
-                                                         final Method method,    
-                                                         final Entity<?> entity,
-                                                         final ImmutableSet<Integer> rejectStatusList,
-                                                         final ImmutableList<Duration> remainingRetrys,
-                                                         final ScheduledThreadPoolExecutor executor,
-                                                         final Monitor monitor) {
-            final Query query = new Query(client, 
-                                          UUID.randomUUID().toString(), 
-                                          target, 
-                                          method, 
-                                          entity,
-                                          rejectStatusList,
-                                          remainingRetrys,
-                                          0,
-                                          executor,
-                                          monitor);
-            
-            LOG.debug("submitting " + query);
-            return query.process();
         }
         
         public String getId() {

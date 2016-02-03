@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 
+import com.codahale.metrics.Counter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -96,4 +97,17 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
                                        DEFAULT_RETRY_PAUSES,
                                        DEFAULT_PARALLELITY);
     }   
+    
+    public interface Metrics {
+        
+        Counter getNumSuccess();
+
+        Counter getNumRetries();
+
+        Counter getNumRejected();
+        
+        Counter getNumDiscarded();
+
+        int getNumPending();
+    }
 }

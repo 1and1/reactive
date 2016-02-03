@@ -16,10 +16,21 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Entity;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -30,8 +41,10 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
+    private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
+    
     private final URI target;
-    private final Client client;
+    private final Client userClient;
     private final Method method;
     private final int bufferSize;
     private final File dir;
@@ -40,7 +53,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private final int numParallelWorkers;
 
     
-    HttpSinkBuilderImpl(final Client client, 
+    HttpSinkBuilderImpl(final Client userClient, 
                         final URI target, 
                         final Method method, 
                         final int bufferSize, 
@@ -48,7 +61,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                         final ImmutableSet<Integer> rejectStatusList,
                         final ImmutableList<Duration> retryDelays, 
                         final int numParallelWorkers) {
-        this.client = client;
+        this.userClient = userClient;
         this.target = target;
         this.method = method;
         this.bufferSize = bufferSize;
@@ -76,7 +89,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSinkBuilder withMethod(final Method method) {
         Preconditions.checkNotNull(method);
-        return new HttpSinkBuilderImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, method, 
                                        this.bufferSize, 
                                        this.dir,
@@ -88,7 +101,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSinkBuilder withRetryAfter(final ImmutableList<Duration> retryPauses) {
         Preconditions.checkNotNull(retryPauses);
-        return new HttpSinkBuilderImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method,
                                        this.bufferSize, 
@@ -106,7 +119,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     
     @Override
     public HttpSinkBuilder withRetryParallelity(final int numParallelWorkers) {
-        return new HttpSinkBuilderImpl(this.client,
+        return new HttpSinkBuilderImpl(this.userClient,
                                        this.target, 
                                        this.method, 
                                        this.bufferSize,
@@ -118,7 +131,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
     @Override
     public HttpSinkBuilder withRetryBufferSize(final int bufferSize) {
-        return new HttpSinkBuilderImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
                                        bufferSize, 
@@ -131,7 +144,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSinkBuilder withPersistency(final File dir) {
         Preconditions.checkNotNull(dir);
-        return new HttpSinkBuilderImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
                                        this.bufferSize, 
@@ -144,7 +157,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSinkBuilder withRejectOnStatus(final ImmutableSet<Integer> rejectStatusList) {
         Preconditions.checkNotNull(rejectStatusList);
-        return new HttpSinkBuilderImpl(this.client, 
+        return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
                                        this.bufferSize, 
@@ -159,22 +172,112 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
      * @return the sink reference
      */
     public HttpSink open() {
-
         // if dir is set, sink will run in persistent mode  
-        return (dir == null) ? new TransientHttpSink(client,                 // queries will be stored in-memory only      
-                                                     target, 
-                                                     method, 
-                                                     bufferSize, 
-                                                     rejectStatusList, 
-                                                     retryDelays,
-                                                     numParallelWorkers)               
-                             : new PersistentHttpSink(client,                // queries will be stored on file system as well
-                                                      target, 
-                                                      method,
-                                                      bufferSize, 
-                                                      rejectStatusList,
-                                                      retryDelays,
-                                                      numParallelWorkers, 
-                                                      dir);    
+        return (dir == null) ? new TransientHttpSink() : new PersistentHttpSink(); 
     }   
+    
+    
+
+    private class TransientHttpSink implements HttpSink {
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+        private final Optional<Client> clientToClose;
+        protected final Client httpClient;
+        protected final ScheduledThreadPoolExecutor executor;
+        protected final Monitor monitor = new Monitor();
+    
+    
+        public TransientHttpSink() {
+            this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
+    
+            // using default client?
+            if (userClient == null) {
+                final Client defaultClient = ClientBuilder.newClient();
+                this.httpClient = defaultClient;
+                this.clientToClose = Optional.of(defaultClient);
+                
+            // .. no client is given by user 
+            } else {
+                this.httpClient = userClient;
+                this.clientToClose = Optional.empty();
+            }
+        }
+        
+        @Override
+        public boolean isOpen() {
+            return isOpen.get();
+        }
+        
+        @Override
+        public void close() {
+            if (isOpen.getAndSet(false)) {
+                for (TransientSubmission query : monitor.getAll()) {
+                    query.release();
+                }
+                
+                clientToClose.ifPresent(c -> c.close());
+                executor.shutdown();
+            }
+        }
+        
+        @Override
+        public Metrics getMetrics() {
+            return monitor;
+        }
+        
+        @Override
+        public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
+            try {
+                final TransientSubmission query = newQuery(Entity.entity(entity, mediaType), UUID.randomUUID().toString());
+        
+                LOG.debug("submitting " + query);
+                return query.process().thenApply(q -> (Submission) q);
+            } catch (IOException ioe) {
+                final CompletableFuture<Submission> promise = new CompletableFuture<>();
+                promise.completeExceptionally(ioe);
+                return promise;
+            }
+        }
+    
+        protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
+            return new TransientSubmission(httpClient, 
+                                           id, 
+                                           target, 
+                                           method, 
+                                           entity,
+                                           rejectStatusList,
+                                           retryDelays,
+                                           0,
+                                           executor,
+                                           monitor);
+        }
+        
+        @Override
+        public String toString() {
+            return method + " " + target + "\r\n" + getMetrics();
+        }
+    }
+    
+    
+    private final class PersistentHttpSink extends TransientHttpSink {
+
+        public PersistentHttpSink() {
+            super();
+            PersistentSubmission.processOldQueryFiles(dir, method, target, httpClient, executor, monitor);
+        }
+
+        @Override
+        protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
+            return new PersistentSubmission(httpClient,
+                                            id, 
+                                            target, 
+                                            method,   
+                                            entity,
+                                            rejectStatusList,
+                                            retryDelays,
+                                            0,
+                                            executor,  
+                                            monitor,
+                                            dir);
+        }    
+    } 
 }

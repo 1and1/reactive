@@ -57,8 +57,6 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 import net.oneandone.incubator.neotest.WebServer;
 
-import net.oneandone.incubator.neo.http.sink.TransientHttpSink.Monitor;
-
 
 
 public class HttpSinkTest {
@@ -148,18 +146,15 @@ public class HttpSinkTest {
     
     @Test
     public void testPersistentSuccess() throws Exception {
-        File dir = Files.createTempDir();
-        
         
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(110)))
-                                .withPersistency(dir)
+                                .withPersistency(Files.createTempDir())
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
-        Assert.assertEquals(0, ((PersistentHttpSink) sink).getQueryDir().listFiles().length);
-        dir.delete();
+        Assert.assertEquals(0, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
         
         sink.close();
     }
@@ -262,13 +257,11 @@ public class HttpSinkTest {
 
     @Test
     public void testPersistentServerErrorRetryWithSuccess() throws Exception {
-        File dir = Files.createTempDir();
-
         servlet.setErrorsToThrow(2);
         
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(110)))
-                                .withPersistency(dir)
+                                .withPersistency(Files.createTempDir())
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.State.PENDING, submission.getState());
@@ -281,7 +274,7 @@ public class HttpSinkTest {
         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
         
-        Assert.assertEquals(0, ((PersistentHttpSink) sink).getQueryDir().listFiles().length);
+        Assert.assertEquals(0, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
 
         sink.close();
     }
@@ -291,13 +284,11 @@ public class HttpSinkTest {
 
     @Test
     public void testPersistentServerErrorRetryWithClose() throws Exception {
-        File dir = Files.createTempDir();
-
         servlet.setErrorsToThrow(2);
         
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(2)))
-                                .withPersistency(dir)
+                                .withPersistency(Files.createTempDir())
                                 .open();
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.State.PENDING, submission.getState());
@@ -311,13 +302,11 @@ public class HttpSinkTest {
         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         sink.close();
         
-        Assert.assertEquals(1, dir.listFiles().length);
-
-        String content = Joiner.on("\n").join(Files.readLines(((PersistentHttpSink) sink).getQueryDir().listFiles()[0], Charsets.UTF_8));
-        Assert.assertTrue(content.trim().endsWith("numRetries: 1"));  
-
         
-        dir.delete();
+        Assert.assertEquals(1, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
+
+        String content = Joiner.on("\n").join(Files.readLines(((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles()[0], Charsets.UTF_8));
+        Assert.assertTrue(content.trim().endsWith("numRetries: 1"));  
     }
 
     
@@ -549,7 +538,7 @@ public class HttpSinkTest {
         
         
         try {
-            Thread.sleep(500);
+            Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
         Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
@@ -638,20 +627,20 @@ public class HttpSinkTest {
         
         try {
             
-            File queryDir = PersistentHttpSink.createQueryDir(dir, Method.POST, uri);
+            File queryDir = PersistentSubmission.createQueryDir(dir, Method.POST, uri);
             queryDir.mkdirs();
             
-            PersistentHttpSink.PersistentQuery query = new PersistentHttpSink.PersistentQuery(client,
-                                                                                              UUID.randomUUID().toString(),
-                                                                                              uri,
-                                                                                              Method.POST,
-                                                                                              entity,
-                                                                                              ImmutableSet.of(404),
-                                                                                              delays,
-                                                                                              0,
-                                                                                              executor,
-                                                                                              new Monitor(),
-                                                                                              queryDir);
+            PersistentSubmission query = new PersistentSubmission(client,
+                                                        UUID.randomUUID().toString(),
+                                                        uri,
+                                                        Method.POST,
+                                                        entity,
+                                                        ImmutableSet.of(404),
+                                                        delays,
+                                                        0,
+                                                        executor,
+                                                        new Monitor(),
+                                                        queryDir);
             query.release();
     
             executor.shutdown();

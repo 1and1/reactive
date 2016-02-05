@@ -54,7 +54,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
     private final Optional<Client> clientToClose;
     
     
-    Processor(Client userClient, int numParallelWorkers) {
+    Processor(final Client userClient, final int numParallelWorkers) {
         this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
         
         // using default client?
@@ -139,13 +139,13 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return getAll().size();
     }
     
-    public void register(TransientSubmission submission) {
+    public void register(final TransientSubmission submission) {
         synchronized (this) {
             runningSubmissions.add(submission);
         }
     }
     
-    public void deregister(TransientSubmission submission) {
+    public void deregister(final TransientSubmission submission) {
         synchronized (this) {
             runningSubmissions.remove(submission);
         }

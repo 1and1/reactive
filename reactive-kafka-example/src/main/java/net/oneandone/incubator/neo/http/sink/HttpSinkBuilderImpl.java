@@ -175,7 +175,6 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     }   
     
     
-
     private class TransientHttpSink implements HttpSink {
         final Processor processor = new Processor(userClient, numParallelWorkers);
         
@@ -198,9 +197,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
             try {
                 final TransientSubmission query = newQuery(Entity.entity(entity, mediaType), UUID.randomUUID().toString());
-        
                 LOG.debug("submitting " + query);
-                
                 return processor.process(query).thenApply(q -> (Submission) q);
             } catch (IOException ioe) {
                 final CompletableFuture<Submission> promise = new CompletableFuture<>();
@@ -215,9 +212,9 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                            method, 
                                            entity,
                                            rejectStatusList,
-                                           Immutables.join(Duration.ofMillis(0), retryDelays),
-                                           0,
-                                           Instant.now());
+                                           Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
+                                           0,                                                  // no trials performed yet
+                                           Instant.now());                                     // last trial time is now (time starting point is now)
         }
         
         @Override
@@ -241,9 +238,9 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                             method,   
                                             entity,
                                             rejectStatusList,
-                                            Immutables.join(Duration.ofMillis(0), retryDelays),
-                                            0,
-                                            Instant.now(),
+                                            Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
+                                            0,                                                   // no trials performed yet
+                                            Instant.now(),                                       // last trial time is now (time starting point is now)
                                             dir);
         }    
     } 

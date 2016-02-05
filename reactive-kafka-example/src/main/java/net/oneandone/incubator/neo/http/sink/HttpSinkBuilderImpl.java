@@ -217,7 +217,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                            rejectStatusList,
                                            Immutables.join(Duration.ofMillis(0), retryDelays),
                                            0,
-                                           Instant.ofEpochMilli(0));
+                                           Instant.now());
         }
         
         @Override
@@ -243,7 +243,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                             rejectStatusList,
                                             Immutables.join(Duration.ofMillis(0), retryDelays),
                                             0,
-                                            Instant.ofEpochMilli(0),
+                                            Instant.now(),
                                             dir);
         }    
     } 

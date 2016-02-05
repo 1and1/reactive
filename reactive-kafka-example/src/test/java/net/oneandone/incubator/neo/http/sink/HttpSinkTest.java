@@ -559,6 +559,41 @@ public class HttpSinkTest {
     }
     
     
+    @Test
+    public void testReschedulePersistentPendingQueryWithSuccessResult() throws Exception {
+        
+        URI target = URI.create(server.getBasepath() + "rest/topics");
+        
+        // create a query file to 
+        File queryFile = newPersistentQuery(Files.createTempDir(), 
+                                            target,
+                                            Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                            ImmutableList.of(Duration.ofMinutes(0), Duration.ofMinutes(20), Duration.ofSeconds(91)),
+                                            2,
+                                            Instant.now().minus(Duration.ofSeconds(90)));
+        Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
+        
+        
+        HttpSink sink = HttpSink.target(target)
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withPersistency(queryFile.getParentFile().getParentFile())
+                                .open();
+        
+        
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
+        
+        sink.close();
+        
+        Assert.assertEquals(0, queryFile.getParentFile().listFiles().length);
+    }
+
+
     @XmlRootElement 
     public static class CustomerChangedEvent {
         public Header header = new Header();
@@ -612,8 +647,12 @@ public class HttpSinkTest {
         public AuthenticationScheme scheme;
     }
 
- 
     private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays) {
+        return newPersistentQuery(dir, uri, entity, delays, 0, Instant.now()); 
+    }
+
+ 
+    private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, int trials, Instant dateLastTrial) {
         try {
             File queryDir = PersistentSubmission.createQueryDir(dir, Method.POST, uri);
             queryDir.mkdirs();
@@ -624,8 +663,8 @@ public class HttpSinkTest {
                                                                   entity,
                                                                   ImmutableSet.of(404),
                                                                   delays,
-                                                                  0,
-                                                                  Instant.ofEpochMilli(0),
+                                                                  trials,
+                                                                  dateLastTrial,
                                                                   queryDir);
             query.release();
     

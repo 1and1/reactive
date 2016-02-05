@@ -107,7 +107,7 @@ class TransientSubmission implements Submission {
 
     @Override
     public String toString() {
-        return getId() + " - " + method + " " + target;
+        return getId() + " - " + method + " " + target + " (" + stateRef.get() + ")";
     }
  
    
@@ -124,6 +124,12 @@ class TransientSubmission implements Submission {
         
         CompletableFuture<Boolean> process(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
             throw new IllegalStateException("can not process submission. State is " + getState());
+        }
+        
+        
+        @Override
+        public String toString() {
+            return "state=" + state.toString();
         }
     }
     
@@ -165,10 +171,14 @@ class TransientSubmission implements Submission {
         @Override
         public CompletableFuture<Boolean> process(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
             // trials left?
-            final Optional<Duration> delay = nextExecutionDelay(0); 
-            if (delay.isPresent()) {
+            final Optional<Duration> optionalDelay = nextExecutionDelay(0); 
+            if (optionalDelay.isPresent()) {
+                final Duration elapsedSinceLastRetry = Duration.between(dateLastTrial, Instant.now());
+                final Duration correctedDelay = optionalDelay.get().minus(elapsedSinceLastRetry);
+                final Duration delay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
+                
                 SubmitTask task = new SubmitTask(httpClient);
-                executor.schedule(task, delay.get().toMillis(), TimeUnit.MILLISECONDS);
+                executor.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS);
                 return task;
             } else {
                 throw new RuntimeException("no trials left");
@@ -248,6 +258,11 @@ class TransientSubmission implements Submission {
             final Throwable error = Exceptions.unwrap(t);
             return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
                                                               : 500;
+        }
+        
+        @Override
+        public String toString() {
+            return super.toString() +  " : " + processDelays.subList(numTrials, processDelays.size()) + " trials left of " + processDelays;
         }
     }
 }

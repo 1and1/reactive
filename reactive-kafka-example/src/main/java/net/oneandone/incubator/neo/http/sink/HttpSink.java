@@ -104,8 +104,6 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
 
         Counter getNumRetries();
 
-        Counter getNumRejected();
-        
         Counter getNumDiscarded();
 
         int getNumPending();

@@ -26,7 +26,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.servlet.ServletException;
@@ -35,7 +35,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
 import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.xml.bind.annotation.XmlRootElement;
 
@@ -63,7 +62,7 @@ public class HttpSinkTest {
     
     private TestServlet servlet = new TestServlet();
     private WebServer server;
-
+    
     
     @Before
     public void setUp() throws Exception {
@@ -166,7 +165,7 @@ public class HttpSinkTest {
     @Test
     public void testServerErrorRetriesExceeded() throws Exception {
          HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
-                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(150)))
                                  .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
          Assert.assertEquals(Submission.State.PENDING, submission.getState());
@@ -195,8 +194,7 @@ public class HttpSinkTest {
              Assert.fail("BadRequestException expected");
          } catch (BadRequestException expected) { }
         
-         Assert.assertEquals(1, sink.getMetrics().getNumRejected().getCount());
-         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(1, sink.getMetrics().getNumDiscarded().getCount());
          Assert.assertEquals(0, sink.getMetrics().getNumRetries().getCount());
          Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
         
@@ -306,7 +304,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
 
         String content = Joiner.on("\n").join(Files.readLines(((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles()[0], Charsets.UTF_8));
-        Assert.assertTrue(content.trim().endsWith("numRetries: 1"));  
+        Assert.assertTrue(content.trim().contains("numTrials: 2"));  
     }
 
     
@@ -386,7 +384,6 @@ public class HttpSinkTest {
             Thread.sleep(3000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
@@ -401,7 +398,7 @@ public class HttpSinkTest {
     @Test
     public void testReschedulePersistentQueryWithStillRetryResult() throws Exception {
 
-        URI target = URI.create("http://localhost:1/rest/topics");
+        URI target = URI.create(server.getBasepath() + "rest/topics?status=500");
         
         // create query file to simulate former crash
         File queryFile = newPersistentQuery(Files.createTempDir(), 
@@ -412,7 +409,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
         Assert.assertTrue(content.contains("retries: 100&36000000"));
-        Assert.assertTrue(content.contains("numRetries: 0"));
+        Assert.assertTrue(content.contains("numTrials: 0"));
         
         
         HttpSink sink = HttpSink.target(target)
@@ -425,7 +422,6 @@ public class HttpSinkTest {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
@@ -436,7 +432,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numRetries: 1"));
+        Assert.assertTrue(content.contains("numTrials: 1"));
         
         System.out.println(content);
     }
@@ -446,7 +442,7 @@ public class HttpSinkTest {
     @Test
     public void testReschedulePersistentConcurrentAccess() throws Exception {
         
-        URI target = URI.create("http://localhost:1/rest/topics");
+        URI target = URI.create(server.getBasepath() + "rest/topics?status=500");
         
         // create query file to simulate former crash
         File queryFile = newPersistentQuery(Files.createTempDir(), 
@@ -471,7 +467,6 @@ public class HttpSinkTest {
         } catch (InterruptedException ignore) { }
         
         
-        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumPending());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
@@ -491,15 +486,12 @@ public class HttpSinkTest {
         } catch (InterruptedException ignore) { }
         
         // the crashed query will not be visible for the second sink -> locked by the other one 
-        Assert.assertEquals(0, sink2.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(0, sink2.getMetrics().getNumPending());
         Assert.assertEquals(0, sink2.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(0, sink2.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink2.getMetrics().getNumSuccess().getCount());
        
         
-        
-        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumPending());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
@@ -512,8 +504,9 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.endsWith("numRetries: 1"));
-                
+        Assert.assertTrue(content.contains("numTrials: 1"));
+        Assert.assertFalse(content.contains("numTrials: 2"));
+        
         sink2.close();
     }
     
@@ -541,7 +534,6 @@ public class HttpSinkTest {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(0, sink.getMetrics().getNumRejected().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
@@ -622,30 +614,21 @@ public class HttpSinkTest {
 
  
     private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays) {
-        Client client = ClientBuilder.newClient(); 
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
-        
         try {
-            
             File queryDir = PersistentSubmission.createQueryDir(dir, Method.POST, uri);
             queryDir.mkdirs();
             
-            PersistentSubmission query = new PersistentSubmission(client,
-                                                        UUID.randomUUID().toString(),
-                                                        uri,
-                                                        Method.POST,
-                                                        entity,
-                                                        ImmutableSet.of(404),
-                                                        delays,
-                                                        0,
-                                                        executor,
-                                                        new Monitor(),
-                                                        queryDir);
+            PersistentSubmission query = new PersistentSubmission(UUID.randomUUID().toString(),
+                                                                  uri,
+                                                                  Method.POST,
+                                                                  entity,
+                                                                  ImmutableSet.of(404),
+                                                                  delays,
+                                                                  0,
+                                                                  Instant.ofEpochMilli(0),
+                                                                  queryDir);
             query.release();
     
-            executor.shutdown();
-            client.close();
-            
             return query.getQueryFile();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);

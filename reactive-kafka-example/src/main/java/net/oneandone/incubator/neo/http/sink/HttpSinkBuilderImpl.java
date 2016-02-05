@@ -19,14 +19,11 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
-import java.util.Optional;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 
 import org.slf4j.Logger;
@@ -36,6 +33,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
@@ -179,49 +177,21 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     
 
     private class TransientHttpSink implements HttpSink {
-        private final AtomicBoolean isOpen = new AtomicBoolean(true);
-        private final Optional<Client> clientToClose;
-        protected final Client httpClient;
-        protected final ScheduledThreadPoolExecutor executor;
-        protected final Monitor monitor = new Monitor();
-    
-    
-        public TransientHttpSink() {
-            this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
-    
-            // using default client?
-            if (userClient == null) {
-                final Client defaultClient = ClientBuilder.newClient();
-                this.httpClient = defaultClient;
-                this.clientToClose = Optional.of(defaultClient);
-                
-            // .. no client is given by user 
-            } else {
-                this.httpClient = userClient;
-                this.clientToClose = Optional.empty();
-            }
-        }
+        final Processor processor = new Processor(userClient, numParallelWorkers);
         
         @Override
         public boolean isOpen() {
-            return isOpen.get();
+            return processor.isOpen();
         }
         
         @Override
         public void close() {
-            if (isOpen.getAndSet(false)) {
-                for (TransientSubmission query : monitor.getAll()) {
-                    query.release();
-                }
-                
-                clientToClose.ifPresent(c -> c.close());
-                executor.shutdown();
-            }
+            processor.close();
         }
         
         @Override
         public Metrics getMetrics() {
-            return monitor;
+            return processor;
         }
         
         @Override
@@ -230,7 +200,8 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                 final TransientSubmission query = newQuery(Entity.entity(entity, mediaType), UUID.randomUUID().toString());
         
                 LOG.debug("submitting " + query);
-                return query.process().thenApply(q -> (Submission) q);
+                
+                return processor.process(query).thenApply(q -> (Submission) q);
             } catch (IOException ioe) {
                 final CompletableFuture<Submission> promise = new CompletableFuture<>();
                 promise.completeExceptionally(ioe);
@@ -239,16 +210,14 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
     
         protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
-            return new TransientSubmission(httpClient, 
-                                           id, 
+            return new TransientSubmission(id, 
                                            target, 
                                            method, 
                                            entity,
                                            rejectStatusList,
-                                           retryDelays,
+                                           Immutables.join(Duration.ofMillis(0), retryDelays),
                                            0,
-                                           executor,
-                                           monitor);
+                                           Instant.ofEpochMilli(0));
         }
         
         @Override
@@ -262,21 +231,19 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
         public PersistentHttpSink() {
             super();
-            PersistentSubmission.processOldQueryFiles(dir, method, target, httpClient, executor, monitor);
+            PersistentSubmission.processOldQueryFiles(dir, method, target, processor);
         }
 
         @Override
         protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
-            return new PersistentSubmission(httpClient,
-                                            id, 
+            return new PersistentSubmission(id, 
                                             target, 
                                             method,   
                                             entity,
                                             rejectStatusList,
-                                            retryDelays,
+                                            Immutables.join(Duration.ofMillis(0), retryDelays),
                                             0,
-                                            executor,  
-                                            monitor,
+                                            Instant.ofEpochMilli(0),
                                             dir);
         }    
     } 

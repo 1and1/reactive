@@ -47,7 +47,8 @@ public class Immutables {
     public static <T> ImmutableSet<T> join(ImmutableSet<T> set, T entryToAdd) {
         return ImmutableSet.<T>builder().addAll(set).add(entryToAdd).build();
     }
-    
+
+
     
     /**
      * merges 2 sets
@@ -72,6 +73,16 @@ public class Immutables {
         return ImmutableList.<T>builder().addAll(list).add(entryToAdd).build();
     }
  
+    /**
+     * merges a new entry into a list
+     * 
+     * @param entryToAdd  the entry to add
+     * @param list        the list to merge
+     * @return the new merged immutable list
+     */
+    public static <T> ImmutableList<T> join(T entryToAdd, ImmutableList<T> list) {
+        return ImmutableList.<T>builder().add(entryToAdd).addAll(list).build();
+    }
  
     /**
      * merges 2 lists

@@ -16,6 +16,7 @@
 package net.oneandone.incubator.neo.exception;
 
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -82,5 +83,12 @@ public class Exceptions {
     
     private static boolean isExecutionException(Throwable t) {
         return ExecutionException.class.isAssignableFrom(t.getClass());
+    }
+    
+    
+    public static <T> CompletableFuture<T> completedFailedFuture(Throwable ex) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        future.completeExceptionally(ex);
+        return future;
     }
 }

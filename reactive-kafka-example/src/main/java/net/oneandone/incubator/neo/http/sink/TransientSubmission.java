@@ -47,11 +47,11 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 class TransientSubmission implements Submission {
     private static final Logger LOG = LoggerFactory.getLogger(TransientSubmission.class);
 
-    private final String id;
-    private final URI target;
-    private final Entity<?> entity;
-    private final ImmutableSet<Integer> rejectStatusList;
-    private final ImmutableList<Duration> processDelays;
+    protected final String id;
+    protected final URI target;
+    protected final Entity<?> entity;
+    protected final ImmutableSet<Integer> rejectStatusList;
+    protected final ImmutableList<Duration> processDelays;
     protected final Method method;
   
     // state
@@ -90,16 +90,18 @@ class TransientSubmission implements Submission {
         return stateRef.get().getState();
     }
     
-    public CompletableFuture<Boolean> process(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
-        return stateRef.get().process(httpClient, executor);
+    public CompletableFuture<Boolean> processAsync(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
+        return stateRef.get().processAsync(httpClient, executor);
     }
    
-    protected void updateState(FinalState newState) {
+    protected CompletableFuture<Void> updateStateAsync(FinalState newState) {
         stateRef.set(newState);
+        return CompletableFuture.completedFuture(null);
     }
     
-    protected void updateState(PendingState newState) {
+    protected CompletableFuture<Void> updateStateAsync(PendingState newState) {
         stateRef.set(newState);
+        return CompletableFuture.completedFuture(null);
     }
     
     protected void release() {
@@ -113,16 +115,28 @@ class TransientSubmission implements Submission {
    
     protected abstract class SubmissionState {
         private final State state;
-        
-        public SubmissionState(State state) {
+        protected final int numTrials;
+        protected final Instant dateLastTrial;
+
+        public SubmissionState(final State state, final int numTrials, final Instant dateLastTrial) {
             this.state = state;      
+            this.numTrials = numTrials;
+            this.dateLastTrial = dateLastTrial;
         }
         
         State getState() {
             return state;
         }
         
-        CompletableFuture<Boolean> process(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
+        public int getNumTrials() {
+            return numTrials;
+        }
+        
+        public Instant getDateLastTrial() {
+            return dateLastTrial;
+        }
+
+        CompletableFuture<Boolean> processAsync(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
             throw new IllegalStateException("can not process submission. State is " + getState());
         }
         
@@ -135,31 +149,19 @@ class TransientSubmission implements Submission {
     
     protected class FinalState extends SubmissionState {
         
-        public FinalState(State state) {
-            super(state);
+        public FinalState(final State state, final int numTrials, final Instant dateLastTrial) {
+            super(state, numTrials, dateLastTrial);
         }
     }
      
     
     protected final class PendingState extends SubmissionState {
-        private final int numTrials;
-        private final Instant dateLastTrial;
         
         public PendingState(int numTrials, Instant dateLastTrial) {
-            super(State.PENDING);
-            this.numTrials = numTrials;
-            this.dateLastTrial = dateLastTrial;
+            super(State.PENDING, numTrials, dateLastTrial);
         }
         
-        public int getNumTrials() {
-            return numTrials;
-        }
-        
-        public Instant getDateLastTrial() {
-            return dateLastTrial;
-        }
-        
-        private Optional<Duration> nextExecutionDelay(int distance) {
+        private Optional<Duration> nextExecutionDelay(final int distance) {
             final int pos = numTrials + distance; 
             if (pos < processDelays.size()) {
                 return Optional.of(processDelays.get(pos));
@@ -169,7 +171,7 @@ class TransientSubmission implements Submission {
         }
                 
         @Override
-        public CompletableFuture<Boolean> process(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
+        public CompletableFuture<Boolean> processAsync(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
             // trials left?
             final Optional<Duration> optionalDelay = nextExecutionDelay(0); 
             if (optionalDelay.isPresent()) {
@@ -196,12 +198,12 @@ class TransientSubmission implements Submission {
             
             @Override
             public void run() {
-                // initiate http request
                 LOG.debug("performing submission " + getId() + " (" + (run) + " of " + processDelays.size() + ")");
-
-                // http request is going to be initiated -> update state with incremented trials
-                updateState(new PendingState(run, Instant.now()));
-                
+                TransientSubmission.this.updateStateAsync(new PendingState(run, Instant.now()))     // update state with incremented trials
+                                        .thenAccept((Void) -> SubmitTask.this.performHttpQuery());  // initiate http query
+            }
+            
+            private void performHttpQuery() {
                 try {
                     final Builder builder = httpClient.target(target).request();
                     if (method == Method.POST) {
@@ -209,10 +211,9 @@ class TransientSubmission implements Submission {
                     } else {
                         builder.async().put(entity, this);
                     }
-                    
                 } catch (RuntimeException rt) {
                     this.failed(rt);
-                }
+                }                
             }
             
             @Override
@@ -228,8 +229,7 @@ class TransientSubmission implements Submission {
                 int status = readAssociatedStatus(error);
                 if (rejectStatusList.contains(status)) {
                     LOG.debug("submission " + getId() + " failed with rejecting status " + status + " Discarding submission");
-                    updateState(new FinalState(State.DISCARDED));
-                    completeExceptionally(error);
+                    updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial)).thenAccept((Void) -> completeExceptionally(error));
                     
                 // ..no     
                 } else {
@@ -240,8 +240,7 @@ class TransientSubmission implements Submission {
                         complete(false);
                     } else {
                         LOG.debug("submission " + getId() + " failed with no retrys left.  Discarding submission");
-                        updateState(new FinalState(State.DISCARDED));
-                        completeExceptionally(error);
+                        updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial)).thenAccept((Void) -> completeExceptionally(error));
                     }
                 }
             }
@@ -249,8 +248,7 @@ class TransientSubmission implements Submission {
             @Override
             public void completed(String responseEntity) {
                 LOG.debug("query " + getId() + " executed successfully");
-                updateState(new FinalState(State.COMPLETED));
-                complete(true);
+                updateStateAsync(new FinalState(State.COMPLETED, numTrials, dateLastTrial)).thenAccept((Void) -> complete(true));
             }
         }
         

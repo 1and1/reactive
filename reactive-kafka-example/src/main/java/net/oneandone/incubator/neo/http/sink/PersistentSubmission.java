@@ -20,18 +20,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
-import java.io.LineNumberReader;
-import java.io.RandomAccessFile;
-import java.io.Writer;
 import java.net.URI;
-import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 
@@ -53,6 +52,7 @@ import com.google.common.collect.Maps;
 import com.google.common.io.Closeables;
 
 import net.oneandone.incubator.neo.collect.Immutables;
+import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
@@ -60,7 +60,7 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 final class PersistentSubmission extends TransientSubmission {
     private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);
     
-    private final FileRef fileRef;
+    private final SubmissionFile file;
 
     private PersistentSubmission(final String id,
                                  final URI target, 
@@ -70,7 +70,7 @@ final class PersistentSubmission extends TransientSubmission {
                                  final ImmutableList<Duration> retryDelays,
                                  final int numRetries,
                                  final Instant dataLastTrial,
-                                 final FileRef fileRef) {
+                                 final SubmissionFile fileRef) {
         super(id, 
               target, 
               method,
@@ -80,18 +80,18 @@ final class PersistentSubmission extends TransientSubmission {
               numRetries,
               dataLastTrial);
         
-        this.fileRef = fileRef;
+        this.file = fileRef;
     }
 
-    protected PersistentSubmission(final String id,
-                                   final URI target, 
-                                   final Method method, 
-                                   final Entity<?> entity, 
-                                   final ImmutableSet<Integer> rejectStatusList,
-                                   final ImmutableList<Duration> retryDelays,
-                                   final int numTrials,
-                                   final Instant dataLastTrial,
-                                   final File dir) throws IOException {
+    private PersistentSubmission(final String id,
+                                 final URI target, 
+                                 final Method method, 
+                                 final Entity<?> entity, 
+                                 final ImmutableSet<Integer> rejectStatusList,
+                                 final ImmutableList<Duration> retryDelays,
+                                 final int numTrials,
+                                 final Instant dataLastTrial,
+                                 final File dir) throws IOException {
         this(id, 
              target, 
              method,
@@ -100,74 +100,96 @@ final class PersistentSubmission extends TransientSubmission {
              retryDelays,
              numTrials,
              dataLastTrial,
-             new FileRef(createQueryDir(dir, method, target), id));
-     
+             new SubmissionFile(createQueryDir(dir, method, target), id));
+    } 
+    
+    
+    private final CompletableFuture<Void> saveAsync() {
         try {
             final ByteArrayOutputStream bos = new ByteArrayOutputStream();
             new ObjectMapper().writeValue(bos, entity.getEntity());
             
-            MapEncoding.create()
-                       .with("id", id)
-                       .with("method", method.toString())
-                       .with("mediaType", entity.getMediaType().toString())
-                       .with("target", target.toString())
-                       .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
-                       .with("retries", Joiner.on("&")
-                                              .join(retryDelays.stream()
-                                                               .map(duration -> duration.toMillis())
-                                                               .collect(Immutables.toList())))
-                       .with("numTrials", numTrials)
-                       .with("dataLastTrial", dataLastTrial.toString())
-                       .with("rejectStatusList", Joiner.on("&").join(rejectStatusList))
-                       .writeTo(this.fileRef.getWriter());
-            
-            LOG.debug("persistent query " + getId() + " save on disc (with pending lock) " + fileRef.getQueryFile().getAbsolutePath());
-            
+            LOG.debug("saving persistent query " + getId() + " on disc (with pending lock) " + file.getQueryFile().getAbsolutePath());            
+            return MapEncoding.create()
+                              .with("id", id)
+                              .with("method", method.toString())
+                              .with("mediaType", entity.getMediaType().toString())
+                              .with("target", target.toString())
+                              .with("data", Base64.getEncoder().encodeToString(bos.toByteArray()))
+                              .with("retries", Joiner.on("&")
+                                                     .join(processDelays.stream()
+                                                                        .map(duration -> duration.toMillis())
+                                                                        .collect(Immutables.toList())))
+                              .with("numTrials", stateRef.get().getNumTrials())
+                              .with("dataLastTrial", stateRef.get().getDateLastTrial().toString())
+                              .with("rejectStatusList", Joiner.on("&").join(rejectStatusList))
+                              .writeToAsync(this.file);
         } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
+            return Exceptions.completedFailedFuture(ioe);
         }
-    } 
-    
-    public File getQueryFile() {
-        return fileRef.getQueryFile();
     }
     
+    
+    public static CompletableFuture<PersistentSubmission> newPersistentSubmissionAsync(final String id,
+                                                                                       final URI target, 
+                                                                                       final Method method, 
+                                                                                       final Entity<?> entity, 
+                                                                                       final ImmutableSet<Integer> rejectStatusList,
+                                                                                       final ImmutableList<Duration> retryDelays,
+                                                                                       final int numTrials,
+                                                                                       final Instant dataLastTrial,
+                                                                                       final File dir) {
+        try {
+            final PersistentSubmission submission = new PersistentSubmission(id,
+                                                                             target,
+                                                                             method,
+                                                                             entity, 
+                                                                             rejectStatusList,
+                                                                             retryDelays,
+                                                                             numTrials,
+                                                                             dataLastTrial, 
+                                                                             dir);
+            return submission.saveAsync()
+                             .thenApply((Void) -> submission);
+        } catch (IOException ioe) {
+            return Exceptions.completedFailedFuture(ioe);
+        }
+    }
+
+    
+    
+    public File getQueryFile() {
+        return file.getQueryFile();
+    }
     
     @Override
     protected void release() {
-        super.release();
-        
-        fileRef.close();
-        LOG.debug("persistent query " + getId() + " released " + fileRef.getQueryFile().getAbsolutePath());                            
-    }
-
-    
-    @Override
-    protected void updateState(FinalState finalState) {
-        super.updateState(finalState);
-        release();
-        
-        if (fileRef.delete()) {
-            LOG.debug("persistent query " + getId() + " deleted " + fileRef.getQueryFile().getAbsolutePath());                            
-        }
-    }
-
-    @Override
-    protected void updateState(PendingState pendingState) {
-        super.updateState(pendingState);
-        try {
-            MapEncoding.create()
-                       .with("numTrials", pendingState.getNumTrials())
-                       .with("timestampLastTrial", pendingState.getDateLastTrial().toString())
-                       .writeTo(fileRef.getWriter());
-            
-            LOG.debug("persistent query " + getId() + " updated (numTrials=" + pendingState.getNumTrials() + ") " + fileRef.getQueryFile().getAbsolutePath());
-        } catch (RuntimeException ignore) { }
+        super.release();        
+        file.close();
+        LOG.debug("persistent query " + getId() + " released " + file.getQueryFile().getAbsolutePath());                            
     }
     
-   
+    @Override
+    protected CompletableFuture<Void> updateStateAsync(FinalState finalState) {
+        return super.updateStateAsync(finalState)
+                    .thenAccept((Void) -> {
+                                                release();
+                                                if (file.delete()) {
+                                                    LOG.debug("persistent query " + getId() + " deleted " + file.getQueryFile().getAbsolutePath());                            
+                                                }
+                                          });
+    }
 
-
+    @Override
+    protected CompletableFuture<Void> updateStateAsync(PendingState pendingState) {
+        LOG.debug("updating persistent query " + getId() + " (numTrials=" + pendingState.getNumTrials() + ") " + file.getQueryFile().getAbsolutePath());
+        return super.updateStateAsync(pendingState)
+                    .thenCompose((Void) -> MapEncoding.create()
+                                                      .with("numTrials", pendingState.getNumTrials())
+                                                      .with("timestampLastTrial", pendingState.getDateLastTrial().toString())
+                                                      .writeToAsync(file));
+    }
+    
     static File createQueryDir(final File dir, final Method method, final URI target) {
         File queryDir = new File(dir, method + "_" + Base64.getEncoder().encodeToString(target.toString().getBytes(Charsets.UTF_8)).replace("=", ""));
         
@@ -181,41 +203,86 @@ final class PersistentSubmission extends TransientSubmission {
     
     
     
-    private static final class FileRef implements Closeable {
+    private static final class SubmissionFile implements Closeable {
         private final File queryFile;
-        private final RandomAccessFile raf;
-        private final FileChannel channel;
-        private final Writer writer;
-        private final LineNumberReader reader;
+        private final AsynchronousFileChannel channel;
         
-        FileRef(final File dir, final String id) throws IOException {
+        SubmissionFile(final File dir, final String id) throws IOException {
             this(new File(dir.getCanonicalFile(), id + ".query"));
         }
         
-        FileRef(final File queryFile) throws IOException {
+        SubmissionFile(final File queryFile) throws IOException {
             /*
              * By creating a new persistent query file a file lock will be acquired and not been released
              * until query is completed! This avoids concurrent handling of the same queue (file).
              */
             
             this.queryFile = queryFile;
-            this.raf = new RandomAccessFile(queryFile, "rw");
-            this.channel = raf.getChannel();
+            this.channel = AsynchronousFileChannel.open(queryFile.toPath(), StandardOpenOption.CREATE,
+                                                                            StandardOpenOption.READ, 
+                                                                            StandardOpenOption.WRITE);
             
             if (channel.tryLock() == null) {
                 throw new IOException("query file " + queryFile.getAbsolutePath() + " locked by another process");
             }
+        }
+        
+        public CompletableFuture<Void> writeAsync(String data) {
+            try {
+                final CompletableWriteFuture promise = new CompletableWriteFuture();
+                channel.write(ByteBuffer.wrap(data.getBytes(Charsets.UTF_8)), channel.size(), null, promise);
+                return promise;
+            } catch (IOException ioe) {
+                return Exceptions.completedFailedFuture(ioe);
+            }
+        }
+        
+        private static final class CompletableWriteFuture extends CompletableFuture<Void> implements CompletionHandler<Integer, Object> {
             
-            this.writer = Channels.newWriter(channel, Charsets.UTF_8.toString());
-            this.reader = new LineNumberReader(Channels.newReader(channel, Charsets.UTF_8.toString()));
+            @Override
+            public void completed(Integer result, Object attachment) {
+                super.complete(null);
+            }
+            
+            @Override
+            public void failed(Throwable ex, Object attachment) {
+                super.completeExceptionally(ex);
+            }
         }
         
-        public Writer getWriter() {
-            return writer;
+
+        public CompletableFuture<ImmutableList<String>> readLinesAsync() {
+            try {
+                final CompletableReadFuture promise = new CompletableReadFuture((int) channel.size());
+                channel.read(promise.getBuffer(), 0, null, promise);
+                
+                return promise.thenApply(binary -> ImmutableList.copyOf(Splitter.on("\n")
+                                                                .split(new String(binary, Charsets.UTF_8))));
+            } catch (IOException ioe) {
+                return Exceptions.completedFailedFuture(ioe);
+            }
         }
         
-        public LineNumberReader getReader() {
-            return reader;
+        private static final class CompletableReadFuture extends CompletableFuture<byte[]> implements CompletionHandler<Integer, Object> {
+            private final ByteBuffer buf;
+            
+            public CompletableReadFuture(final int sizeToRead) {
+                this.buf = ByteBuffer.allocate(sizeToRead);
+            }
+            
+            public ByteBuffer getBuffer() {
+                return buf;
+            }
+            
+            @Override
+            public void completed(Integer result, Object attachment) {
+                super.complete(buf.array());
+            }
+            
+            @Override
+            public void failed(Throwable ex, Object attachment) {
+                super.completeExceptionally(ex);
+            }
         }
         
         public File getQueryFile() {
@@ -227,10 +294,7 @@ final class PersistentSubmission extends TransientSubmission {
             if (channel.isOpen()) {
                 // by closing the file handles the lock will be released
                 try {
-                    Closeables.close(writer, true);
-                    Closeables.close(reader, true);
                     Closeables.close(channel, true);
-                    Closeables.close(raf, true);
                 } catch (IOException ioe) {
                     LOG.debug("error occured by closing query file " + queryFile.getAbsolutePath(), ioe);
                 }
@@ -244,84 +308,84 @@ final class PersistentSubmission extends TransientSubmission {
     }
      
     public static void processOldQueryFiles(final File dir,
-                                        final Method method, 
-                                        final URI target, 
-                                        final Processor processor) { 
-        readUnlockedPersistentJobs(createQueryDir(dir, method, target)).forEach(query -> { LOG.debug("old query file " + query.getId() + " found rescheduling it"); processor.processRetry(query); });            
+                                            final Method method, 
+                                            final URI target, 
+                                            final Processor processor) {
+        
+        final File submissionDir = createQueryDir(dir, method, target);
+        LOG.debug("scanning " + submissionDir.getAbsolutePath() + " for unprocessed query files");
+        
+        for (File file : readSubmissionFiles(submissionDir)) {
+            tryReadFromAsync(file).thenAccept(optionalSubmission -> optionalSubmission.ifPresent(submission -> {
+                                                                                                                LOG.debug("old query file " + submission.getId() + " found rescheduling it"); 
+                                                                                                                processor.processRetryAsync(submission);
+                                                                                                               }));
+        }
     }
-    
-    private static ImmutableList<PersistentSubmission> readUnlockedPersistentJobs(final File queryDir) {
-        LOG.debug("scanning " + queryDir.getAbsolutePath() + " for unprocessed query files");
+
+    private static ImmutableList<File> readSubmissionFiles(final File queryDir) {
         return ImmutableList.copyOf(queryDir.listFiles())
                             .stream()
                             .filter(file -> file.getName().endsWith(".query"))
-                            .map(file -> tryReadFrom(file))
-                            .filter(optionalQuery -> optionalQuery.isPresent())
-                            .map(optionalQuery -> optionalQuery.get())
                             .collect(Immutables.toList());
     } 
-    
-    
-    public static Optional<PersistentSubmission> tryReadFrom(final File queryFile) {
+
+    public static CompletableFuture<Optional<PersistentSubmission>> tryReadFromAsync(final File file) {
+        try {
+            SubmissionFile submissionFile = new SubmissionFile(file);
+            return MapEncoding.readFromAsync(submissionFile)
+                              .thenApply(protocol -> deserialize(submissionFile, protocol));
+        } catch (IOException | RuntimeException ioe) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+    }
+
+    private static Optional<PersistentSubmission> deserialize(final SubmissionFile submissionFile, final MapEncoding protocol) {
         /*
          * By deserializing the underlying query file a file lock will be acquired 
          * and not been released until query is completed!
          * This avoids concurrent handling of the same queue (file).
          */
-    
-        FileRef fileRef = null;
-        try {
-            fileRef = new FileRef(queryFile);
-                
-            final MapEncoding protocol = MapEncoding.readFrom(fileRef.getReader());
-            final String id = protocol.get("id");
-            final Method method = protocol.get("method", txt -> Method.valueOf(txt));
-            final URI target = protocol.get("target", txt -> URI.create(txt));
-            final MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
-            final byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
-            final ImmutableList<Duration> retryDelays = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
-                                                                                                                  : Splitter.on("&")
-                                                                                                                            .trimResults()
-                                                                                                                            .splitToList(txt)
-                                                                                                                            .stream()
-                                                                                                                            .map(millis -> Duration.ofMillis(Long.parseLong(millis)))
-                                                                                                                            .collect(Immutables.toList()));
-            final int numTrials = protocol.getInt("numTrials");
-            final Instant dateLastTrial = Instant.parse(protocol.get("dataLastTrial"));
-            final ImmutableSet<Integer> rejectStatusList = Splitter.on("&")
-                                                                   .trimResults()
-                                                                   .splitToList(protocol.get("rejectStatusList"))
-                                                                   .stream()
-                                                                   .map(status -> Integer.parseInt(status))
-                                                                   .collect(Immutables.toSet());
-            
-            // no retries left?
-            if (numTrials > retryDelays.size()) {
-                LOG.warn("No retries left. deleting expired query file " + queryFile);
-                fileRef.delete();
-                fileRef.close();
-                return Optional.empty();
-            
-            // retries are available; return query (lock will not been released to avoid parallel processing of the query file) 
-            } else {
-                return Optional.of(new PersistentSubmission(id, 
-                                                            target, 
-                                                            method, 
-                                                            Entity.entity(data, mediaType), 
-                                                            rejectStatusList, 
-                                                            retryDelays, 
-                                                            numTrials,
-                                                            dateLastTrial,
-                                                            fileRef));  
-            }
-            
-        } catch (IOException | RuntimeException e) {
-            LOG.warn("query file " + queryFile.getAbsolutePath() + " seems to be logged or corrupt. ignoring it");
-            if (fileRef != null) {
-                fileRef.close();
-            }
-            
+        
+        final String id = protocol.get("id");
+        final Method method = protocol.get("method", txt -> Method.valueOf(txt));
+        final URI target = protocol.get("target", txt -> URI.create(txt));
+        final MediaType mediaType = protocol.get("mediaType", txt -> MediaType.valueOf(txt));
+        final byte[] data = protocol.get("data", txt -> Base64.getDecoder().decode(txt));
+        final ImmutableList<Duration> retryDelays = protocol.get("retries", txt -> Strings.isNullOrEmpty(txt) ? ImmutableList.<Duration>of()  
+                                                                                                              : Splitter.on("&")
+                                                                                                                        .trimResults()
+                                                                                                                        .splitToList(txt)
+                                                                                                                        .stream()
+                                                                                                                        .map(millis -> Duration.ofMillis(Long.parseLong(millis)))
+                                                                                                                        .collect(Immutables.toList()));
+        final int numTrials = protocol.getInt("numTrials");
+        final Instant dateLastTrial = Instant.parse(protocol.get("dataLastTrial"));
+        final ImmutableSet<Integer> rejectStatusList = Splitter.on("&")
+                                                               .trimResults()
+                                                               .splitToList(protocol.get("rejectStatusList"))
+                                                               .stream()
+                                                               .map(status -> Integer.parseInt(status))
+                                                               .collect(Immutables.toSet());
+        
+        // no retries left?
+        if (numTrials > retryDelays.size()) {
+            LOG.warn("No retries left. deleting expired submission file " + submissionFile);
+            submissionFile.delete();
+            submissionFile.close();
             return Optional.empty();
+        
+        // retries are available; return query (lock will not been released to avoid parallel processing of the query file) 
+        } else {
+            return Optional.of(new PersistentSubmission(id, 
+                                                        target, 
+                                                        method, 
+                                                        Entity.entity(data, mediaType), 
+                                                        rejectStatusList, 
+                                                        retryDelays, 
+                                                        numTrials,
+                                                        dateLastTrial,
+                                                        submissionFile));  
         }
     }
   
@@ -365,35 +429,28 @@ final class PersistentSubmission extends TransientSubmission {
             }
         }
 
-        public void writeTo(Writer writer) {
-            try {
-                for (Entry<String, String> entry : data.entrySet()) {
-                    writer.write(entry.getKey() + ": " + entry.getValue() + "\r\n");
-                }
-                writer.flush();
-            } catch (IOException ioe)  {
-                throw new RuntimeException(ioe);
-            }
+        public CompletableFuture<Void> writeToAsync(SubmissionFile file) {
+            return file.writeAsync(Joiner.on("\r\n")
+                                         .withKeyValueSeparator(":")
+                                         .join(data));
         }
         
-        public static MapEncoding readFrom(LineNumberReader reader) {
-            try {
-                Map<String, String> map = Maps.newHashMap();
-                String line = null;
-                do {
-                    line = reader.readLine();
-                    if (line != null) {
-                        int idx = line.indexOf(":");
-                        if (idx > 0) {
-                            map.put(line.substring(0,  idx), line.substring(idx + 1, line.length()).trim());
-                        }
-                    }
-                } while (line != null); 
-                
-                return new MapEncoding(ImmutableMap.copyOf(map));
-            } catch (IOException ioe)  {
-                throw new RuntimeException(ioe);
-            }
+        public static CompletableFuture<MapEncoding> readFromAsync(SubmissionFile file) {
+            
+            //Splitter.on("\r\n").withKeyValueSeparator(":").split(sequence)
+            
+            return file.readLinesAsync()
+                       .thenApply(lines -> {
+                                             Map<String, String> map = Maps.newHashMap();
+                                             for (String line : lines) {
+                                                 int idx = line.indexOf(":");
+                                                 if (idx > 0) {
+                                                     map.put(line.substring(0,  idx), line.substring(idx + 1, line.length()).trim());
+                                                 }
+                                             }  
+                     
+                                             return new MapEncoding(ImmutableMap.copyOf(map));
+                                           });
         }
     }
 }        

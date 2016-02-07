@@ -84,25 +84,30 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return isOpen.get();
     }
     
-    public CompletableFuture<Submission> process(final TransientSubmission submission) {
+    public CompletableFuture<Submission> processAsync(final TransientSubmission submission) {
+        LOG.debug("submitting " + submission); 
+        return processAsyncInternal(submission);
+    }
+
+    public void processRetryAsync(final TransientSubmission submission) {
+        processAsyncInternal(submission).whenComplete((sub, error) -> { retries.inc(); });
+    }
+
+    private CompletableFuture<Submission> processAsyncInternal(final TransientSubmission submission) {
         if (!isOpen()) {
             throw new IllegalStateException("processor is already closed");
         }
         
         register(submission);
-        
-        return submission.process(httpClient, executor)
+        return submission.processAsync(httpClient, executor)
                          .thenApply(completed -> completed ? onSubmissionCompleted(submission) : onSubmissionFailed(submission))
-                         .exceptionally(error -> onSubmissionDiscarded(submission, error));
+                         .exceptionally(error -> onSubmissionRejected(submission, error));
     }
 
-    public void processRetry(final TransientSubmission submission) {
-        process(submission).whenComplete((sub, error) -> { retries.inc(); });
-    }
-
+    
     private Submission onSubmissionFailed(final TransientSubmission submission) {
         // retry
-        processRetry(submission); 
+        processRetryAsync(submission); 
         return submission;
     }
 
@@ -112,7 +117,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return submission;
     }
     
-    private Submission onSubmissionDiscarded(final TransientSubmission submission, final Throwable error) {
+    private Submission onSubmissionRejected(final TransientSubmission submission, final Throwable error) {
         LOG.warn("discarding " + submission.getId() );
         deregister(submission);
         discarded.inc();

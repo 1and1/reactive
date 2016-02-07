@@ -26,7 +26,8 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.servlet.ServletException;
@@ -87,6 +88,11 @@ public class HttpSinkTest {
         
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+            if (req.getParameter("delayMillis") != null) {
+                try {
+                    Thread.sleep(Long.parseLong(req.getParameter("delayMillis")));
+                } catch (InterruptedException ignore) { }
+            }
             
             if (errorsToThrow.get() > 0) {
                 errorsToThrow.decrementAndGet();
@@ -141,6 +147,28 @@ public class HttpSinkTest {
     }
   
   
+    
+    @Test
+    public void testSuccesAsync() throws Exception {
+        
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?delayMillis=300")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .open();
+        CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertFalse(submission.isDone());
+        
+        try {
+            Thread.sleep(1500);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertTrue(submission.isDone());
+        Assert.assertEquals(Submission.State.COMPLETED, submission.get().getState());
+        
+        
+        sink.close();
+    }
+  
+    
     
     
     @Test
@@ -304,7 +332,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
 
         String content = Joiner.on("\n").join(Files.readLines(((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles()[0], Charsets.UTF_8));
-        Assert.assertTrue(content.trim().contains("numTrials: 2"));  
+        Assert.assertTrue(content.trim().contains("numTrials:2"));  
     }
 
     
@@ -408,8 +436,8 @@ public class HttpSinkTest {
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries: 100&36000000"));
-        Assert.assertTrue(content.contains("numTrials: 0"));
+        Assert.assertTrue(content.contains("retries:100&36000000"));
+        Assert.assertTrue(content.contains("numTrials:0"));
         
         
         HttpSink sink = HttpSink.target(target)
@@ -432,7 +460,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials: 1"));
+        Assert.assertTrue(content.contains("numTrials:1"));
         
         System.out.println(content);
     }
@@ -452,7 +480,7 @@ public class HttpSinkTest {
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries: 100&36000000"));
+        Assert.assertTrue(content.contains("retries:100&36000000"));
         
        
         
@@ -504,8 +532,8 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials: 1"));
-        Assert.assertFalse(content.contains("numTrials: 2"));
+        Assert.assertTrue(content.contains("numTrials:1"));
+        Assert.assertFalse(content.contains("numTrials:2"));
         
         sink2.close();
     }
@@ -657,19 +685,20 @@ public class HttpSinkTest {
             File queryDir = PersistentSubmission.createQueryDir(dir, Method.POST, uri);
             queryDir.mkdirs();
             
-            PersistentSubmission query = new PersistentSubmission(UUID.randomUUID().toString(),
-                                                                  uri,
-                                                                  Method.POST,
-                                                                  entity,
-                                                                  ImmutableSet.of(404),
-                                                                  delays,
-                                                                  trials,
-                                                                  dateLastTrial,
-                                                                  queryDir);
+            PersistentSubmission query = PersistentSubmission.newPersistentSubmissionAsync(UUID.randomUUID().toString(),
+                                                                                           uri,
+                                                                                           Method.POST,
+                                                                                           entity,
+                                                                                           ImmutableSet.of(404),
+                                                                                           delays,
+                                                                                           trials,
+                                                                                           dateLastTrial,
+                                                                                           queryDir)
+                                                             .get();
             query.release();
     
             return query.getQueryFile();
-        } catch (IOException ioe) {
+        } catch (ExecutionException | InterruptedException ioe) {
             throw new RuntimeException(ioe);
         }
     }

@@ -16,7 +16,7 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.File;
-import java.io.IOException;
+
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,9 +25,6 @@ import java.util.concurrent.CompletableFuture;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,8 +36,6 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
-    private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
-    
     private final URI target;
     private final Client userClient;
     private final Method method;
@@ -164,7 +159,6 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.retryDelays, 
                                        this.numParallelWorkers);
     }
-
     
     /**
      * @return the sink reference
@@ -195,26 +189,20 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            try {
-                final TransientSubmission query = newQuery(Entity.entity(entity, mediaType), UUID.randomUUID().toString());
-                LOG.debug("submitting " + query);
-                return processor.process(query).thenApply(q -> (Submission) q);
-            } catch (IOException ioe) {
-                final CompletableFuture<Submission> promise = new CompletableFuture<>();
-                promise.completeExceptionally(ioe);
-                return promise;
-            }
+            return newQueryAsync(Entity.entity(entity, mediaType), UUID.randomUUID().toString())
+                    .thenCompose(submission -> processor.processAsync(submission))
+                    .thenApply(s -> (Submission) s);
         }
     
-        protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
-            return new TransientSubmission(id, 
-                                           target, 
-                                           method, 
-                                           entity,
-                                           rejectStatusList,
-                                           Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
-                                           0,                                                  // no trials performed yet
-                                           Instant.now());                                     // last trial time is now (time starting point is now)
+        protected CompletableFuture<TransientSubmission> newQueryAsync(final Entity<?> entity, final String id) {
+            return CompletableFuture.completedFuture(new TransientSubmission(id, 
+                                                                             target, 
+                                                                             method, 
+                                                                             entity,
+                                                                             rejectStatusList,
+                                                                             Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
+                                                                             0,                                                  // no trials performed yet
+                                                                             Instant.now()));                                    // last trial time is now (time starting point is now)
         }
         
         @Override
@@ -222,7 +210,6 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
             return method + " " + target + "\r\n" + getMetrics();
         }
     }
-    
     
     private final class PersistentHttpSink extends TransientHttpSink {
 
@@ -232,16 +219,17 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
 
         @Override
-        protected TransientSubmission newQuery(final Entity<?> entity, final String id) throws IOException {
-            return new PersistentSubmission(id, 
-                                            target, 
-                                            method,   
-                                            entity,
-                                            rejectStatusList,
-                                            Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
-                                            0,                                                   // no trials performed yet
-                                            Instant.now(),                                       // last trial time is now (time starting point is now)
-                                            dir);
+        protected CompletableFuture<TransientSubmission> newQueryAsync(final Entity<?> entity, final String id) {
+            return PersistentSubmission.newPersistentSubmissionAsync(id, 
+                                                                     target, 
+                                                                     method,   
+                                                                     entity,
+                                                                     rejectStatusList,
+                                                                     Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
+                                                                     0,                                                   // no trials performed yet
+                                                                     Instant.now(),                                       // last trial time is now (time starting point is now)
+                                                                     dir)
+                                       .thenApply(sub -> (TransientSubmission) sub);
         }    
     } 
 }

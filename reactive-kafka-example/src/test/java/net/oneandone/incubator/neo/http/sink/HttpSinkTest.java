@@ -370,11 +370,7 @@ public class HttpSinkTest {
     
     @Test
     public void testClientError() throws IOException {
-        
-        Client client = JerseyClientBuilder.createClient();
-        
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=400")
-                                .withClient(client)
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                 .open();
         
@@ -384,7 +380,38 @@ public class HttpSinkTest {
         } catch (BadRequestException expected) { }
             
         sink.close();
-        client.close();
+    }
+
+    
+    
+    @Test
+    public void testMaxBufferSizeExceeded() throws IOException {
+        int maxsize = 2;
+        
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
+                                .withRetryAfter(ImmutableList.of(Duration.ofHours(2)))
+                                .withRetryBufferSize(maxsize)
+                                .open();
+        
+        for (int i = 0; i < maxsize; i++)
+        try {
+            sink.accept(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        } catch (BadRequestException expected) { }
+            
+        
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(2, sink.getMetrics().getNumPending());
+
+        
+        try {
+            sink.accept(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+            Assert.fail("IllegalStateException exepcted");
+        } catch (IllegalStateException exepcted) { }
+        
+        sink.close();
     }
 
     

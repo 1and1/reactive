@@ -94,12 +94,12 @@ class TransientSubmission implements Submission {
         return stateRef.get().processAsync(httpClient, executor);
     }
    
-    protected CompletableFuture<Void> updateStateAsync(FinalState newState) {
+    protected CompletableFuture<Void> updateStateAsync(final FinalState newState) {
         stateRef.set(newState);
         return CompletableFuture.completedFuture(null);
     }
     
-    protected CompletableFuture<Void> updateStateAsync(PendingState newState) {
+    protected CompletableFuture<Void> updateStateAsync(final PendingState newState) {
         stateRef.set(newState);
         return CompletableFuture.completedFuture(null);
     }
@@ -157,7 +157,7 @@ class TransientSubmission implements Submission {
     
     protected final class PendingState extends SubmissionState {
         
-        public PendingState(int numTrials, Instant dateLastTrial) {
+        public PendingState(final int numTrials, final Instant dateLastTrial) {
             super(State.PENDING, numTrials, dateLastTrial);
         }
         
@@ -179,11 +179,11 @@ class TransientSubmission implements Submission {
                 final Duration correctedDelay = optionalDelay.get().minus(elapsedSinceLastRetry);
                 final Duration delay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
                 
-                SubmitTask task = new SubmitTask(httpClient);
+                final SubmitTask task = new SubmitTask(httpClient);
                 executor.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS);
                 return task;
             } else {
-                throw new RuntimeException("no trials left");
+                return Exceptions.completedFailedFuture(new RuntimeException("no trials left"));
             }
         }
         
@@ -198,9 +198,13 @@ class TransientSubmission implements Submission {
             
             @Override
             public void run() {
-                LOG.debug("performing submission " + getId() + " (" + (run) + " of " + processDelays.size() + ")");
-                TransientSubmission.this.updateStateAsync(new PendingState(run, Instant.now()))     // update state with incremented trials
-                                        .thenAccept((Void) -> performHttpQuery());                  // initiate http query
+                try {
+                    LOG.debug("performing submission " + getId() + " (" + (run) + " of " + processDelays.size() + ")");
+                    TransientSubmission.this.updateStateAsync(new PendingState(run, Instant.now()))     // update state with incremented trials
+                                            .thenAccept((Void) -> performHttpQuery());                  // initiate http query
+                } catch (RuntimeException rt) {
+                    failed(rt);
+                }
             }
             
             private void performHttpQuery() {
@@ -212,7 +216,7 @@ class TransientSubmission implements Submission {
                         builder.async().put(entity, this);
                     }
                 } catch (RuntimeException rt) {
-                    this.failed(rt);
+                    failed(rt);
                 }                
             }
             
@@ -226,7 +230,7 @@ class TransientSubmission implements Submission {
                 }
 
                 // rejecting error?
-                int status = readAssociatedStatus(error);
+                final int status = readAssociatedStatus(error);
                 if (rejectStatusList.contains(status)) {
                     LOG.debug("submission " + getId() + " failed with rejecting status " + status + " Discarding submission");
                     updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial))
@@ -235,7 +239,7 @@ class TransientSubmission implements Submission {
                 // ..no     
                 } else {
                     // retries left?
-                    Optional<Duration> nextRetry = nextExecutionDelay(1);
+                    final Optional<Duration> nextRetry = nextExecutionDelay(1);
                     if (nextRetry.isPresent()) {
                         LOG.debug("submission " + getId() + " failed with "  + (processDelays.size() - run) + " retrys left (next in " + nextRetry.get() + ")");
                         complete(false);

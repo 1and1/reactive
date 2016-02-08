@@ -30,8 +30,7 @@ import com.google.common.collect.ImmutableSet;
 
 
 
-public interface HttpSink extends BiConsumer<Object, String>, Closeable {
-    
+public interface HttpSink extends BiConsumer<Object, String>, Closeable {    
     public static Method DEFAULT_METHOD = Method.POST;
     public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
     public static File DEFAULT_PERSISTENCY_DIR = null;

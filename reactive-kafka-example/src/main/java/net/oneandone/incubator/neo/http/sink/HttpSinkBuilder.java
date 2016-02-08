@@ -36,39 +36,39 @@ public interface HttpSinkBuilder {
     HttpSinkBuilder withClient(Client client);
 
     /**
-     * @param method the method. Supported are POST and PUT (default is {@link HttpSinkBuilder#DEFAULT_METHOD})
+     * @param method the method. Supported are POST and PUT (default is {@link HttpSink#DEFAULT_METHOD})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withMethod(Method method);
     
     /**
-     * @param retryPauses the delays before retrying (default is {@link HttpSinkBuilder#DEFAULT_RETRY_PAUSES})
+     * @param retryPauses the delays before retrying (default is {@link HttpSink#DEFAULT_RETRY_PAUSES})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRetryAfter(ImmutableList<Duration> retryPauses);
     
     /**
-     * @param retryPauses the delays before retrying (default is {@link HttpSinkBuilder#DEFAULT_RETRY_PAUSES})
+     * @param retryPauses the delays before retrying (default is {@link HttpSink#DEFAULT_RETRY_PAUSES})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRetryAfter(Duration... retryPauses);
     
 
     /**
-     * @param numParallelWorkers the parallelity by performing retries (default is {@link HttpSinkBuilder#DEFAULT_PARALLELITY})
+     * @param numParallelWorkers the parallelity by performing retries (default is {@link HttpSink#DEFAULT_PARALLELITY})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRetryParallelity(int numParallelWorkers);
     
     /**
-     * @param bufferSize the retry buffer size. If the size is exceeded, new retry jobs will be discarded (default is {@link HttpSinkBuilder#DEFAULT_BUFFERSIZE})
+     * @param bufferSize the retry buffer size. If the size is exceeded, new retry jobs will be discarded (default is {@link HttpSink#DEFAULT_BUFFERSIZE})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRetryBufferSize(int bufferSize);
     
     /**
      * @param dir the directory where the retry jobs will be stored. If null,
-     *            the retry jobs will be stored in-memory (default is {@link HttpSinkBuilder#DEFAULT_PERSISTENCY_DIR})
+     *            the retry jobs will be stored in-memory (default is {@link HttpSink#DEFAULT_PERSISTENCY_DIR})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withPersistency(File dir);
@@ -76,7 +76,7 @@ public interface HttpSinkBuilder {
     /**
      * 
      * @param rejectStatusList the set of status codes which will not initiate a retry. Instead a runtime exception will be 
-     *                         thrown, if such a response status is received (default {@link HttpSinkBuilder#DEFAULT_REJECTSTATUS_LIST})
+     *                         thrown, if such a response status is received (default {@link HttpSink#DEFAULT_REJECTSTATUS_LIST})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRejectOnStatus(ImmutableSet<Integer> rejectStatusList);

@@ -32,7 +32,6 @@ import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.MetricRegistry;
-import com.google.common.collect.ImmutableSet;
 
 import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
@@ -50,11 +49,13 @@ final class Processor implements Closeable, HttpSink.Metrics {
     
     private final AtomicBoolean isOpen = new AtomicBoolean(true);
     private final ScheduledThreadPoolExecutor executor;    
+    private final int maxQueueSize;
     private final Client httpClient;
     private final Optional<Client> clientToClose;
     
     
-    Processor(final Client userClient, final int numParallelWorkers) {
+    Processor(final Client userClient, final int numParallelWorkers, final int maxQueueSize) {
+        this.maxQueueSize = maxQueueSize;
         this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
         
         // using default client?
@@ -72,7 +73,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
     
     @Override
     public void close() {
-        for (TransientSubmission query : runningSubmissions) {
+        for (final TransientSubmission query : runningSubmissions) {
             query.release();
         }
 
@@ -85,15 +86,19 @@ final class Processor implements Closeable, HttpSink.Metrics {
     }
     
     public CompletableFuture<Submission> processAsync(final TransientSubmission submission) {
+        if (getNumPending() >= maxQueueSize) {
+            throw new IllegalStateException("max queue size " + maxQueueSize + " exceeded");
+        }
+        
         LOG.debug("submitting " + submission); 
-        return processAsyncInternal(submission);
+        return processSubmissionAsync(submission);
     }
 
     public void processRetryAsync(final TransientSubmission submission) {
-        processAsyncInternal(submission).whenComplete((sub, error) -> { retries.inc(); });
+        processSubmissionAsync(submission).whenComplete((sub, error) -> { retries.inc(); });
     }
 
-    private CompletableFuture<Submission> processAsyncInternal(final TransientSubmission submission) {
+    private CompletableFuture<Submission> processSubmissionAsync(final TransientSubmission submission) {
         if (!isOpen()) {
             throw new IllegalStateException("processor is already closed");
         }
@@ -118,8 +123,8 @@ final class Processor implements Closeable, HttpSink.Metrics {
     }
     
     private Submission onSubmissionRejected(final TransientSubmission submission, final Throwable error) {
-        LOG.warn("discarding " + submission.getId() );
         deregister(submission);
+        LOG.warn("discarding " + submission.getId() );
         discarded.inc();
         throw Exceptions.propagate(error);
     }
@@ -141,7 +146,9 @@ final class Processor implements Closeable, HttpSink.Metrics {
     
     @Override
     public int getNumPending() {
-        return getAll().size();
+        synchronized (this) {
+            return runningSubmissions.size();
+        }
     }
     
     public void register(final TransientSubmission submission) {
@@ -156,14 +163,6 @@ final class Processor implements Closeable, HttpSink.Metrics {
         }
     }
 
-    private ImmutableSet<TransientSubmission> getAll() {
-        ImmutableSet<TransientSubmission> runnings;
-        synchronized (this) {
-            runnings = ImmutableSet.copyOf(runningSubmissions);
-        }
-        return runnings;
-    }
-    
     @Override
     public String toString() {
         return new StringBuilder().append("pending=" + getNumPending())

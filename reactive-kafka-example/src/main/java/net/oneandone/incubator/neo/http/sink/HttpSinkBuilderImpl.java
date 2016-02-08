@@ -170,7 +170,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     
     
     private class TransientHttpSink implements HttpSink {
-        final Processor processor = new Processor(userClient, numParallelWorkers);
+        final Processor processor = new Processor(userClient, numParallelWorkers, bufferSize);
         
         @Override
         public boolean isOpen() {

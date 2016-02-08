@@ -32,7 +32,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
-
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 
@@ -56,8 +55,7 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
 final class PersistentSubmission extends TransientSubmission {
-    private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);
-    
+    private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);    
     private final SubmissionFile submissionfile;
 
     private PersistentSubmission(final String id,
@@ -148,7 +146,7 @@ final class PersistentSubmission extends TransientSubmission {
                                                                              dataLastTrial, 
                                                                              dir);
             return submission.saveAsync()
-                             .thenApply((Void) -> submission);
+                             .thenApply((Void) -> submission);  // cast
         } catch (IOException ioe) {
             return Exceptions.completedFailedFuture(ioe);
         }
@@ -168,7 +166,7 @@ final class PersistentSubmission extends TransientSubmission {
     }
     
     @Override
-    protected CompletableFuture<Void> updateStateAsync(FinalState finalState) {
+    protected CompletableFuture<Void> updateStateAsync(final FinalState finalState) {
         return super.updateStateAsync(finalState)
                     .thenAccept((Void) -> {
                                                 release();
@@ -179,7 +177,7 @@ final class PersistentSubmission extends TransientSubmission {
     }
 
     @Override
-    protected CompletableFuture<Void> updateStateAsync(PendingState pendingState) {
+    protected CompletableFuture<Void> updateStateAsync(final PendingState pendingState) {
         LOG.debug("updating persistent query " + getId() + " (numTrials=" + pendingState.getNumTrials() + ") " + submissionfile.getQueryFile().getAbsolutePath());
         return super.updateStateAsync(pendingState)
                     .thenCompose((Void) -> MapEncoding.create()
@@ -214,7 +212,6 @@ final class PersistentSubmission extends TransientSubmission {
              * By creating a new persistent query file a file lock will be acquired and not been released
              * until query is completed! This avoids concurrent handling of the same queue (file).
              */
-            
             this.queryFile = queryFile;
             this.channel = AsynchronousFileChannel.open(queryFile.toPath(), StandardOpenOption.CREATE,
                                                                             StandardOpenOption.READ, 
@@ -238,12 +235,12 @@ final class PersistentSubmission extends TransientSubmission {
         private static final class CompletableWriteFuture extends CompletableFuture<Void> implements CompletionHandler<Integer, Object> {
             
             @Override
-            public void completed(Integer result, Object attachment) {
+            public void completed(final Integer result, final Object attachment) {
                 super.complete(null);
             }
             
             @Override
-            public void failed(Throwable ex, Object attachment) {
+            public void failed(final Throwable ex, final Object attachment) {
                 super.completeExceptionally(ex);
             }
         }
@@ -272,12 +269,12 @@ final class PersistentSubmission extends TransientSubmission {
             }
             
             @Override
-            public void completed(Integer result, Object attachment) {
+            public void completed(final Integer result, final Object attachment) {
                 super.complete(buf.array());
             }
             
             @Override
-            public void failed(Throwable ex, Object attachment) {
+            public void failed(final Throwable ex, final Object attachment) {
                 super.completeExceptionally(ex);
             }
         }
@@ -324,13 +321,13 @@ final class PersistentSubmission extends TransientSubmission {
         return ImmutableList.copyOf(queryDir.listFiles())
                             .stream()
                             .filter(file -> file.getName().endsWith(".query"))
-                            .filter(file -> !Duration.between(Instant.ofEpochMilli(file.lastModified()).plus(Duration.ofSeconds(10)), Instant.now()).isNegative())  // older than 10 sec to avoid race conditions
+                            .filter(file -> !Duration.between(Instant.ofEpochMilli(file.lastModified()).plus(Duration.ofSeconds(5)), Instant.now()).isNegative())  // have to be older than 5 sec to avoid race conditions
                             .collect(Immutables.toList());
     } 
 
     public static CompletableFuture<Optional<PersistentSubmission>> tryReadFromAsync(final File file) {
         try {
-            SubmissionFile submissionFile = new SubmissionFile(file);
+            final SubmissionFile submissionFile = new SubmissionFile(file);
             return MapEncoding.readFromAsync(submissionFile)
                               .thenApply(protocol -> deserialize(submissionFile, protocol));
         } catch (IOException | RuntimeException ioe) {

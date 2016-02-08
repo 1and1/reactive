@@ -332,7 +332,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, ((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles().length);
 
         String content = Joiner.on("\n").join(Files.readLines(((PersistentSubmission) submission).getQueryFile().getParentFile().listFiles()[0], Charsets.UTF_8));
-        Assert.assertTrue(content.trim().contains("numTrials:2"));  
+        Assert.assertTrue(content.trim().contains("numTrials -> 2"));  
     }
 
     
@@ -396,7 +396,8 @@ public class HttpSinkTest {
         File queryFile = newPersistentQuery(Files.createTempDir(), 
                                             target, 
                                             Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                            ImmutableList.of(Duration.ofMillis(100)));
+                                            ImmutableList.of(Duration.ofMillis(100)),
+                                            Instant.now().minus(Duration.ofMinutes(5)));
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         
@@ -421,6 +422,38 @@ public class HttpSinkTest {
         Assert.assertEquals(0, queryFile.getParentFile().listFiles().length);
     }
 
+
+    @Test
+    public void testRescheduleFreshPersistentQueryShouldBeIgnored() throws Exception {
+        URI target = URI.create("http://localhost:1/rest/topics");
+        
+        // create query file to simluate former crash
+        File queryFile = newPersistentQuery(Files.createTempDir(), 
+                                            target, 
+                                            Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
+                                            ImmutableList.of(Duration.ofMillis(100)),
+                                            Instant.now());
+        
+        HttpSink sink = HttpSink.target(target)
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withPersistency(queryFile.getParentFile().getParentFile())
+                                .open();
+        
+        
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumRetries().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+        
+        sink.close();
+        
+        Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
+    }
+
+
     
     
     @Test
@@ -432,12 +465,13 @@ public class HttpSinkTest {
         File queryFile = newPersistentQuery(Files.createTempDir(), 
                                             target, 
                                             Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                            ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)));
+                                            ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
+                                            Instant.now().minus(Duration.ofMinutes(5)));
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries:100&36000000"));
-        Assert.assertTrue(content.contains("numTrials:0"));
+        Assert.assertTrue(content.contains("retries -> 100&36000000"));
+        Assert.assertTrue(content.contains("numTrials -> 0"));
         
         
         HttpSink sink = HttpSink.target(target)
@@ -460,7 +494,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials:1"));
+        Assert.assertTrue(content.contains("numTrials -> 1"));
         
         System.out.println(content);
     }
@@ -476,11 +510,12 @@ public class HttpSinkTest {
         File queryFile = newPersistentQuery(Files.createTempDir(), 
                                             target, 
                                             Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                            ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)));
+                                            ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
+                                            Instant.now().minus(Duration.ofMinutes(5)));
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries:100&36000000"));
+        Assert.assertTrue(content.contains("retries -> 100&36000000"));
         
        
         
@@ -532,8 +567,8 @@ public class HttpSinkTest {
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         File file = queryFile.getParentFile().listFiles()[0];
         content = Joiner.on("\n").join(Files.readLines(file, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials:1"));
-        Assert.assertFalse(content.contains("numTrials:2"));
+        Assert.assertTrue(content.contains("numTrials -> 1"));
+        Assert.assertFalse(content.contains("numTrials -> 2"));
         
         sink2.close();
     }
@@ -548,7 +583,8 @@ public class HttpSinkTest {
         File queryFile = newPersistentQuery(Files.createTempDir(), 
                                             target,
                                             Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                            ImmutableList.of(Duration.ofMillis(100)));
+                                            ImmutableList.of(Duration.ofMillis(100)),
+                                            Instant.now().minus(Duration.ofMinutes(5)));
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         
         
@@ -597,6 +633,7 @@ public class HttpSinkTest {
                                             target,
                                             Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
                                             ImmutableList.of(Duration.ofMinutes(0), Duration.ofMinutes(20), Duration.ofSeconds(91)),
+                                            Instant.now().minus(Duration.ofMinutes(5)),
                                             2,
                                             Instant.now().minus(Duration.ofSeconds(90)));
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
@@ -675,12 +712,12 @@ public class HttpSinkTest {
         public AuthenticationScheme scheme;
     }
 
-    private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays) {
-        return newPersistentQuery(dir, uri, entity, delays, 0, Instant.now()); 
+    private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, Instant lastModified) {
+        return newPersistentQuery(dir, uri, entity, delays, lastModified, 0, Instant.now()); 
     }
 
  
-    private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, int trials, Instant dateLastTrial) {
+    private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, Instant lastModified, int trials, Instant dateLastTrial) {
         try {
             File queryDir = PersistentSubmission.createQueryDir(dir, Method.POST, uri);
             queryDir.mkdirs();
@@ -696,6 +733,7 @@ public class HttpSinkTest {
                                                                                            queryDir)
                                                              .get();
             query.release();
+            query.getQueryFile().setLastModified(lastModified.toEpochMilli());
     
             return query.getQueryFile();
         } catch (ExecutionException | InterruptedException ioe) {

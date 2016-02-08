@@ -200,7 +200,7 @@ class TransientSubmission implements Submission {
             public void run() {
                 LOG.debug("performing submission " + getId() + " (" + (run) + " of " + processDelays.size() + ")");
                 TransientSubmission.this.updateStateAsync(new PendingState(run, Instant.now()))     // update state with incremented trials
-                                        .thenAccept((Void) -> SubmitTask.this.performHttpQuery());  // initiate http query
+                                        .thenAccept((Void) -> performHttpQuery());                  // initiate http query
             }
             
             private void performHttpQuery() {
@@ -229,7 +229,8 @@ class TransientSubmission implements Submission {
                 int status = readAssociatedStatus(error);
                 if (rejectStatusList.contains(status)) {
                     LOG.debug("submission " + getId() + " failed with rejecting status " + status + " Discarding submission");
-                    updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial)).thenAccept((Void) -> completeExceptionally(error));
+                    updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial))
+                                 .thenAccept((Void) -> completeExceptionally(error));
                     
                 // ..no     
                 } else {
@@ -240,7 +241,8 @@ class TransientSubmission implements Submission {
                         complete(false);
                     } else {
                         LOG.debug("submission " + getId() + " failed with no retrys left.  Discarding submission");
-                        updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial)).thenAccept((Void) -> completeExceptionally(error));
+                        updateStateAsync(new FinalState(State.DISCARDED, numTrials, dateLastTrial))
+                                     .thenAccept((Void) -> completeExceptionally(error));
                     }
                 }
             }
@@ -248,7 +250,8 @@ class TransientSubmission implements Submission {
             @Override
             public void completed(String responseEntity) {
                 LOG.debug("query " + getId() + " executed successfully");
-                updateStateAsync(new FinalState(State.COMPLETED, numTrials, dateLastTrial)).thenAccept((Void) -> complete(true));
+                updateStateAsync(new FinalState(State.COMPLETED, numTrials, dateLastTrial))
+                             .thenAccept((Void) -> complete(true));
             }
         }
         

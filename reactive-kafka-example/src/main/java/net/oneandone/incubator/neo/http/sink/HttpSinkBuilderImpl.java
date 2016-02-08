@@ -20,6 +20,7 @@ import java.io.File;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -29,6 +30,7 @@ import javax.ws.rs.client.Entity;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
@@ -158,6 +160,16 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        rejectStatusList,
                                        this.retryDelays, 
                                        this.numParallelWorkers);
+    }
+    
+    @Override
+    public HttpSinkBuilder withRejectOnStatus(int... rejectStatusList) {
+        Preconditions.checkNotNull(rejectStatusList);
+        Set<Integer> set = Sets.newHashSet(); 
+        for (int status : rejectStatusList) {
+            set.add(status);
+        }
+        return withRejectOnStatus(ImmutableSet.copyOf(set));
     }
     
     /**

@@ -81,6 +81,15 @@ public interface HttpSinkBuilder {
      */
     HttpSinkBuilder withRejectOnStatus(ImmutableSet<Integer> rejectStatusList);
     
+    
+    /**
+     * 
+     * @param rejectStatusList the set of status codes which will not initiate a retry. Instead a runtime exception will be 
+     *                         thrown, if such a response status is received (default {@link HttpSink#DEFAULT_REJECTSTATUS_LIST})
+     * @return a new instance of the http sink
+     */
+    HttpSinkBuilder withRejectOnStatus(int... rejectStatusList);
+    
     /**
      * @return the sink reference
      */

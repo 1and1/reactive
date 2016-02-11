@@ -115,7 +115,7 @@ By calling the `submit` method first it will be tried to perform the submission.
 
 ```
 HttpSink sink = HttpSink.target(myUri)
-                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5), Duration.ofMinutes(30), Duration.ofHours(7))
+                        .withRetryAfter(Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30), Duration.ofHours(7))
 					    .withPersistency(myWorkingDir)
                         .open();
 // ...
@@ -128,4 +128,4 @@ CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedE
 //...
 ```
 
-In most cases the `submitAsync` approach is used by setting the retry sequence and a store directory. This allows you to submit an event message in a resilient way without blocking the main program flow.         
+In most cases the `submitAsync` approach is preferred as shown above by setting the retry sequence `withRetryAfter` and a store directory `withPersistency`. This allows you to submit an event message in a resilient way without blocking the main program flow. 

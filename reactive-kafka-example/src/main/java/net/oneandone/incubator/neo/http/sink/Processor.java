@@ -37,7 +37,6 @@ import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
-
 final class Processor implements Closeable, HttpSink.Metrics {
     private static final Logger LOG = LoggerFactory.getLogger(Processor.class);
     

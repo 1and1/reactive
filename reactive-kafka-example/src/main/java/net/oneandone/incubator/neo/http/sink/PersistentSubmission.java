@@ -99,7 +99,6 @@ final class PersistentSubmission extends TransientSubmission {
              new SubmissionFile(createQueryDir(dir, method, target), id));
     } 
     
-    
     private final CompletableFuture<Void> saveAsync() {
         try {
             final ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -123,8 +122,7 @@ final class PersistentSubmission extends TransientSubmission {
         } catch (IOException ioe) {
             return Exceptions.completedFailedFuture(ioe);
         }
-    }
-    
+    }    
     
     public static CompletableFuture<PersistentSubmission> newPersistentSubmissionAsync(final String id,
                                                                                        final URI target, 
@@ -146,14 +144,12 @@ final class PersistentSubmission extends TransientSubmission {
                                                                              dataLastTrial, 
                                                                              dir);
             return submission.saveAsync()
-                             .thenApply((Void) -> submission);  // cast
+                             .thenApply((Void) -> submission);  
         } catch (IOException ioe) {
             return Exceptions.completedFailedFuture(ioe);
         }
     }
-
-    
-    
+  
     public File getQueryFile() {
         return submissionfile.getQueryFile();
     }
@@ -196,7 +192,6 @@ final class PersistentSubmission extends TransientSubmission {
         
         return queryDir;
     }
-    
     
     
     private static final class SubmissionFile implements Closeable {

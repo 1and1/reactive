@@ -54,7 +54,7 @@ class TransientSubmission implements Submission {
     protected final ImmutableList<Duration> processDelays;
     protected final Method method;
   
-    // state
+    // submission state
     protected final AtomicReference<SubmissionState> stateRef;
 
     
@@ -89,7 +89,7 @@ class TransientSubmission implements Submission {
     public State getState() {
         return stateRef.get().getState();
     }
-    
+   
     public CompletableFuture<Boolean> processAsync(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
         return stateRef.get().processAsync(httpClient, executor);
     }
@@ -128,19 +128,18 @@ class TransientSubmission implements Submission {
             return state;
         }
         
-        public int getNumTrials() {
+        int getNumTrials() {
             return numTrials;
         }
         
-        public Instant getDateLastTrial() {
+        Instant getDateLastTrial() {
             return dateLastTrial;
         }
 
         CompletableFuture<Boolean> processAsync(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
             throw new IllegalStateException("can not process submission. State is " + getState());
         }
-        
-        
+                
         @Override
         public String toString() {
             return "state=" + state.toString();
@@ -211,9 +210,9 @@ class TransientSubmission implements Submission {
                 try {
                     final Builder builder = httpClient.target(target).request();
                     if (method == Method.POST) {
-                        builder.async().post(entity, this);
+                        builder.async().post(entity, this);  // this -> submit task implements invocation listener interface
                     } else {
-                        builder.async().put(entity, this);
+                        builder.async().put(entity, this);   // this -> submit task implements invocation listener interface
                     }
                 } catch (RuntimeException rt) {
                     failed(rt);

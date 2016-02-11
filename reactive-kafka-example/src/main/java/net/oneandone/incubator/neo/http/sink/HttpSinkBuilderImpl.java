@@ -172,9 +172,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         return withRejectOnStatus(ImmutableSet.copyOf(set));
     }
     
-    /**
-     * @return the sink reference
-     */
+    @Override
     public HttpSink open() {
         // if dir is set, sink will run in persistent mode  
         return (dir == null) ? new TransientHttpSink() : new PersistentHttpSink(); 
@@ -201,12 +199,12 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
-            return newQueryAsync(Entity.entity(entity, mediaType), UUID.randomUUID().toString())
-                    .thenCompose(submission -> processor.processAsync(submission))
-                    .thenApply(s -> (Submission) s);
+            return newSubmissionAsync(Entity.entity(entity, mediaType), UUID.randomUUID().toString())  // create a new submission
+                    .thenCompose(submission -> processor.processAsync(submission))                     // process them an
+                    .thenApply(s -> (Submission) s);                                                   // cast it
         }
     
-        protected CompletableFuture<TransientSubmission> newQueryAsync(final Entity<?> entity, final String id) {
+        protected CompletableFuture<TransientSubmission> newSubmissionAsync(final Entity<?> entity, final String id) {
             return CompletableFuture.completedFuture(new TransientSubmission(id, 
                                                                              target, 
                                                                              method, 
@@ -227,11 +225,11 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
         public PersistentHttpSink() {
             super();
-            PersistentSubmission.processOldQueryFiles(dir, method, target, processor);
+            PersistentSubmission.processOldQueryFiles(dir, method, target, processor);  // process old submissions (if exists)
         }
 
         @Override
-        protected CompletableFuture<TransientSubmission> newQueryAsync(final Entity<?> entity, final String id) {
+        protected CompletableFuture<TransientSubmission> newSubmissionAsync(final Entity<?> entity, final String id) {
             return PersistentSubmission.newPersistentSubmissionAsync(id, 
                                                                      target, 
                                                                      method,   

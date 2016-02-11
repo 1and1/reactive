@@ -29,7 +29,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 
-
+/**
+ * A HttpSink represents the HTTP endpoint to push messages 
+ *
+ */
 public interface HttpSink extends BiConsumer<Object, String>, Closeable {    
     public static Method DEFAULT_METHOD = Method.POST;
     public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
@@ -38,16 +41,25 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
     public static ImmutableList<Duration> DEFAULT_RETRY_PAUSES = ImmutableList.of();
     public static int DEFAULT_PARALLELITY = 1;
     
+    /**
+     * HTTP Method enum
+     */
     public enum Method {
         POST, PUT
     };
-    
     
     @Override
     default void accept(Object entity, String mediaType) {
         submit(entity, mediaType);
     }
 
+    /**
+     * submits a message
+     *  
+     * @param entity      the entity to submit
+     * @param mediaType   the media type of the entity
+     * @return the submission
+     */
     default Submission submit(Object entity, String mediaType) {
         try {
             return submitAsync(entity, mediaType).get();
@@ -63,28 +75,61 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
         }
     }
     
+    /**
+     * submits a message in an async way
+     * 
+     * @param entity      the entity to submit
+     * @param mediaType   the media type of the entity
+     * @return the submission future
+     */
     CompletableFuture<Submission> submitAsync(Object entity, String mediaType);
     
+    
+    /**
+     * retrieves the metrics
+     * @return the metrics
+     */
     Metrics getMetrics();
 
+    /**
+     * @return true, if ther sink is open
+     */
     boolean isOpen();
     
     @Override
     void close();
     
+    
+    /**
+     * Represent the submission process 
+     */
     public interface Submission {
         
+        /**
+         * submission state
+         */
         public enum State { PENDING, COMPLETED, DISCARDED } 
         
+        /**
+         * @return the state 
+         */
         State getState();
     }
     
-
+    /**
+     * creates a new sink builder
+     * @param target the target uri
+     * @return the builder
+     */
     static HttpSinkBuilder target(final String target) {
         return target(URI.create(target));
     }
 
-    
+    /**
+     * creates a new sink builder
+     * @param target the target uri
+     * @return the builder
+     */
     static HttpSinkBuilder target(final URI target) {
         Preconditions.checkNotNull(target);
         return new HttpSinkBuilderImpl(null, 
@@ -96,7 +141,10 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
                                        DEFAULT_RETRY_PAUSES,
                                        DEFAULT_PARALLELITY);
     }   
-    
+
+    /**
+     * The metrics
+     */
     public interface Metrics {
         
         Counter getNumSuccess();

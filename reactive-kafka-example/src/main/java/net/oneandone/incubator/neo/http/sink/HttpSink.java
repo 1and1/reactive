@@ -23,6 +23,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 
+import javax.ws.rs.core.MediaType;
+
 import com.codahale.metrics.Counter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +35,7 @@ import com.google.common.collect.ImmutableSet;
  * A HttpSink represents the HTTP endpoint to push messages 
  *
  */
-public interface HttpSink extends BiConsumer<Object, String>, Closeable {    
+public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {    
     public static Method DEFAULT_METHOD = Method.POST;
     public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
     public static File DEFAULT_PERSISTENCY_DIR = null;
@@ -48,11 +50,17 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
         POST, PUT
     };
     
-    @Override
+
     default void accept(Object entity, String mediaType) {
+        accept(entity, MediaType.valueOf(mediaType));
+    }
+
+    @Override
+    default void accept(Object entity, MediaType mediaType) {
         submit(entity, mediaType);
     }
 
+    
     /**
      * submits a message
      *  
@@ -61,6 +69,18 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
      * @return the submission
      */
     default Submission submit(Object entity, String mediaType) {
+        return submit(entity, MediaType.valueOf(mediaType));
+    }
+
+    
+    /**
+     * submits a message
+     *  
+     * @param entity      the entity to submit
+     * @param mediaType   the media type of the entity
+     * @return the submission
+     */
+    default Submission submit(Object entity, MediaType mediaType) {
         try {
             return submitAsync(entity, mediaType).get();
         } catch (InterruptedException e) {
@@ -82,7 +102,19 @@ public interface HttpSink extends BiConsumer<Object, String>, Closeable {
      * @param mediaType   the media type of the entity
      * @return the submission future
      */
-    CompletableFuture<Submission> submitAsync(Object entity, String mediaType);
+    default CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
+        return submitAsync(entity, MediaType.valueOf(mediaType));
+    }
+    
+
+    /**
+     * submits a message in an async way
+     * 
+     * @param entity      the entity to submit
+     * @param mediaType   the media type of the entity
+     * @return the submission future
+     */
+    CompletableFuture<Submission> submitAsync(Object entity, MediaType mediaType);
     
     
     /**

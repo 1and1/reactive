@@ -18,11 +18,11 @@ HttpSink sink = HttpSink.target(myUri)
 // send some events
 
 sink.submit(new CustomerChangedEvent(id)                                // the bean 
-            "application/vnd.example.event.customerdatachanged+json");  // the mime type 
+            "application/vnd.example.event.customerdatachanged+json");  // the mime type as string
 
 //..        
-sink.submit(new CustomerChangedEvent(anotherId), 
-            "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new AddressChangedEvent(anotherId),                        // the bean
+            MediaType.APPLICATION_JSON);                               // the mime type as object
 
 
 

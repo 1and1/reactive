@@ -37,6 +37,7 @@ import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.BadRequestException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.core.MediaType;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import org.glassfish.jersey.client.JerseyClientBuilder;
@@ -136,11 +137,10 @@ public class HttpSinkTest {
     
     @Test
     public void testSuccess() throws Exception {
-        
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
                                 .open();
-        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), MediaType.valueOf("application/vnd.example.event.customerdatachanged+json"));
         Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
         sink.close();

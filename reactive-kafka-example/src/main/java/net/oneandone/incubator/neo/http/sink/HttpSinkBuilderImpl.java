@@ -26,6 +26,7 @@ import java.util.concurrent.CompletableFuture;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.core.MediaType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -198,7 +199,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
         
         @Override
-        public CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
+        public CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType) {
             return newSubmissionAsync(Entity.entity(entity, mediaType), UUID.randomUUID().toString())  // create a new submission
                     .thenCompose(submission -> processor.processAsync(submission))                     // process them an
                     .thenApply(s -> (Submission) s);                                                   // cast it

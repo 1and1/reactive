@@ -1,7 +1,7 @@
 HttpSink
 ========
 
-The HttpSink is a client lib to perform ***one-way styled*** communication in a ***resilient*** way. Even though the HTTP protocol is a *request-response* protocol it is used sometimes to implemented *logical* one-way communication on top of HTTP such as pushing event messages to the resource server. For such a communication the HTTP server response represents the acknowledge/disacknowledge message of he delivery.
+The HttpSink is a client lib to perform ***one-way*** styled communication in a ***resilient*** way. Even though the HTTP protocol is a *request-response* protocol it is sometime used to implemented *logical* one-way communication on top of HTTP such as pushing event messages to the resource server. For such a communication the HTTP server response represents the acknowledge/disacknowledge response of the message delivery.
  
 This library implements default behavior to handle the acknowledge/disacknowledge response. In case of disacknowledge this lib supports retrying the call in a delayed style. To support high resiliency the lib also allows buffering pending send jobs on the local disk. 
 
@@ -17,10 +17,12 @@ HttpSink sink = HttpSink.target(myUri)
 
 // send some events
 
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id)                                // the bean 
+            "application/vnd.example.event.customerdatachanged+json");  // the mime type 
 
 //..        
-sink.submit(new CustomerChangedEvent(anotherId), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(anotherId), 
+            "application/vnd.example.event.customerdatachanged+json");
 
 
 
@@ -37,7 +39,8 @@ HttpSink sink = HttpSink.target(myUri)
 // ...
 
 
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id), 
+            "application/vnd.example.event.customerdatachanged+json");
 
 //..        
 ```
@@ -51,7 +54,8 @@ HttpSink sink = HttpSink.target(myUri)
                         .open();
 
 // ...
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id),
+            "application/vnd.example.event.customerdatachanged+json");
 
 
 //...
@@ -66,7 +70,8 @@ HttpSink sink = HttpSink.target(myUri)
                         .open();
 
 // ...
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id),
+            "application/vnd.example.event.customerdatachanged+json");
 
 
 //...
@@ -82,7 +87,8 @@ HttpSink sink = HttpSink.target(myUri)
                         .open();
 
 // ...
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id), 
+            "application/vnd.example.event.customerdatachanged+json");
 
 
 //...
@@ -99,7 +105,8 @@ HttpSink sink = HttpSink.target(myUri)
                         .open();
 
 // ...
-sink.submit(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+sink.submit(new CustomerChangedEvent(id), 
+            "application/vnd.example.event.customerdatachanged+json");
 
 
 //...
@@ -115,7 +122,8 @@ HttpSink sink = HttpSink.target(myUri)
 // ...
 
 
-CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedEvent(id), "application/vnd.example.event.customerdatachanged+json");
+CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedEvent(id), 
+                                                            "application/vnd.example.event.customerdatachanged+json");
 
 
 //...

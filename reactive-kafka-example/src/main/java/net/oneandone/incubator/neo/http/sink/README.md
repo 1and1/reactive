@@ -111,11 +111,11 @@ sink.submit(new CustomerChangedEvent(id),
 //...
 ```
 
-By calling the `submit` method first it will be tried to perform the submission. The submit methods returns either the call is sucessfully or it is failed for the *first* time. By calling the `submitAsync` the call returns immediately without waiting for the response. In this case a `CompletableFuture` is returned   
+By calling the `submit` method first it will be tried to perform the submission. The submit methods returns either the call is sucessfully or it is failed for the *first* time. By calling the `submitAsync` the call returns immediately without waiting for the response. In this case a `CompletableFuture` is returned.
 
 ```
 HttpSink sink = HttpSink.target(myUri)
-                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5))
+                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5), Duration.ofMinutes(30), Duration.ofHours(7))
 					    .withPersistency(myWorkingDir)
                         .open();
 // ...
@@ -127,3 +127,5 @@ CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedE
 
 //...
 ```
+
+In most cases the `submitAsync` approach is used by setting the retry sequence and a store directory. This allows you to submit an event message in a resilient way without blocking the main program flow.         

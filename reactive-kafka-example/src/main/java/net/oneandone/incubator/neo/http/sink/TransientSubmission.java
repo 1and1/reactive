@@ -94,17 +94,25 @@ class TransientSubmission implements Submission {
         return stateRef.get().processAsync(httpClient, executor);
     }
    
-    protected CompletableFuture<Void> updateStateAsync(final FinalState newState) {
+    private CompletableFuture<Void> updateStateAsync(final FinalState newState) {
         stateRef.set(newState);
-        return CompletableFuture.completedFuture(null);
+        return CompletableFuture.supplyAsync(() -> onCompleted());
+    }
+
+    protected Void onCompleted() {
+        return null;
     }
     
-    protected CompletableFuture<Void> updateStateAsync(final PendingState newState) {
+    private CompletableFuture<Void> updateStateAsync(final PendingState newState) {
         stateRef.set(newState);
-        return CompletableFuture.completedFuture(null);
+        return CompletableFuture.supplyAsync(() -> onUpdated());
     }
     
-    protected void release() {
+    protected Void onUpdated() {
+        return null;
+    }
+    
+    protected void onReleased() {
     }             
 
     @Override

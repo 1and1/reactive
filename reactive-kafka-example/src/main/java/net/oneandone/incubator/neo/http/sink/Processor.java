@@ -32,7 +32,9 @@ import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.ImmutableSet;
 
+import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
@@ -73,13 +75,19 @@ final class Processor implements Closeable, HttpSink.Metrics {
     @Override
     public void close() {
         for (final TransientSubmission query : runningSubmissions) {
-            query.release();
+            query.onReleased();
         }
 
         clientToClose.ifPresent(c -> c.close());
         executor.shutdown();
     }
 
+    public ImmutableSet<Submission> getPendingSubmissions() {
+        return runningSubmissions.stream()
+                                 .map(submission -> (Submission) submission)
+                                 .collect(Immutables.toSet());
+    }
+    
     public boolean isOpen() {
         return isOpen.get();
     }

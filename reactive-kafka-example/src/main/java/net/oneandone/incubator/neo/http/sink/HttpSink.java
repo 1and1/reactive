@@ -49,7 +49,6 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     public enum Method {
         POST, PUT
     };
-    
 
     default void accept(Object entity, String mediaType) {
         accept(entity, MediaType.valueOf(mediaType));
@@ -71,7 +70,6 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     default Submission submit(Object entity, String mediaType) {
         return submit(entity, MediaType.valueOf(mediaType));
     }
-
     
     /**
      * submits a message
@@ -106,7 +104,6 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
         return submitAsync(entity, MediaType.valueOf(mediaType));
     }
     
-
     /**
      * submits a message in an async way
      * 
@@ -116,12 +113,16 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
      */
     CompletableFuture<Submission> submitAsync(Object entity, MediaType mediaType);
     
-    
     /**
      * retrieves the metrics
      * @return the metrics
      */
     Metrics getMetrics();
+    
+    /**
+     * @return the pending submissions
+     */
+    ImmutableSet<Submission> getPendingSubmissions();
 
     /**
      * @return true, if ther sink is open

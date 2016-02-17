@@ -194,6 +194,11 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
         
         @Override
+        public ImmutableSet<Submission> getPendingSubmissions() {
+            return processor.getPendingSubmissions();
+        }
+        
+        @Override
         public Metrics getMetrics() {
             return processor;
         }

@@ -23,6 +23,6 @@ interface TaskExecutor {
     void processWithDelay(Task task, Duration duration);
     
     static interface Task extends Runnable {
-        TransientSubmission getAssignedSubmission();
+        TransientSubmissionTask getAssignedSubmission();
     }
 }

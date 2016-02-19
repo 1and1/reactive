@@ -42,7 +42,7 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 final class Processor implements Closeable, HttpSink.Metrics {
     private static final Logger LOG = LoggerFactory.getLogger(Processor.class);
     
-    private final Set<TransientSubmission> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<TransientSubmission, Boolean>());
+    private final Set<TransientSubmissionTask> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<TransientSubmissionTask, Boolean>());
     private final MetricRegistry metrics = new MetricRegistry();
     private final Counter success = metrics.counter("success");
     private final Counter retries = metrics.counter("retries");
@@ -74,7 +74,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
     
     @Override
     public void close() {
-        for (final TransientSubmission query : runningSubmissions) {
+        for (final TransientSubmissionTask query : runningSubmissions) {
             query.onReleased();
         }
 
@@ -92,7 +92,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return isOpen.get();
     }
     
-    public CompletableFuture<Submission> processAsync(final TransientSubmission submission) {
+    public CompletableFuture<Submission> processAsync(final TransientSubmissionTask submission) {
         if (getNumPending() >= maxQueueSize) {
             throw new IllegalStateException("max queue size " + maxQueueSize + " exceeded");
         }
@@ -101,39 +101,55 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return processSubmissionAsync(submission);
     }
 
-    public void processRetryAsync(final TransientSubmission submission) {
-        processSubmissionAsync(submission).whenComplete((sub, error) -> { retries.inc(); });
+    public void processRetryAsync(final TransientSubmissionTask submissionTask) {
+        processSubmissionAsync(submissionTask)
+                        .whenComplete((sub, error) -> retries.inc());
     }
 
-    private CompletableFuture<Submission> processSubmissionAsync(final TransientSubmission submission) {
+    private CompletableFuture<Submission> processSubmissionAsync(final TransientSubmissionTask submissionTask) {
+        return processSubmissionMonitoredAsync(submissionTask)
+                             .exceptionally(error -> { 
+                                                         discarded.inc();
+                                                         throw Exceptions.propagate(error);
+                                                     })
+                             .thenApply(optionalNextRetry ->  { 
+                                                                 if (optionalNextRetry.isPresent()) {   
+                                                                     processRetryAsync(optionalNextRetry.get()); 
+                                                                 } else {
+                                                                     success.inc();                                                             
+                                                                 }
+                                                                 return submissionTask.getSubmission();
+                                                              }); 
+    }
+    
+    private CompletableFuture<Optional<TransientSubmissionTask>> processSubmissionMonitoredAsync(final TransientSubmissionTask submissionTask) {
         if (!isOpen()) {
             throw new IllegalStateException("processor is already closed");
         }
         
-        register(submission);
-        return submission.processAsync(httpClient, executor)
-                         .thenApply(completed -> completed ? onSubmissionCompleted(submission) : onSubmissionFailed(submission))
-                         .exceptionally(error -> onSubmissionRejected(submission, error));
-    }
-
-    
-    private Submission onSubmissionFailed(final TransientSubmission submission) {
-        // retry
-        processRetryAsync(submission); 
-        return submission;
-    }
-
-    private Submission onSubmissionCompleted(final TransientSubmission submission) {
-        deregister(submission);
-        success.inc();
-        return submission;
+        register(submissionTask);
+        return submissionTask.processAsync(httpClient, executor)
+                             .handle((optionalNextRetry, error) ->  {
+                                                                         deregister(submissionTask, optionalNextRetry);
+                                                                         if (error == null) {
+                                                                             return optionalNextRetry;
+                                                                         } else {
+                                                                             throw Exceptions.propagate(error);
+                                                                         }
+                                                                    }); 
     }
     
-    private Submission onSubmissionRejected(final TransientSubmission submission, final Throwable error) {
-        deregister(submission);
-        LOG.warn("discarding " + submission.getId() );
-        discarded.inc();
-        throw Exceptions.propagate(error);
+    private void register(final TransientSubmissionTask submission) {
+        synchronized (this) {
+            runningSubmissions.add(submission);
+        }
+    }
+    
+    private <T> T deregister(final TransientSubmissionTask submission, final T t) {
+        synchronized (this) {
+            runningSubmissions.remove(submission);
+        }
+        return t;
     }
     
     @Override
@@ -158,18 +174,6 @@ final class Processor implements Closeable, HttpSink.Metrics {
         }
     }
     
-    public void register(final TransientSubmission submission) {
-        synchronized (this) {
-            runningSubmissions.add(submission);
-        }
-    }
-    
-    public void deregister(final TransientSubmission submission) {
-        synchronized (this) {
-            runningSubmissions.remove(submission);
-        }
-    }
-
     @Override
     public String toString() {
         return new StringBuilder().append("pending=" + getNumPending())

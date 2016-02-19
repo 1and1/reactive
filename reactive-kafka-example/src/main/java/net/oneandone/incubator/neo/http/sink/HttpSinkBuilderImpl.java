@@ -176,7 +176,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     @Override
     public HttpSink open() {
         // if dir is set, sink will run in persistent mode  
-        return (dir == null) ? new TransientHttpSink() : new PersistentHttpSink(); 
+        return (dir == null) ? new TransientHttpSink() : new PersistentHttpSink();
     }   
     
     
@@ -210,15 +210,15 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                     .thenApply(s -> (Submission) s);                                                   // cast it
         }
     
-        protected CompletableFuture<TransientSubmission> newSubmissionAsync(final Entity<?> entity, final String id) {
-            return CompletableFuture.completedFuture(new TransientSubmission(id, 
-                                                                             target, 
-                                                                             method, 
-                                                                             entity,
-                                                                             rejectStatusList,
-                                                                             Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
-                                                                             0,                                                  // no trials performed yet
-                                                                             Instant.now()));                                    // last trial time is now (time starting point is now)
+        protected CompletableFuture<TransientSubmissionTask> newSubmissionAsync(final Entity<?> entity, final String id) {
+            return TransientSubmissionTask.newPersistentSubmissionAsync(id, 
+                                                                        target, 
+                                                                        method, 
+                                                                        entity,
+                                                                        rejectStatusList,
+                                                                        Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
+                                                                        0,                                                  // no trials performed yet
+                                                                        Instant.now());                                     // last trial time is now (time starting point is now)
         }
         
         @Override
@@ -231,21 +231,21 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 
         public PersistentHttpSink() {
             super();
-            PersistentSubmission.processOldQueryFiles(dir, method, target, processor);  // process old submissions (if exists)
+            PersistentSubmissionTask.processOldQueryFiles(dir, method, target, processor);  // process old submissions (if exists)
         }
 
         @Override
-        protected CompletableFuture<TransientSubmission> newSubmissionAsync(final Entity<?> entity, final String id) {
-            return PersistentSubmission.newPersistentSubmissionAsync(id, 
-                                                                     target, 
-                                                                     method,   
-                                                                     entity,
-                                                                     rejectStatusList,
-                                                                     Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
-                                                                     0,                                                   // no trials performed yet
-                                                                     Instant.now(),                                       // last trial time is now (time starting point is now)
-                                                                     dir)
-                                       .thenApply(sub -> (TransientSubmission) sub);
+        protected CompletableFuture<TransientSubmissionTask> newSubmissionAsync(final Entity<?> entity, final String id) {
+            return PersistentSubmissionTask.newPersistentSubmissionAsync(id, 
+                                                                         target, 
+                                                                         method,   
+                                                                         entity,
+                                                                         rejectStatusList,
+                                                                         Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
+                                                                         0,                                                   // no trials performed yet
+                                                                         Instant.now(),                                       // last trial time is now (time starting point is now)
+                                                                         dir)
+                                       .thenApply(sub -> (TransientSubmissionTask) sub);
         }    
     } 
 }

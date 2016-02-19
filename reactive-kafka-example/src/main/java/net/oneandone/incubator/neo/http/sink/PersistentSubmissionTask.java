@@ -17,6 +17,7 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.io.ByteArrayOutputStream;
 
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -55,22 +56,23 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
 
-final class PersistentSubmission extends TransientSubmission {
+final class PersistentSubmissionTask extends TransientSubmissionTask {
     private static final String SUBMISSION_SUFFIX = ".submission";
     private static final String TEMP_SUFFIX = ".temp";
     private static final String DELETED_SUFFIX = ".deleted";
-    private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);    
+    private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmissionTask.class);    
     private final File submissionDir;
     
-    private PersistentSubmission(final String id,
-                                 final URI target, 
-                                 final Method method, 
-                                 final Entity<?> entity, 
-                                 final ImmutableSet<Integer> rejectStatusList,
-                                 final ImmutableList<Duration> retryDelays,
-                                 final int numRetries,
-                                 final Instant dataLastTrial,
-                                 final File submissionDir) {
+    private PersistentSubmissionTask(final String id,
+                                     final URI target, 
+                                     final Method method, 
+                                     final Entity<?> entity, 
+                                     final ImmutableSet<Integer> rejectStatusList,
+                                     final ImmutableList<Duration> retryDelays,
+                                     final int numRetries,
+                                     final Instant dataLastTrial,
+                                     final SubmissionImpl submission,
+                                     final File submissionDir) {
         super(id, 
               target, 
               method,
@@ -78,21 +80,22 @@ final class PersistentSubmission extends TransientSubmission {
               rejectStatusList,
               retryDelays,
               numRetries,
-              dataLastTrial);
+              dataLastTrial,
+              submission);
         
         this.submissionDir = submissionDir;
     }
     
-    public static CompletableFuture<PersistentSubmission> newPersistentSubmissionAsync(final String id,
-                                                                                       final URI target, 
-                                                                                       final Method method, 
-                                                                                       final Entity<?> entity, 
-                                                                                       final ImmutableSet<Integer> rejectStatusList,
-                                                                                       final ImmutableList<Duration> retryDelays,
-                                                                                       final int numTrials,
-                                                                                       final Instant dataLastTrial,
-                                                                                       final File dir) {
-            final PersistentSubmission submission = new PersistentSubmission(id,
+    public static CompletableFuture<PersistentSubmissionTask> newPersistentSubmissionAsync(final String id,
+                                                                                           final URI target, 
+                                                                                           final Method method, 
+                                                                                           final Entity<?> entity, 
+                                                                                           final ImmutableSet<Integer> rejectStatusList,
+                                                                                           final ImmutableList<Duration> retryDelays,
+                                                                                           final int numTrials,
+                                                                                           final Instant dataLastTrial,
+                                                                                           final File dir) {
+            final PersistentSubmissionTask submission = new PersistentSubmissionTask(id,
                                                                              target,
                                                                              method,
                                                                              entity, 
@@ -100,27 +103,64 @@ final class PersistentSubmission extends TransientSubmission {
                                                                              retryDelays,
                                                                              numTrials,
                                                                              dataLastTrial, 
+                                                                             new SubmissionImpl(),
                                                                              new File(dir, id));
             return CompletableFuture.supplyAsync(() -> save(submission)); 
     }
+    
+    protected TransientSubmissionTask cloneSubmissionTask(final int numTrials,
+                                                          final Instant dateLastTrial) {
+        return new PersistentSubmissionTask(this.id, 
+                                            this.target,
+                                            this.method, 
+                                            this.entity, 
+                                            this.rejectStatusList,  
+                                            this.processDelays, 
+                                            numTrials, 
+                                            dateLastTrial,
+                                            this.submission,
+                                            this.submissionDir);
+    }
   
     @Override
-    protected Void onCompleted() {
+    protected void onTerminate() {
         deletePersistentSubmission();
-        return null;
     }
     
     @Override
-    protected Void onUpdated() {
-        LOG.debug("updating persistent query " + getId() + " (numTrials=" + stateRef.get().getNumTrials() + ") ");
-        save(PersistentSubmission.this);
-        return null;
-    }
-
-    @Override
     protected void onReleased() {
         // TODO release lock
-        LOG.debug("persistent submission " + getId() + " released " + submissionDir.getAbsolutePath());                            
+        LOG.debug("persistent submission " + id + " released " + submissionDir.getAbsolutePath());                            
+    }
+    
+    File getSubmissionDir() {
+        return submissionDir;
+    }
+            
+    public Optional<File> getFile() {
+        return getFile(submissionDir);
+    }
+    
+    private static Optional<File> getFile(final File submissionDir) {
+        if (newDeleteMarkerFile(submissionDir).exists()) {
+            return Optional.empty();
+        } else {
+            Optional<File> submissionFile = Optional.empty();
+            Instant newest = Instant.ofEpochMilli(0); 
+            
+            for (File file : submissionDir.listFiles()) {
+                final String name = file.getName(); 
+                if (name.endsWith(SUBMISSION_SUFFIX)) {
+                    Instant time = Instant.ofEpochMilli(Long.parseLong(name.substring(0, SUBMISSION_SUFFIX.length())));
+                    if (time.isAfter(newest)) {
+                        newest = time;
+                        submissionFile = Optional.of(file);
+                    }
+                }
+            }
+            
+            return submissionFile;
+        }
     }
     
     static File createQueryDir(final File dir, final Method method, final URI target) {
@@ -143,8 +183,8 @@ final class PersistentSubmission extends TransientSubmission {
         LOG.debug("scanning " + submissionDir.getAbsolutePath() + " for unprocessed query files");
         
         for (File submissionFile : readSubmissionFiles(submissionDir)) {
-            PersistentSubmission submission = load(submissionFile);
-            LOG.debug("old submission file " + submission.getId() + " found rescheduling it"); 
+            PersistentSubmissionTask submission = load(submissionFile);
+            LOG.debug("old submission file " + submission.id + " found rescheduling it"); 
             processor.processRetryAsync(submission);
         }
     }
@@ -158,43 +198,13 @@ final class PersistentSubmission extends TransientSubmission {
                             .collect(Immutables.toList());
     } 
 
-    File getSubmissionDir() {
-        return submissionDir;
-    }
-            
-    public Optional<File> getFile() {
-        return getFile(submissionDir);
-    }
-    
-    private static Optional<File> getFile(final File submissionDir) {
-        if (getDeleteMarkerFile(submissionDir).exists()) {
-            return Optional.empty();
-        } else {
-            Optional<File> submissionFile = Optional.empty();
-            Instant newest = Instant.ofEpochMilli(0); 
-            
-            for (File file : submissionDir.listFiles()) {
-                final String name = file.getName(); 
-                if (name.endsWith(SUBMISSION_SUFFIX)) {
-                    Instant time = Instant.ofEpochMilli(Long.parseLong(name.substring(0, SUBMISSION_SUFFIX.length())));
-                    if (time.isAfter(newest)) {
-                        newest = time;
-                        submissionFile = Optional.of(file);
-                    }
-                }
-            }
-            
-            return submissionFile;
-        }
-    }
-    
-    private final static File getDeleteMarkerFile(final File submissionDir) {
+    private final static File newDeleteMarkerFile(final File submissionDir) {
         return new File(submissionDir, "submission" + DELETED_SUFFIX);
     }
     
     private void deletePersistentSubmission() {
         // write deleted marker
-        File deletedFile = getDeleteMarkerFile(submissionDir) ;
+        File deletedFile = newDeleteMarkerFile(submissionDir);
         try {
             deletedFile.createNewFile();
         } catch (IOException ignore) { }
@@ -210,13 +220,13 @@ final class PersistentSubmission extends TransientSubmission {
         if (filesDeleted) {
             deletedFile.delete();
             if (submissionDir.delete()) {
-                LOG.debug("persistent query " + getId() + " deleted " + submissionDir.getAbsolutePath());                            
+                LOG.debug("persistent query " + id + " deleted " + submissionDir.getAbsolutePath());                            
             }
         }
         
     }
     
-    private static final PersistentSubmission save(final PersistentSubmission submission) {
+    private static final PersistentSubmissionTask save(final PersistentSubmissionTask submission) {
         if (!submission.submissionDir.exists()) {
             submission.submissionDir.mkdirs();
         }
@@ -241,8 +251,8 @@ final class PersistentSubmission extends TransientSubmission {
                                                   .join(submission.processDelays.stream()
                                                                                 .map(duration -> duration.toMillis())
                                                                                 .collect(Immutables.toList())))
-                           .with("numTrials", submission.stateRef.get().getNumTrials())
-                           .with("dataLastTrial", submission.stateRef.get().getDateLastTrial().toString())
+                           .with("numTrials", submission.numTrials)
+                           .with("dataLastTrial", submission.dateLastTrial.toString())
                            .with("rejectStatusList", Joiner.on("&").join(submission.rejectStatusList))
                            .writeTo(os);
                 os.close();
@@ -267,7 +277,7 @@ final class PersistentSubmission extends TransientSubmission {
         return submission;
     }    
     
-    private static final PersistentSubmission load(final File submissionFile) {
+    private static final PersistentSubmissionTask load(final File submissionFile) {
         FileInputStream fis = null;
         try {
             fis = new FileInputStream(submissionFile);
@@ -293,7 +303,7 @@ final class PersistentSubmission extends TransientSubmission {
                                                                    .stream()
                                                                    .map(status -> Integer.parseInt(status))
                                                                    .collect(Immutables.toSet());
-            return new PersistentSubmission(id, 
+            return new PersistentSubmissionTask(id, 
                                             target, 
                                             method, 
                                             Entity.entity(data, mediaType), 
@@ -301,6 +311,7 @@ final class PersistentSubmission extends TransientSubmission {
                                             retryDelays, 
                                             numTrials,
                                             dateLastTrial,
+                                            new SubmissionImpl(),
                                             submissionFile.getParentFile());
         } catch (final IOException ioe) {
             LOG.debug("loading persistent submission " + submissionFile.getAbsolutePath() + " failed", ioe);

@@ -20,7 +20,6 @@ package net.oneandone.incubator.neo.http.sink;
 import java.io.File;
 
 
-
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
@@ -44,7 +43,6 @@ import org.glassfish.jersey.client.JerseyClientBuilder;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.base.Charsets;
@@ -57,6 +55,7 @@ import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 import net.oneandone.incubator.neo.http.sink.HttpSink;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
+import net.oneandone.incubator.neo.http.sink.PersistentSubmission.PersistentSubmissionTask;
 import net.oneandone.incubator.neotest.WebServer;
 
 
@@ -174,7 +173,6 @@ public class HttpSinkTest {
     
     @Test
     public void testPersistentSuccess() throws Exception {
-        
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(110)))
                                 .withPersistency(Files.createTempDir())
@@ -182,7 +180,7 @@ public class HttpSinkTest {
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
-//        Assert.assertFalse(((PersistentSubmissionTask) submission).getSubmissionDir().exists());
+        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().getDir().exists());
         sink.close();
     }
   
@@ -197,7 +195,7 @@ public class HttpSinkTest {
                                  .open();
          Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
          Assert.assertEquals(Submission.State.PENDING, submission.getState());
-         
+         Assert.assertEquals(submission, sink.getPendingSubmissions().iterator().next());
         
          try {
              Thread.sleep(1000);
@@ -300,7 +298,7 @@ public class HttpSinkTest {
         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
         
-      //  Assert.assertFalse(((PersistentSubmissionTask) submission).getSubmissionDir().exists());
+        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().getDir().exists());
         sink.close();
     }
 
@@ -498,8 +496,8 @@ public class HttpSinkTest {
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries -> 100&36000000"));
-        Assert.assertTrue(content.contains("numTrials -> 0"));
+        Assert.assertTrue(content.contains("retries=100&36000000"));
+        Assert.assertTrue(content.contains("numTrials=0"));
         
         
         HttpSink sink = HttpSink.target(target)
@@ -529,7 +527,6 @@ public class HttpSinkTest {
     
     
     
-    @Ignore
     @Test
     public void testReschedulePersistentConcurrentAccess() throws Exception {
         
@@ -544,7 +541,7 @@ public class HttpSinkTest {
         
         Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
         String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries -> 100&36000000"));
+        Assert.assertTrue(content.contains("retries=100&36000000"));
         
        
         
@@ -633,7 +630,7 @@ public class HttpSinkTest {
         
         sink.close();
         
-        Assert.assertEquals(0, getSinkSubmissionsDir(queryFile).listFiles().length);
+        Assert.assertEquals(0, ((HttpSinkBuilderImpl.PersistentHttpSink) sink).getDir().listFiles().length);
     }
 
     
@@ -748,24 +745,16 @@ public class HttpSinkTest {
  
     private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, Instant lastModified, int trials, Instant dateLastTrial) {
         try {
-            File queryDir = PersistentSubmissionTask.createQueryDir(dir, Method.POST, uri);
-            queryDir.mkdirs();
+        	PersistentSubmission.SubmissionsDir submissionsDir = new PersistentSubmission.SubmissionsDir(dir, uri, Method.POST);
+            PersistentSubmission persistentSubmission = new PersistentSubmission(UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
+            PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.newSubmissionTaskAsync().get();
+            task.release();
             
-            PersistentSubmissionTask query = PersistentSubmissionTask.newPersistentSubmissionAsync(UUID.randomUUID().toString(),
-                                                                                           uri,
-                                                                                           Method.POST,
-                                                                                           entity,
-                                                                                           ImmutableSet.of(404),
-                                                                                           delays,
-                                                                                           trials,
-                                                                                           dateLastTrial,
-                                                                                           queryDir)
-                                                             .get();
-            query.onReleased();
-            
-            File submissionFile = query.getFile().get();
+            File submissionFile = task.getFile();
             submissionFile.setLastModified(lastModified.toEpochMilli());
     
+            persistentSubmission.getSubmissionDir().close();
+            
             return submissionFile;
         } catch (ExecutionException | InterruptedException ioe) {
             throw new RuntimeException(ioe);

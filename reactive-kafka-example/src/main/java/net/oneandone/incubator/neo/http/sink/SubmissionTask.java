@@ -15,14 +15,17 @@
  */
 package net.oneandone.incubator.neo.http.sink;
 
-import java.time.Duration;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 
- 
-interface TaskExecutor {
+import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
-    void processWithDelay(Task task, Duration duration);
-    
-    static interface Task extends Runnable {
-        TransientSubmissionTask getAssignedSubmission();
-    }
+interface SubmissionTask {
+	
+    Submission getSubmission();
+	
+	default void release() { }     
+	
+    CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor, final ScheduledThreadPoolExecutor executor);
 }

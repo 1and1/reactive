@@ -19,8 +19,6 @@ import java.io.File;
 
 import java.net.URI;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -28,17 +26,22 @@ import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
-
+import net.oneandone.incubator.neo.http.sink.PersistentSubmission.PersistentSubmissionTask;
+import net.oneandone.incubator.neo.http.sink.PersistentSubmission.SubmissionDir;
 
 
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
+	private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
+
     private final URI target;
     private final Client userClient;
     private final Method method;
@@ -164,13 +167,9 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     }
     
     @Override
-    public HttpSinkBuilder withRejectOnStatus(int... rejectStatusList) {
+    public HttpSinkBuilder withRejectOnStatus(Integer... rejectStatusList) {
         Preconditions.checkNotNull(rejectStatusList);
-        Set<Integer> set = Sets.newHashSet(); 
-        for (int status : rejectStatusList) {
-            set.add(status);
-        }
-        return withRejectOnStatus(ImmutableSet.copyOf(set));
+        return withRejectOnStatus(ImmutableSet.copyOf(rejectStatusList));
     }
     
     @Override
@@ -205,20 +204,25 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType) {
-            return newSubmissionAsync(Entity.entity(entity, mediaType), UUID.randomUUID().toString())  // create a new submission
-                    .thenCompose(submission -> processor.processAsync(submission))                     // process them an
-                    .thenApply(s -> (Submission) s);                                                   // cast it
+        	final TransientSubmission submission = newSubmission(UUID.randomUUID().toString(),
+        													     target, 
+        													     method,
+        													     Entity.entity(entity, mediaType), 
+        													     rejectStatusList,
+        													     Immutables.join(Duration.ofMillis(0), retryDelays)); // add first trial (which is not a retry)
+        	
+        	return submission.newSubmissionTaskAsync()  													// create a new submission task
+        					 .thenCompose(submissionTask -> processor.processTaskAsync(submissionTask))     // process them an
+        					 .thenApply(submissionTask -> submissionTask.getSubmission());
         }
     
-        protected CompletableFuture<TransientSubmissionTask> newSubmissionAsync(final Entity<?> entity, final String id) {
-            return TransientSubmissionTask.newPersistentSubmissionAsync(id, 
-                                                                        target, 
-                                                                        method, 
-                                                                        entity,
-                                                                        rejectStatusList,
-                                                                        Immutables.join(Duration.ofMillis(0), retryDelays), // add first trial (which is not a retry)
-                                                                        0,                                                  // no trials performed yet
-                                                                        Instant.now());                                     // last trial time is now (time starting point is now)
+        protected TransientSubmission newSubmission(final String id,
+				   					         	    final URI target,
+				   					         	    final Method method,
+				   					         	    final Entity<?> entity, 
+				   					         	    final ImmutableSet<Integer> rejectStatusList,
+				   					         	    final ImmutableList<Duration> processDelays) {
+        	return new TransientSubmission(id, target, method, entity, rejectStatusList, processDelays);    	
         }
         
         @Override
@@ -227,25 +231,37 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
     }
     
-    private final class PersistentHttpSink extends TransientHttpSink {
-
+    
+    final class PersistentHttpSink extends TransientHttpSink {
+    	private final PersistentSubmission.SubmissionsDir submissionsDir;
+    	
         public PersistentHttpSink() {
             super();
-            PersistentSubmissionTask.processOldQueryFiles(dir, method, target, processor);  // process old submissions (if exists)
+            this.submissionsDir = new PersistentSubmission.SubmissionsDir(dir, target, method);
+
+            // process old submissions (if exists)
+            submissionsDir.scanUnprocessedSubmissionDirs()
+            			  .forEach(submissionDir -> submissionDir.getNewestSubmissionFile()
+            					  							     .ifPresent(file -> submitRetry(submissionDir, file)));
+        }
+        
+        private void submitRetry(final SubmissionDir submissionDir, final File submissionFile) {
+        	PersistentSubmissionTask submissionTask = PersistentSubmission.load(submissionDir, submissionFile);
+        	LOG.debug("old submission file " + submissionTask.getSubmission().getId() + " found rescheduling it"); 
+        	processor.processRetryAsync(submissionTask);
+        }
+        
+        public File getDir() {
+        	return submissionsDir.getDir();
         }
 
-        @Override
-        protected CompletableFuture<TransientSubmissionTask> newSubmissionAsync(final Entity<?> entity, final String id) {
-            return PersistentSubmissionTask.newPersistentSubmissionAsync(id, 
-                                                                         target, 
-                                                                         method,   
-                                                                         entity,
-                                                                         rejectStatusList,
-                                                                         Immutables.join(Duration.ofMillis(0), retryDelays),  // add first trial (which is not a retry)
-                                                                         0,                                                   // no trials performed yet
-                                                                         Instant.now(),                                       // last trial time is now (time starting point is now)
-                                                                         dir)
-                                       .thenApply(sub -> (TransientSubmissionTask) sub);
-        }    
+        protected TransientSubmission newSubmission(final String id,
+	         	    								final URI target,
+	         	    								final Method method,
+	         	    								final Entity<?> entity, 
+	         	    								final ImmutableSet<Integer> rejectStatusList,
+	         	    								final ImmutableList<Duration> processDelays) {
+        	return new PersistentSubmission(id, target, method, entity, rejectStatusList, processDelays, submissionsDir);    	
+        }
     } 
 }

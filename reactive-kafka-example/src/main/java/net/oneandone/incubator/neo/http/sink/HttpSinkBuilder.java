@@ -53,7 +53,6 @@ public interface HttpSinkBuilder {
      */
     HttpSinkBuilder withRetryAfter(Duration... retryPauses);
     
-
     /**
      * @param numParallelWorkers the parallelity by performing retries (default is {@link HttpSink#DEFAULT_PARALLELITY})
      * @return a new instance of the http sink
@@ -81,14 +80,13 @@ public interface HttpSinkBuilder {
      */
     HttpSinkBuilder withRejectOnStatus(ImmutableSet<Integer> rejectStatusList);
     
-    
     /**
      * 
      * @param rejectStatusList the set of status codes which will not initiate a retry. Instead a runtime exception will be 
      *                         thrown, if such a response status is received (default {@link HttpSink#DEFAULT_REJECTSTATUS_LIST})
      * @return a new instance of the http sink
      */
-    HttpSinkBuilder withRejectOnStatus(int... rejectStatusList);
+    HttpSinkBuilder withRejectOnStatus(Integer... rejectStatusList);
     
     /**
      * @return the sink reference

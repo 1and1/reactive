@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 
+import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 
 import com.codahale.metrics.Counter;
@@ -39,9 +40,22 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     public static Method DEFAULT_METHOD = Method.POST;
     public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
     public static File DEFAULT_PERSISTENCY_DIR = null;
-    public static ImmutableSet<Integer> DEFAULT_REJECTSTATUS_LIST = ImmutableSet.of(400, 403, 405, 406, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417);
     public static ImmutableList<Duration> DEFAULT_RETRY_PAUSES = ImmutableList.of();
     public static int DEFAULT_PARALLELITY = 1;
+    public static ImmutableSet<Integer> DEFAULT_REJECTSTATUS_LIST = ImmutableSet.of(400, 
+    																				403, 
+    																				405, 
+    																				406, 
+    																				408, 
+    																				409, 
+    																				410, 
+    																				411,
+    																				412, 
+    																				413, 
+    																				414, 
+    																				415, 
+    																				416,
+    																				417);
     
     /**
      * HTTP Method enum
@@ -49,36 +63,45 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     public enum Method {
         POST, PUT
     };
-
-    default void accept(Object entity, String mediaType) {
+    
+    /**
+     * emits a message into the sink 
+     * @param entity       the entity
+     * @param mediaType    the media type
+     */
+    default void accept(final Object entity, final String mediaType) {
         accept(entity, MediaType.valueOf(mediaType));
     }
 
+    /**
+     * emits a message into the sink 
+     * @param entity       the entity
+     * @param mediaType    the media type
+     */
     @Override
-    default void accept(Object entity, MediaType mediaType) {
+    default void accept(final Object entity, final MediaType mediaType) {
         submit(entity, mediaType);
     }
-
     
     /**
-     * submits a message
+     * emits a message into the sink
      *  
-     * @param entity      the entity to submit
+     * @param entity      the entity 
      * @param mediaType   the media type of the entity
      * @return the submission
      */
-    default Submission submit(Object entity, String mediaType) {
+    default Submission submit(final Object entity, final String mediaType) {
         return submit(entity, MediaType.valueOf(mediaType));
     }
     
     /**
-     * submits a message
+     * emits a message into the sink
      *  
-     * @param entity      the entity to submit
+     * @param entity      the entity 
      * @param mediaType   the media type of the entity
      * @return the submission
      */
-    default Submission submit(Object entity, MediaType mediaType) {
+    default Submission submit(final Object entity, final MediaType mediaType) {
         try {
             return submitAsync(entity, mediaType).get();
         } catch (InterruptedException e) {
@@ -94,24 +117,24 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     }
     
     /**
-     * submits a message in an async way
+     * emits a message in an async way
      * 
-     * @param entity      the entity to submit
+     * @param entity      the entity
      * @param mediaType   the media type of the entity
      * @return the submission future
      */
-    default CompletableFuture<Submission> submitAsync(Object entity, String mediaType) {
+    default CompletableFuture<Submission> submitAsync(final Object entity, final String mediaType) {
         return submitAsync(entity, MediaType.valueOf(mediaType));
     }
     
     /**
-     * submits a message in an async way
+     * emits a message in an async way
      * 
      * @param entity      the entity to submit
      * @param mediaType   the media type of the entity
      * @return the submission future
      */
-    CompletableFuture<Submission> submitAsync(Object entity, MediaType mediaType);
+    CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType);
     
     /**
      * retrieves the metrics
@@ -125,29 +148,12 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     ImmutableSet<Submission> getPendingSubmissions();
 
     /**
-     * @return true, if ther sink is open
+     * @return true, if the sink is open
      */
     boolean isOpen();
     
     @Override
     void close();
-    
-    
-    /**
-     * Represent the submission process 
-     */
-    public interface Submission {
-        
-        /**
-         * submission state
-         */
-        public enum State { PENDING, COMPLETED, DISCARDED } 
-        
-        /**
-         * @return the state 
-         */
-        State getState();
-    }
     
     /**
      * creates a new sink builder
@@ -174,6 +180,49 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
                                        DEFAULT_RETRY_PAUSES,
                                        DEFAULT_PARALLELITY);
     }   
+
+    
+    /**
+     * Represent the submission process 
+     */
+    public interface Submission {
+        
+        /**
+         * submission state
+         */
+        public enum State { PENDING, COMPLETED, DISCARDED } 
+        
+        /**
+         * @return the state 
+         */
+        State getState();
+        
+
+        /**
+         * @return the id
+         */
+        String getId();
+
+		/**
+		 * @return the method
+		 */
+		Method getMethod();
+        
+        /**
+         * @return the target
+         */
+		URI getTarget();
+
+		/**
+		 * @return the entity
+		 */
+		Entity<?> getEntity();
+
+		/**
+		 * @return the reject status list
+		 */
+		ImmutableSet<Integer> getRejectStatusList();
+    }
 
     /**
      * The metrics

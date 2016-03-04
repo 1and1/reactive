@@ -16,10 +16,11 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.util.Optional;
+
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
+
 
 interface SubmissionTask {
 	
@@ -27,5 +28,5 @@ interface SubmissionTask {
 	
 	default void release() { }     
 	
-    CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor, final ScheduledThreadPoolExecutor executor);
+    CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor);
 }

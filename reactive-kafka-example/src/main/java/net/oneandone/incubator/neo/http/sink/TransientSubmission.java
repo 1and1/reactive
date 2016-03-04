@@ -21,10 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
 
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.client.Entity;
@@ -117,7 +114,7 @@ class TransientSubmission implements Submission {
 		return id + " - " + method + " " + target;
 	}
 	
-	CompletableFuture<SubmissionTask> newSubmissionTaskAsync() {
+	CompletableFuture<SubmissionTask> openAsync() {
 		return CompletableFuture.completedFuture(new TransientSubmissionTask());    	
     }    
 	 
@@ -140,52 +137,41 @@ class TransientSubmission implements Submission {
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
 	    }
 	    
-	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor, final ScheduledThreadPoolExecutor executor) {
-	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
-	    	final CompletablePromise<Optional<SubmissionTask>> completablePromise = new CompletablePromise<>();
-	    	executor.schedule(() -> processNowAsync(queryExecutor).whenComplete(completablePromise),
-	        			      nextExecutionDelay.toMillis(), 
-	        			      TimeUnit.MILLISECONDS);
-	        return completablePromise;
-	    }
-	    
 	    protected int getNumTrials() {
 	    	return numTrials;
 	    }
 	    
-	    private CompletableFuture<Optional<SubmissionTask>> processNowAsync(final QueryExecutor queryExecutor) {
-	        LOG.debug("performing " + subInfo());
+	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor executor) {
+	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
 	        
-	        return queryExecutor.performHttpQuery(getMethod(), getTarget(), getEntity())
-	        		     		.thenApply(httpBody -> {    // success
-	        		     			 						LOG.debug(subInfo() + " executed successfully");
-	        		     			 						update(State.COMPLETED);
-	        		     			 						terminate();
-	        		     			 						return Optional.<SubmissionTask>empty();
-	        		     							  })
-	        		     		.exceptionally(error -> {   // error
-	        		     									error = unwrap(error);
-	        		     			 						if (getRejectStatusList().contains(toStatus(error))) {
-	        		     			 							LOG.warn(subInfo() + " failed. Discarding it", error);
-	        		     			 							update(State.DISCARDED);
-	        		     			 							terminate();
-	        		     			 							throw Exceptions.propagate(error);
-	                                                    
-	        		     			 						} else {
-	        		     			 							LOG.debug(subInfo() + " failed with " + toStatus(error));
-	        		     			 							Optional<SubmissionTask> nextRetry = nextRetry();
-	        		     			 							if (nextRetry.isPresent()) {
-	        		     			 								return nextRetry;
-	        		     			 							} else {
-	        		     			 								LOG.warn("no retries left for " + subInfo() + " discarding it");
-	        		     			 								terminate();
-	        		     			 								throw Exceptions.propagate(error);
-	        		     			 							}
-	        		     			 						}
-	        		     								});
+	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
+	        			   .thenApply(httpBody -> { 	// success
+	        				   							LOG.debug(subInfo() + " executed successfully");
+	        				   							update(State.COMPLETED);
+	        				   							terminate();
+	        				   							return Optional.<SubmissionTask>empty();
+	        			   						  })
+	        			   .exceptionally(error -> {	// error
+	        				   							error = unwrap(error);
+	        				   							if (getRejectStatusList().contains(toStatus(error))) {
+	        				   								LOG.warn(subInfo() + " failed. Discarding it", error);
+	        				   								update(State.DISCARDED);
+	        				   								terminate();
+	        				   								throw Exceptions.propagate(error);
+	        				   							} else {
+	        				   								LOG.debug(subInfo() + " failed with " + toStatus(error));
+	        				   								Optional<SubmissionTask> nextRetry = nextRetry();
+	        				   								if (nextRetry.isPresent()) {
+	        				   									return nextRetry;
+	        				   								} else {
+	        				   									LOG.warn("no retries left for " + subInfo() + " discarding it");
+	        				   									terminate();
+	        				   									throw Exceptions.propagate(error);
+	        				   								}
+	        				   							}
+	        			   						  });
 	    }
 	        
-	    
 	    private Throwable unwrap(Throwable error) {
 	    	Throwable rootError = Exceptions.unwrap(error);
 			if (rootError instanceof ResponseProcessingException) {
@@ -230,18 +216,5 @@ class TransientSubmission implements Submission {
 	    public String toString() {
 	    	return TransientSubmission.this.toString();
 	    }
-	}
-	
-	
-    private static final class CompletablePromise<R> extends CompletableFuture<R> implements BiConsumer<R, Throwable> {
-		
-		@Override
-		public void accept(R result, Throwable error) {
-			if (error == null) {
-				complete(result);
-			} else {
-				completeExceptionally(error);
-			}
-		}
 	}
 }  

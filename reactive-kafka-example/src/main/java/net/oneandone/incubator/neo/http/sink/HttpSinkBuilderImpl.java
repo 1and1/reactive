@@ -211,7 +211,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         													     rejectStatusList,
         													     Immutables.join(Duration.ofMillis(0), retryDelays)); // add first trial (which is not a retry)
         	
-        	return submission.newSubmissionTaskAsync()  													// create a new submission task
+        	return submission.openAsync()  												                 	// create a new submission task
         					 .thenCompose(submissionTask -> processor.processTaskAsync(submissionTask))     // process them an
         					 .thenApply(submissionTask -> submissionTask.getSubmission());
         }

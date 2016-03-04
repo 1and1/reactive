@@ -88,7 +88,7 @@ class PersistentSubmission extends TransientSubmission {
     	return submissionDir;
     }
     
-    CompletableFuture<SubmissionTask> newSubmissionTaskAsync() {
+    CompletableFuture<SubmissionTask> openAsync() {
     	return CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask()); 
     }
    

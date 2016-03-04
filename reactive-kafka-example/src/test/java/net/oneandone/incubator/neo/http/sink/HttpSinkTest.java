@@ -745,7 +745,7 @@ public class HttpSinkTest {
         try {
         	PersistentSubmission.SubmissionsDir submissionsDir = new PersistentSubmission.SubmissionsDir(dir, uri, Method.POST);
             PersistentSubmission persistentSubmission = new PersistentSubmission(UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
-            PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.newSubmissionTaskAsync().get();
+            PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.openAsync().get();
             task.release();
             
             File submissionFile = task.getFile();

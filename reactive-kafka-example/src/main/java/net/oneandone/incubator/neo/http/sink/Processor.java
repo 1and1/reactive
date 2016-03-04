@@ -62,12 +62,12 @@ final class Processor implements Closeable, HttpSink.Metrics {
         // using default client?
         if (userClient == null) {
             final Client defaultClient = ClientBuilder.newClient();
-        	this.queryExecutor = new QueryExecutor(defaultClient);
+        	this.queryExecutor = new QueryExecutor(defaultClient, executor);
             this.clientToClose = Optional.of(defaultClient);
             
         // .. no client is given by user 
         } else {
-        	this.queryExecutor = new QueryExecutor(userClient);
+        	this.queryExecutor = new QueryExecutor(userClient, executor);
             this.clientToClose = Optional.empty();
         }
     }
@@ -130,7 +130,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
         }
         
         register(submissionTask);
-        return submissionTask.processAsync(queryExecutor, executor)
+        return submissionTask.processAsync(queryExecutor)
                              .handle((optionalNextRetry, error) ->  {
                                                                          deregister(submissionTask, optionalNextRetry);
                                                                          if (error == null) {

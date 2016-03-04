@@ -123,8 +123,7 @@ class TransientSubmission implements Submission {
 	 
 	
 	protected class TransientSubmissionTask implements SubmissionTask {
-	    protected final int numTrials;
-	    protected final Instant dateLastTrial;
+	    private final int numTrials;
 	    private final Duration nextExecutionDelay;
 	    
 	    TransientSubmissionTask() {
@@ -134,7 +133,6 @@ class TransientSubmission implements Submission {
 	    
 	    TransientSubmissionTask(final int numTrials, final Instant dateLastTrial) {
 	        this.numTrials = numTrials;
-	        this.dateLastTrial = dateLastTrial;
 
 	        final Duration nextDelay = getProcessDelays().get(numTrials); 
 	        final Duration elapsedSinceLastRetry = Duration.between(dateLastTrial, Instant.now());
@@ -144,12 +142,15 @@ class TransientSubmission implements Submission {
 	    
 	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor, final ScheduledThreadPoolExecutor executor) {
 	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
-	    	
 	    	final CompletablePromise<Optional<SubmissionTask>> completablePromise = new CompletablePromise<>();
 	    	executor.schedule(() -> processNowAsync(queryExecutor).whenComplete(completablePromise),
 	        			      nextExecutionDelay.toMillis(), 
 	        			      TimeUnit.MILLISECONDS);
 	        return completablePromise;
+	    }
+	    
+	    protected int getNumTrials() {
+	    	return numTrials;
 	    }
 	    
 	    private CompletableFuture<Optional<SubmissionTask>> processNowAsync(final QueryExecutor queryExecutor) {

@@ -109,6 +109,8 @@ class PersistentSubmission extends TransientSubmission {
 	
 	final class PersistentSubmissionTask extends TransientSubmissionTask {
 	    private final File submissionFile;
+	    private final Instant dateLastTrial;
+	    
 	    
 	    private PersistentSubmissionTask() {
 	    	this(0,                                     // no trials performed yet
@@ -117,11 +119,13 @@ class PersistentSubmission extends TransientSubmission {
 
 	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial) {
 	        super(numRetries, dataLastTrial);
+	        this.dateLastTrial = dataLastTrial;
 	        this.submissionFile = save();
 	    }
 	    
-	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial, final File submissionFile) {
-	        super(numRetries, dataLastTrial);
+	    private PersistentSubmissionTask(final int numRetries, final Instant dateLastTrial, final File submissionFile) {
+	        super(numRetries, dateLastTrial);
+	        this.dateLastTrial = dateLastTrial;
 	        this.submissionFile = submissionFile;
 	    }
 	    
@@ -132,7 +136,7 @@ class PersistentSubmission extends TransientSubmission {
 	    								   .with("target", getTarget())
 	    								   .with("data", getEntity())
 	    								   .with("retries", getProcessDelays())
-	    								   .with("numTrials", numTrials)
+	    								   .with("numTrials", getNumTrials())
 	    								   .with("dataLastTrial", dateLastTrial)
 	    								   .with("rejectStatusList", getRejectStatusList()));
 	    }    

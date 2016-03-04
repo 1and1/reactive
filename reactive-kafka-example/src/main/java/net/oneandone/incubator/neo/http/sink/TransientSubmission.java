@@ -28,6 +28,7 @@ import java.util.function.BiConsumer;
 
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.ResponseProcessingException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -102,6 +103,7 @@ class TransientSubmission implements Submission {
     public State getState() {
     	return stateRef.get();
     }
+    
     void update(State newState) {
     	stateRef.set(newState);
     }
@@ -140,41 +142,41 @@ class TransientSubmission implements Submission {
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
 	    }
 	    
-	
 	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor, final ScheduledThreadPoolExecutor executor) {
-	    	final CompletablePromise<Optional<SubmissionTask>> completablePromise = new CompletablePromise<>();
+	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
 	    	
+	    	final CompletablePromise<Optional<SubmissionTask>> completablePromise = new CompletablePromise<>();
 	    	executor.schedule(() -> processNowAsync(queryExecutor).whenComplete(completablePromise),
 	        			      nextExecutionDelay.toMillis(), 
 	        			      TimeUnit.MILLISECONDS);
-	        
 	        return completablePromise;
 	    }
 	    
 	    private CompletableFuture<Optional<SubmissionTask>> processNowAsync(final QueryExecutor queryExecutor) {
-	        LOG.debug("performing submission " + getId() + " (" + (numTrials + 1) + " of " + getProcessDelays().size() + ")");
+	        LOG.debug("performing " + subInfo());
 	        
 	        return queryExecutor.performHttpQuery(getMethod(), getTarget(), getEntity())
 	        		     		.thenApply(httpBody -> {    // success
-	        		     			 						LOG.debug("submission " + getId() + " executed successfully");
+	        		     			 						LOG.debug(subInfo() + " executed successfully");
 	        		     			 						update(State.COMPLETED);
 	        		     			 						terminate();
 	        		     			 						return Optional.<SubmissionTask>empty();
 	        		     							  })
 	        		     		.exceptionally(error -> {   // error
+	        		     									error = unwrap(error);
 	        		     			 						if (getRejectStatusList().contains(toStatus(error))) {
-	        		     			 							LOG.warn("submission " + getId() + " failed. Discarding it", error);
+	        		     			 							LOG.warn(subInfo() + " failed. Discarding it", error);
 	        		     			 							update(State.DISCARDED);
 	        		     			 							terminate();
 	        		     			 							throw Exceptions.propagate(error);
 	                                                    
 	        		     			 						} else {
-	        		     			 							LOG.debug("submission " + getId() + " failed with " + toStatus(error));
+	        		     			 							LOG.debug(subInfo() + " failed with " + toStatus(error));
 	        		     			 							Optional<SubmissionTask> nextRetry = nextRetry();
 	        		     			 							if (nextRetry.isPresent()) {
 	        		     			 								return nextRetry;
 	        		     			 							} else {
-	        		     			 								LOG.warn("no retries (of " + getProcessDelays().size() + ") left for submission " + getId() + " discarding it");
+	        		     			 								LOG.warn("no retries left for " + subInfo() + " discarding it");
 	        		     			 								terminate();
 	        		     			 								throw Exceptions.propagate(error);
 	        		     			 							}
@@ -182,14 +184,21 @@ class TransientSubmission implements Submission {
 	        		     								});
 	    }
 	        
-	    private int toStatus(final Throwable exception) {
-	        if (exception == null) {
+	    
+	    private Throwable unwrap(Throwable error) {
+	    	Throwable rootError = Exceptions.unwrap(error);
+			if (rootError instanceof ResponseProcessingException) {
+				rootError = ((ResponseProcessingException) rootError).getCause();
+			}
+			return rootError;
+	    }
+	    
+	    private int toStatus(final Throwable error) {
+	        if (error == null) {
 	            return 200;
 	        } else {
-	            Throwable rootError = Exceptions.unwrap(exception);
-	            LOG.warn("performing submission " + getId() + " failed", rootError.getMessage());
-	            return (rootError instanceof WebApplicationException) ? ((WebApplicationException) rootError).getResponse().getStatus() 
-	                                                                  : 500;
+	            return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
+	                                                              : 500;
 	        }
 	    }
 	    
@@ -211,6 +220,10 @@ class TransientSubmission implements Submission {
 	    }
 	    
 	    protected void terminate() {  }
+	    
+	    private String subInfo() {
+	    	return "submission " + getId() + " (" + (numTrials + 1) + " of " + getProcessDelays().size() + ")";
+	    }
 	    
 	    @Override
 	    public String toString() {

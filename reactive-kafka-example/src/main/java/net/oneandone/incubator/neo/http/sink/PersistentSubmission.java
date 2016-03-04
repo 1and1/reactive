@@ -20,6 +20,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -46,6 +48,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Closeables;
 
@@ -90,40 +93,17 @@ class PersistentSubmission extends TransientSubmission {
     }
    
     static final PersistentSubmissionTask load(final SubmissionDir submissionDir, final File submissionFile) {
-        FileInputStream fis = null;
-        try {
-            fis = new FileInputStream(submissionFile);
-            final Properties props = new Properties();
-            props.load(fis);
-            
-            final String retries = props.getProperty("retries");
-            final PersistentSubmission submission =  new PersistentSubmission(props.getProperty("id"), 
-            																  URI.create(props.getProperty("target")),
-            																  Method.valueOf(props.getProperty("method")),
-            																  EntitySerializer.deserialize(props.getProperty("data")),
-            																  Splitter.on("&")
-					   											  	      			  .trimResults()
-					   											  	      			  .splitToList(props.getProperty("rejectStatusList"))
-					   											  	      			  .stream()
-					   											  	      			  .map(status -> Integer.parseInt(status))
-					   											  	      			  .collect(Immutables.toSet()),
-					   											  	      	  Strings.isNullOrEmpty(retries) ? ImmutableList.<Duration>of()  
-					   													  						 		     : Splitter.on("&")
-					   													  						 		               .trimResults()	
-					   													  						 		               .splitToList(retries)
-					   													  						 		               .stream()
-					   													  						 		               .map(millis -> Duration.ofMillis(Long.parseLong(millis)))
-					   													  						 		               .collect(Immutables.toList()),
-					   													  	  submissionDir);
-            
-            return submission.new PersistentSubmissionTask(Integer.parseInt(props.getProperty("numTrials")),
-            											   Instant.parse(props.getProperty("dataLastTrial")));
-        } catch (final IOException ioe) {
-            LOG.debug("loading persistent submission " + submissionFile.getAbsolutePath() + " failed", ioe);
-            throw new RuntimeException(ioe);
-        } finally {
-            Closeables.closeQuietly(fis);
-        }
+    	final Chunk chunk = submissionDir.load(submissionFile);
+        final PersistentSubmission submission =  new PersistentSubmission(chunk.read("id"), 
+        																  chunk.readURI("target"),
+        																  chunk.readMethod("method"),
+        																  chunk.readEntity("data"),
+        																  chunk.readIntegerSet("rejectStatusList"),
+			   											  	              chunk.readDurationList("retries"),
+				   													  	  submissionDir);
+        return submission.new PersistentSubmissionTask(chunk.readInteger("numTrials"),
+        											   chunk.readInstant("dataLastTrial"),
+        											   submissionFile);
     }
     
 	
@@ -132,54 +112,29 @@ class PersistentSubmission extends TransientSubmission {
 	    
 	    private PersistentSubmissionTask() {
 	    	this(0,                                     // no trials performed yet
-		    	 Instant.now());                        // last trial time is now (time starting point is now) 
+		    	 Instant.now());                        // last trial time is now (time starting point is now)
 	    }
-	    
+
 	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial) {
 	        super(numRetries, dataLastTrial);
 	        this.submissionFile = save();
 	    }
 	    
+	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial, final File submissionFile) {
+	        super(numRetries, dataLastTrial);
+	        this.submissionFile = submissionFile;
+	    }
+	    
 	    private final File save() {
-	        final File tempFile = submissionDir.newTempTaskFile();
-	        try {
-	            FileOutputStream os = null;
-	            try {
-	                // write the new cache file
-	                os = new FileOutputStream(tempFile);
-	                
-	                Properties props = new Properties();
-	                props.setProperty("id", getId());
-	                props.setProperty("method", getMethod().toString());
-	                props.setProperty("target", getTarget().toString());
-	                props.setProperty("data", EntitySerializer.serialize(getEntity()));
-	                props.setProperty("retries", Joiner.on("&")
-	                                                   .join(getProcessDelays().stream()
-	                                                                           .map(duration -> duration.toMillis())
-	                                                                           .collect(Immutables.toList())));
-	                props.setProperty("numTrials", Integer.toString(numTrials));
-	                props.setProperty("dataLastTrial", dateLastTrial.toString());
-	                props.setProperty("rejectStatusList", Joiner.on("&").join(getRejectStatusList()));
-	
-	                props.store(os, "submission state");
-	                os.close();
-	                
-	
-	                // and commit it (this renaming approach avoids "half-written" files)
-	                final File submissionFile = submissionDir.newTaskFile();
-	                submissionFile.createNewFile();
-	                java.nio.file.Files.move(tempFile.toPath(), submissionFile.toPath(), StandardCopyOption.ATOMIC_MOVE);
-	                LOG.debug("persistent query " + getId() + " saved on disc " + submissionFile.getAbsolutePath());
-	                
-	                return submissionFile;
-	            } finally {
-	                Closeables.close(os, true);  // close os in any case
-	            }
-	
-	        } catch (final IOException ioe) {
-	            LOG.debug("saving persistent submission " + getId() + " failed", ioe);
-	            throw new RuntimeException(ioe);
-	        }
+	    	return submissionDir.save(Chunk.newChunk()
+	    								   .with("id", getId())
+	    								   .with("method", getMethod())
+	    								   .with("target", getTarget())
+	    								   .with("data", getEntity())
+	    								   .with("retries", getProcessDelays())
+	    								   .with("numTrials", numTrials)
+	    								   .with("dataLastTrial", dateLastTrial)
+	    								   .with("rejectStatusList", getRejectStatusList()));
 	    }    
 	    
 	    public File getFile() {
@@ -197,64 +152,11 @@ class PersistentSubmission extends TransientSubmission {
 	    	super.release();
 	    	submissionDir.close();
 	    }
-	
-	    /*
-	    private void deletePersistentSubmission() {
-	        // write deleted marker
-	        File deletedFile = newDeleteMarkerFile(submissionDir);
-	        try {
-	            deletedFile.createNewFile();
-	        } catch (IOException ignore) { }
-	        
-	        // try to deleted all file (may fail for exceptional reason)
-	        boolean filesDeleted = true;
-	        for (File file : submissionDir.listFiles()) {
-	            if (!file.getAbsolutePath().equals(deletedFile.getAbsolutePath())) {
-	                filesDeleted = filesDeleted && file.delete();
-	            }
-	        }
-	        
-	        if (filesDeleted) {
-	        	release();
-	        	deletedFile.delete();
-	        	if (submissionDir.delete()) {
-	        		LOG.debug("persistent query " + getId() + " deleted " + submissionDir.getAbsolutePath());                            
-	        	}
-	        }        
-	    }
-	     */
 	 
 	    @Override
 	    protected SubmissionTask copySubmissionTask(final int numTrials, final Instant dateLastTrial) {
 	        return new PersistentSubmissionTask(numTrials,  dateLastTrial);
 	    }
-	  
-	    /*
-	    public Optional<File> getFile() {
-	        return getFile(submissionDir);
-	    }
-	    
-	    private Optional<File> getFile(final File submissionDir) {
-	        if (newDeleteMarkerFile(submissionDir).exists()) {
-	            return Optional.empty();
-	        } else {
-	            Optional<File> submissionFile = Optional.empty();
-	            Instant newest = Instant.ofEpochMilli(0); 
-	            
-	            for (File file : submissionDir.listFiles()) {
-	                final String name = file.getName(); 
-	                if (name.endsWith(SUBMISSION_SUFFIX)) {
-	                    Instant time = Instant.ofEpochMilli(Long.parseLong(name.substring(0, SUBMISSION_SUFFIX.length())));
-	                    if (time.isAfter(newest)) {
-	                        newest = time;
-	                        submissionFile = Optional.of(file);
-	                    }
-	                }
-	            }
-	            
-	            return submissionFile;
-	        }
-	    }*/
 	}
 	
 	
@@ -274,17 +176,19 @@ class PersistentSubmission extends TransientSubmission {
 		}
 		
 		public SubmissionDir open(String id) {
-			return new SubmissionDir(submissionsDir, id);
+			return new SubmissionDir(submissionsDir, "dir_" + id);
 		}
 		
 		public ImmutableList<SubmissionDir> scanUnprocessedSubmissionDirs() {
-	    	LOG.debug("scanning " + submissionsDir + " for unprocessed submissions");
+	    	LOG.debug("scanning " + submissionsDir + " for unprocessed submission dirs");
 
 	    	final List<SubmissionDir> dirs = Lists.newArrayList();
 	    	for (File file : submissionsDir.listFiles()) {
 	    		try {
 	    			dirs.add(new SubmissionDir(file));
-	    		} catch (RuntimeException igmore) { }
+	    		} catch (RuntimeException e) { 
+	    			LOG.debug("persistent submission dir " + file + " can not be opened (may be locked or corrupt)");
+	    		}
 	    	}
 	    	
 	    	return ImmutableList.copyOf(dirs);
@@ -298,16 +202,15 @@ class PersistentSubmission extends TransientSubmission {
 	    private static final String SUBMISSION_SUFFIX = ".properties";
 	    private static final String TEMP_SUFFIX = ".temp";
 
-
-		private final File submissionDir;
-    	private final File lockfile;
+	    private final File submissionDir;
+	    private final File deleteMarkerFile;
+	    private final File lockfile;
     	private final FileChannel fc; 
 
     	public SubmissionDir(File submissionsDir, String id) {
     		this(new File(submissionsDir, id));
     	}
     		
-		
 		private SubmissionDir(File submissionDir) {
 			this.submissionDir = submissionDir;
     		if (!submissionDir.exists()) {
@@ -315,6 +218,7 @@ class PersistentSubmission extends TransientSubmission {
     		}
     		
     		this.lockfile = new File(submissionDir, LOGFILENAME);
+    		this.deleteMarkerFile = new File(submissionDir, "submission" + DELETED_SUFFIX);
     		
     		try {
 	    		if (lockfile.createNewFile()) {
@@ -327,54 +231,96 @@ class PersistentSubmission extends TransientSubmission {
     		} catch (IOException ioe) {
     			throw new RuntimeException(ioe);
     		}
+    		
+    		if (isExpired()) {
+    			delete();
+    			throw new RuntimeException("expired persistent submission " + getId() + " found. remove data files " + submissionDir.getAbsolutePath());
+    		}
+    		
+    		LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " opened and locked");
 		}
 		
 		public File getDir() {
 			return submissionDir;
 		}
 		
-		public File newTempTaskFile() {
-			return new File(submissionDir, "task_" + UUID.randomUUID().toString() + TEMP_SUFFIX);
-		}
-
-		public File newTaskFile() {
-			return new File(submissionDir, Instant.now().toEpochMilli() + SUBMISSION_SUFFIX);
-		}
+	    public final File save(final Chunk chunk) {
+	        final File tempFile = new File(submissionDir, "task_" + UUID.randomUUID().toString() + TEMP_SUFFIX);
+	        try {
+	            FileOutputStream os = null;
+	            try {
+	                // write the new submission file
+	                os = new FileOutputStream(tempFile);
+	                
+	                chunk.writeTo(os, "submission state");
+	                os.close();
+	                
+	                // and commit it (this renaming approach avoids "half-written" files)
+	                final File submissionFile = new File(submissionDir, Instant.now().toEpochMilli() + SUBMISSION_SUFFIX);
+	                submissionFile.createNewFile();
+	                java.nio.file.Files.move(tempFile.toPath(), submissionFile.toPath(), StandardCopyOption.ATOMIC_MOVE);
+	                LOG.debug("persistent submission file " + submissionFile.getAbsolutePath() + " saved on disc");
+	                
+	                return submissionFile;
+	            } finally {
+	                Closeables.close(os, true);  // close os in any case
+	            }
+	        } catch (final IOException ioe) {
+	            LOG.debug("saving persistent submission " + getId() + " failed", ioe);
+	            throw new RuntimeException(ioe);
+	        }
+	    }    
+	    
+	    public Chunk load(final File submissionFile) {
+	        FileInputStream fis = null;
+	        try {
+	            fis = new FileInputStream(submissionFile);
+	            return Chunk.newChunk(fis);
+	        } catch (final IOException ioe) {
+	            LOG.debug("loading persistent submission file " + submissionFile.getAbsolutePath() + " failed", ioe);
+	            throw new RuntimeException(ioe);
+	        } finally {
+	            Closeables.closeQuietly(fis);
+	        }
+	    }
 		
     	public void close() {
     		try {
     			fc.close();
     			lockfile.delete();
-    			LOG.debug("persistent submission " + getId() + " released " + submissionDir.getAbsolutePath());
+    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " unlocked and close");
     		} catch (IOException ignore) { }
+    	}
+    	
+    	public boolean isExpired() {
+	        return deleteMarkerFile.exists();
     	}
     	
     	public void delete() {
     		// write deleted marker
-	        File deletedFile = newDeleteMarkerFile(submissionDir);
 	        try {
-	            deletedFile.createNewFile();
+	            deleteMarkerFile.createNewFile();
 	        } catch (IOException ignore) { }
 	        
 	        // try to deleted all file (may fail for exceptional reason)
 	        boolean filesDeleted = true;
 	        for (File file : submissionDir.listFiles()) {
-	            if (!file.getAbsolutePath().equals(deletedFile.getAbsolutePath())) {
+	            if (!file.getAbsolutePath().equals(deleteMarkerFile.getAbsolutePath())) {
 	                filesDeleted = filesDeleted && file.delete();
 	            }
 	        }
 	        
 	        if (filesDeleted) {
 	        	close();
-	        	deletedFile.delete();
+	        	deleteMarkerFile.delete();
 	        	if (submissionDir.delete()) {
-	        		LOG.debug("persistent submission " + getId() + " deleted " + submissionDir.getAbsolutePath());                            
+	    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " deleted");                            
 	        	}
 	        }        
     	}
     	
     	public Optional<File> getNewestSubmissionFile() {
-	        if (newDeleteMarkerFile(submissionDir).exists()) {
+	        if (deleteMarkerFile.exists()) {
 	            return Optional.empty();
 	        } else {
 	            Optional<File> submissionFile = Optional.empty();
@@ -395,10 +341,6 @@ class PersistentSubmission extends TransientSubmission {
 	        }
     	} 
     	
-    	private final File newDeleteMarkerFile(final File submissionDir) {
-    		return new File(submissionDir, "submission" + DELETED_SUFFIX);
-  	    }
-    	
     	private String getId() {
     		return submissionDir.getName();
     	}
@@ -410,32 +352,131 @@ class PersistentSubmission extends TransientSubmission {
 	}
 
     
-    
-    private static final class EntitySerializer {
-    	private static final String SEPARATOR = "#";
-    	
-    	private EntitySerializer() { }
-    	
-    	   
-    	public static String serialize(Entity<?> entity) {
-    		final ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    		try {
-				new ObjectMapper().writeValue(bos, entity.getEntity());
-	    		bos.flush();
-	    		return entity.getMediaType().toString() + 
-	    			   SEPARATOR +
-	    			   Base64.getEncoder().encodeToString(bos.toByteArray());
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-    	}
-    	
-    	
-    	public static Entity<?> deserialize(String serialized) {
-    		final int idx = serialized.indexOf("#");
-    		final String mediaType = serialized.substring(0, idx);
-			final byte[] data = Base64.getDecoder().decode(serialized.substring(idx + 1, serialized.length())); 
-    		return Entity.entity(data, MediaType.valueOf(mediaType)); 
-    	}
-    }
+	private static final class Chunk {
+		private final ImmutableMap<Object, Object> data;
+
+		private Chunk(ImmutableMap<Object, Object> data) {
+			this.data = data;
+		}
+
+		public static Chunk newChunk() {
+			return new Chunk(ImmutableMap.of());
+		}
+
+		public static Chunk newChunk(InputStream is) throws IOException {
+            final Properties props = new Properties();
+            props.load(is);
+			return new Chunk(ImmutableMap.copyOf(props));
+		}
+		
+		public void writeTo(OutputStream os, String comments) throws IOException {
+			Properties props = new Properties();
+			props.putAll(data);
+			props.store(os, comments);
+		}
+		
+		public Chunk with(String name, String value) {
+			return new Chunk(Immutables.join(data, name, value));
+		}
+		
+		public Chunk with(String name, Integer value) {
+			return with(name, Integer.toString(value));
+		}
+		
+		public Chunk with(String name, Instant value) {
+			return with(name, value.toString());
+		}
+		
+		public Chunk with(String name, ImmutableList<Duration> value) {
+			return with(name, Joiner.on("&")
+					   			    .join(value.stream()
+					   			    .map(duration -> duration.toMillis())
+					   			    .collect(Immutables.toList())));
+		}
+		
+		public Chunk with(String name, ImmutableSet<Integer> value) {
+			return with(name, Joiner.on("&").join(value));
+		}
+		
+		public Chunk with(String name, URI value) {
+			return with(name, value.toString());
+		}
+		
+		public Chunk with(String name, Method value) {
+			return with(name, value.toString());
+		}
+		
+		public Chunk with(String name, Entity<?> value) {
+			return with(name, EntitySerializer.serialize(value));
+		}
+		
+		public String read(String name) {
+			return (String) data.get(name);
+		}
+
+		public Integer readInteger(String name) {
+			return Integer.parseInt(read(name));
+		}
+		
+		public Instant readInstant(String name) {
+			return Instant.parse(read(name));
+		}
+		public URI readURI(String name) {
+			return URI.create(read(name));
+		}
+
+		public Method readMethod(String name) {
+			return Method.valueOf(read(name)); 
+		}
+		
+		public Entity<?> readEntity(String name) {
+			return EntitySerializer.deserialize(read(name));
+		}
+		
+		public ImmutableList<Duration> readDurationList(String name) {
+			String row = read(name);
+			return Strings.isNullOrEmpty(row) ? ImmutableList.<Duration>of()  
+											  : Splitter.on("&")
+											  			.trimResults()	
+											  			.splitToList(row)
+											  			.stream()
+											  			.map(value -> Duration.ofMillis(Long.parseLong(value)))
+											  			.collect(Immutables.toList());
+		}
+		
+		public ImmutableSet<Integer> readIntegerSet(String name) {
+			return Splitter.on("&")
+						   .trimResults()
+						   .splitToList(read(name))
+						   .stream()
+						   .map(status -> Integer.parseInt(status))
+						   .collect(Immutables.toSet());
+		}
+		
+	    private static final class EntitySerializer {
+	    	private static final String SEPARATOR = "#";
+	    	
+	    	private EntitySerializer() { }
+	    	   
+	    	public static String serialize(Entity<?> entity) {
+	    		final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+	    		try {
+					new ObjectMapper().writeValue(bos, entity.getEntity());
+		    		bos.flush();
+		    		return entity.getMediaType().toString() + 
+		    			   SEPARATOR +
+		    			   Base64.getEncoder().encodeToString(bos.toByteArray());
+				} catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+	    	}
+	    	
+	    	public static Entity<?> deserialize(String serialized) {
+	    		final int idx = serialized.indexOf("#");
+	    		final String mediaType = serialized.substring(0, idx);
+				final byte[] data = Base64.getDecoder().decode(serialized.substring(idx + 1, serialized.length())); 
+	    		return Entity.entity(data, MediaType.valueOf(mediaType)); 
+	    	}
+	    }
+	}
 }  

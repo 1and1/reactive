@@ -247,7 +247,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         
         private void submitRetry(final SubmissionDir submissionDir, final File submissionFile) {
         	PersistentSubmissionTask submissionTask = PersistentSubmission.load(submissionDir, submissionFile);
-        	LOG.debug("old submission file " + submissionTask.getSubmission().getId() + " found rescheduling it"); 
+        	LOG.debug("persistent submission file " + submissionTask.getFile().getAbsolutePath() + " found. rescheduling it"); 
         	processor.processRetryAsync(submissionTask);
         }
         

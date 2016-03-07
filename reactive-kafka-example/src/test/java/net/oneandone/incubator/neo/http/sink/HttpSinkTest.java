@@ -233,7 +233,7 @@ public class HttpSinkTest {
              Thread.sleep(1000);
          } catch (InterruptedException ignore) { }
         
-         Assert.assertEquals(1, sink.getMetrics().getNumPending());
+         Assert.assertEquals(1, sink.getPendingSubmissions().size());
          Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
          Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
          Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
@@ -242,7 +242,7 @@ public class HttpSinkTest {
              Thread.sleep(2000);
          } catch (InterruptedException ignore) { }
          
-         Assert.assertEquals(0, sink.getMetrics().getNumPending());
+         Assert.assertEquals(0, sink.getPendingSubmissions().size());
          Assert.assertEquals(3, sink.getMetrics().getNumRetries().getCount());
          
          
@@ -396,7 +396,7 @@ public class HttpSinkTest {
             Thread.sleep(1000);
         } catch (InterruptedException ignore) { }
         
-        Assert.assertEquals(2, sink.getMetrics().getNumPending());
+        Assert.assertEquals(2, sink.getPendingSubmissions().size());
 
         
         try {
@@ -551,7 +551,7 @@ public class HttpSinkTest {
         } catch (InterruptedException ignore) { }
         
         
-        Assert.assertEquals(1, sink.getMetrics().getNumPending());
+        Assert.assertEquals(1, sink.getPendingSubmissions().size());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
@@ -570,13 +570,13 @@ public class HttpSinkTest {
         } catch (InterruptedException ignore) { }
         
         // the crashed query will not be visible for the second sink -> locked by the other one 
-        Assert.assertEquals(0, sink2.getMetrics().getNumPending());
+        Assert.assertEquals(0, sink2.getPendingSubmissions().size());
         Assert.assertEquals(0, sink2.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(0, sink2.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink2.getMetrics().getNumSuccess().getCount());
        
         
-        Assert.assertEquals(1, sink.getMetrics().getNumPending());
+        Assert.assertEquals(1, sink.getPendingSubmissions().size());
         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
@@ -746,7 +746,7 @@ public class HttpSinkTest {
         	PersistentSubmission.SubmissionsDir submissionsDir = new PersistentSubmission.SubmissionsDir(dir, uri, Method.POST);
             PersistentSubmission persistentSubmission = new PersistentSubmission(UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
             PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.openAsync().get();
-            task.release();
+            task.onReleased();
             
             File submissionFile = task.getFile();
             submissionFile.setLastModified(lastModified.toEpochMilli());

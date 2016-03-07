@@ -57,12 +57,23 @@ import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
-
+/**
+ * Persistent submission task which lives in main memory and on disc
+ */
 class PersistentSubmission extends TransientSubmission {
     private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);
 
     private final SubmissionDir submissionDir;
 	
+    /**
+     * @param id                the id 
+     * @param target            the target uri
+     * @param method            the method
+     * @param entity            the entity
+     * @param rejectStatusList  the reject status list
+     * @param processDelays     the process delays
+     * @param submissionsDir    the submissions dir 
+     */
     public PersistentSubmission(final String id,
     					  		final URI target,
     					  		final Method method,
@@ -70,9 +81,18 @@ class PersistentSubmission extends TransientSubmission {
     					  		final ImmutableSet<Integer> rejectStatusList,
     					  		final ImmutableList<Duration> processDelays,
     					  		final SubmissionsDir submissionsDir) {
-    	this(id, target, method, entity, rejectStatusList, processDelays, submissionsDir.open(id));           
+    	this(id, target, method, entity, rejectStatusList, processDelays, submissionsDir.openSubmissionDir(id));           
     }
 
+    /**
+     * @param id                the id 
+     * @param target            the target uri
+     * @param method            the method
+     * @param entity            the entity
+     * @param rejectStatusList  the reject status list
+     * @param processDelays     the process delays
+     * @param submissionDir     the submission dir 
+     */
     public PersistentSubmission(final String id,
 	  							final URI target,
 	  							final Method method,
@@ -84,16 +104,26 @@ class PersistentSubmission extends TransientSubmission {
     	this.submissionDir = submissionDir;
     }
     
+    /**
+     * @return the submission dir
+     */
     public SubmissionDir getSubmissionDir() {
     	return submissionDir;
     }
     
+    @Override
     CompletableFuture<SubmissionTask> openAsync() {
     	return CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask()); 
     }
    
+    /**
+     * loads a persistent task from disc 
+     * @param submissionDir   the submission dir 
+     * @param submissionFile  the submission task file
+     * @return the persistent submission task
+     */
     static final PersistentSubmissionTask load(final SubmissionDir submissionDir, final File submissionFile) {
-    	final Chunk chunk = submissionDir.load(submissionFile);
+    	final Chunk chunk = submissionDir.loadFromDisc(submissionFile);
         final PersistentSubmission submission =  new PersistentSubmission(chunk.read("id"), 
         																  chunk.readURI("target"),
         																  chunk.readMethod("method"),
@@ -107,53 +137,72 @@ class PersistentSubmission extends TransientSubmission {
     }
     
 	
+    /**
+     * Persistent submission task
+     */
 	final class PersistentSubmissionTask extends TransientSubmissionTask {
 	    private final File submissionFile;
 	    private final Instant dateLastTrial;
 	    
-	    
+	    /**
+	     * constructor 
+	     */
 	    private PersistentSubmissionTask() {
 	    	this(0,                                     // no trials performed yet
 		    	 Instant.now());                        // last trial time is now (time starting point is now)
 	    }
 
+	    /**
+	     * constructor
+	     * @param numRetries    the current num of retry 
+	     * @param dataLastTrial the data of the last rety  
+	     */
 	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial) {
 	        super(numRetries, dataLastTrial);
 	        this.dateLastTrial = dataLastTrial;
-	        this.submissionFile = save();
+	        this.submissionFile = saveOnDisc();  // saves the task on disc by creating it
 	    }
 	    
+	    /**
+	     * constructor
+	     * @param numRetries     the current num of retry 
+	     * @param dataLastTrial  the data of the last rety  
+	     * @param submissionFile the submission task file
+	     */
 	    private PersistentSubmissionTask(final int numRetries, final Instant dateLastTrial, final File submissionFile) {
 	        super(numRetries, dateLastTrial);
 	        this.dateLastTrial = dateLastTrial;
 	        this.submissionFile = submissionFile;
 	    }
 	    
-	    private final File save() {
-	    	return submissionDir.save(Chunk.newChunk()
-	    								   .with("id", getId())
-	    								   .with("method", getMethod())
-	    								   .with("target", getTarget())
-	    								   .with("data", getEntity())
-	    								   .with("retries", getProcessDelays())
-	    								   .with("numTrials", getNumTrials())
-	    								   .with("dataLastTrial", dateLastTrial)
-	    								   .with("rejectStatusList", getRejectStatusList()));
+	    private final File saveOnDisc() {
+	    	return submissionDir.saveToDisc(Chunk.newChunk()
+	    								         .with("id", getId())
+	    								         .with("method", getMethod())
+	    								         .with("target", getTarget())
+	    								         .with("data", getEntity())
+	    								         .with("retries", getProcessDelays())
+	    								         .with("numTrials", getNumTrials())
+	    								         .with("dataLastTrial", dateLastTrial)
+	    								         .with("rejectStatusList", getRejectStatusList()));
 	    }    
 	    
+	    /**
+	     * @return submission task file
+	     */
 	    public File getFile() {
 	    	return submissionFile;
 	    }
 	    
 	    @Override
-	    protected void terminate() {
-	    	super.terminate();
+	    public void onTerminated() {
+	    	super.onTerminated();
 	    	submissionDir.delete();
 	    }
 	    
 	    @Override
-	    public void release() {
-	    	super.release();
+	    public void onReleased() {
+	    	super.onReleased();
 	    	submissionDir.close();
 	    }
 	 
@@ -164,10 +213,17 @@ class PersistentSubmission extends TransientSubmission {
 	}
 	
 	
-	
+	/**
+	 * THe directory used for storing the submissions 
+	 */
 	static final class SubmissionsDir {
 		private final File submissionsDir;
 		
+		/**
+		 * @param persistencyDir  the persistency dir 
+		 * @param target          the target uri
+		 * @param method          the method
+		 */
 		public SubmissionsDir(final File persistencyDir, final URI target, final Method method) {
 			submissionsDir = new File(persistencyDir, method + "_" + Base64.getEncoder().encodeToString(target.toString().getBytes(Charsets.UTF_8)).replace("=", ""));
 	    	if (!submissionsDir.exists()) {
@@ -175,14 +231,26 @@ class PersistentSubmission extends TransientSubmission {
 	    	}           
 		}
 		
+		/**
+		 * @return the submissions dir
+		 */
 		public File getDir() {
 			return submissionsDir;
 		}
 		
-		public SubmissionDir open(String id) {
+		/**
+		 * opens a dedicated submission dir
+		 * @param id  the submission id 
+		 * @return the opened submission dir 
+		 */
+		public SubmissionDir openSubmissionDir(String id) {
 			return new SubmissionDir(submissionsDir, "dir_" + id);
 		}
 		
+		/**
+		 * scans the dir for unprocessed submissions (dirs)
+		 * @return the unprocessed submission dirs 
+		 */
 		public ImmutableList<SubmissionDir> scanUnprocessedSubmissionDirs() {
 	    	LOG.debug("scanning " + submissionsDir + " for unprocessed submission dirs");
 
@@ -199,7 +267,9 @@ class PersistentSubmission extends TransientSubmission {
 		}
 	}
 
-	
+	/**
+	 * Submission dir used to store a dedicated submission
+	 */
 	static final class SubmissionDir {
         private static final String LOGFILENAME = "submission.lock";
         private static final String DELETED_SUFFIX = ".deleted";
@@ -211,6 +281,10 @@ class PersistentSubmission extends TransientSubmission {
 	    private final File lockfile;
     	private final FileChannel fc; 
 
+    	/**
+    	 * @param submissionsDir the parent dir
+    	 * @param id             the submission id
+    	 */
     	public SubmissionDir(File submissionsDir, String id) {
     		this(new File(submissionsDir, id));
     	}
@@ -221,9 +295,10 @@ class PersistentSubmission extends TransientSubmission {
     			submissionDir.mkdirs();
     		}
     		
-    		this.lockfile = new File(submissionDir, LOGFILENAME);
     		this.deleteMarkerFile = new File(submissionDir, "submission" + DELETED_SUFFIX);
-    		
+
+    		// as long the submission dir is open it will be locked 
+    		this.lockfile = new File(submissionDir, LOGFILENAME);
     		try {
 	    		if (lockfile.createNewFile()) {
 			    	fc = FileChannel.open(lockfile.toPath(), StandardOpenOption.WRITE);
@@ -244,11 +319,17 @@ class PersistentSubmission extends TransientSubmission {
     		LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " opened and locked");
 		}
 		
+		/**
+		 * @return the submission dir for va dedicated submission
+		 */
 		public File getDir() {
 			return submissionDir;
 		}
 		
-	    public final File save(final Chunk chunk) {
+		/**
+		 * @param chunk  the chunk to save 
+		 */
+	    public final File saveToDisc(final Chunk chunk) {
 	        final File tempFile = new File(submissionDir, "task_" + UUID.randomUUID().toString() + TEMP_SUFFIX);
 	        try {
 	            FileOutputStream os = null;
@@ -275,7 +356,7 @@ class PersistentSubmission extends TransientSubmission {
 	        }
 	    }    
 	    
-	    public Chunk load(final File submissionFile) {
+	    public Chunk loadFromDisc(final File submissionFile) {
 	        FileInputStream fis = null;
 	        try {
 	            fis = new FileInputStream(submissionFile);

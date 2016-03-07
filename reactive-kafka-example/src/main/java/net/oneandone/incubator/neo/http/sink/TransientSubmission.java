@@ -17,6 +17,7 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.net.URI;
 
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -30,7 +31,6 @@ import javax.ws.rs.client.ResponseProcessingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -39,6 +39,10 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
+/**
+ * Transient submission task which lives in main memory only
+ *
+ */
 class TransientSubmission implements Submission {
     private static final Logger LOG = LoggerFactory.getLogger(TransientSubmission.class);
 
@@ -52,17 +56,20 @@ class TransientSubmission implements Submission {
     private final AtomicReference<State> stateRef = new AtomicReference<>(State.PENDING);
 
     
+    /**
+     * @param id                 the id
+     * @param target             the target uri
+     * @param method             the method
+     * @param entity             the entity 
+     * @param rejectStatusList   the reject status list
+     * @param processDelays      the process delays
+     */
     public TransientSubmission(final String id,
     						   final URI target,
     						   final Method method,
     						   final Entity<?> entity, 
     						   final ImmutableSet<Integer> rejectStatusList,
     						   final ImmutableList<Duration> processDelays) {
-    	Preconditions.checkNotNull(id);
-    	Preconditions.checkNotNull(target);
-    	Preconditions.checkNotNull(method);
-    	Preconditions.checkNotNull(entity);
-
     	this.id = id;
     	this.target = target;
     	this.entity = entity;
@@ -114,20 +121,35 @@ class TransientSubmission implements Submission {
 		return id + " - " + method + " " + target;
 	}
 	
+	/**
+	 * opens the submission  
+	 * @return the submission task to execute
+	 */
 	CompletableFuture<SubmissionTask> openAsync() {
 		return CompletableFuture.completedFuture(new TransientSubmissionTask());    	
     }    
 	 
-	
+
+	/**
+	 * Transient submission task
+	 */
 	protected class TransientSubmissionTask implements SubmissionTask {
 	    private final int numTrials;
 	    private final Duration nextExecutionDelay;
 	    
+	    /**
+	     * constructor
+	     */
 	    TransientSubmissionTask() {
 	    	this(0,                   // no trials performed yet													
 			     Instant.now());      // last trial time is now (time starting point is now)))
 	    }
 	    
+	    /**
+	     * constructor
+	     * @param numTrials      the current trial nunmber
+	     * @param dateLastTrial  the data last trial
+	     */
 	    TransientSubmissionTask(final int numTrials, final Instant dateLastTrial) {
 	        this.numTrials = numTrials;
 
@@ -136,27 +158,32 @@ class TransientSubmission implements Submission {
 	        final Duration correctedDelay = nextDelay.minus(elapsedSinceLastRetry);
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
 	    }
-	    
-	    protected int getNumTrials() {
-	    	return numTrials;
+
+	    @Override
+	    public Submission getSubmission() {
+	    	return TransientSubmission.this;
 	    }
 	    
+	    @Override
+	    public int getNumTrials() {
+	    	return numTrials;
+	    }
+		
+	    @Override
 	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor executor) {
 	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
 	        
 	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
 	        			   .thenApply(httpBody -> { 	// success
 	        				   							LOG.debug(subInfo() + " executed successfully");
-	        				   							update(State.COMPLETED);
-	        				   							terminate();
+	        				   							complete();
 	        				   							return Optional.<SubmissionTask>empty();
 	        			   						  })
 	        			   .exceptionally(error -> {	// error
 	        				   							error = unwrap(error);
 	        				   							if (getRejectStatusList().contains(toStatus(error))) {
 	        				   								LOG.warn(subInfo() + " failed. Discarding it", error);
-	        				   								update(State.DISCARDED);
-	        				   								terminate();
+	        				   								discard();
 	        				   								throw Exceptions.propagate(error);
 	        				   							} else {
 	        				   								LOG.debug(subInfo() + " failed with " + toStatus(error));
@@ -165,13 +192,23 @@ class TransientSubmission implements Submission {
 	        				   									return nextRetry;
 	        				   								} else {
 	        				   									LOG.warn("no retries left for " + subInfo() + " discarding it");
-	        				   									terminate();
+	        				   									discard();
 	        				   									throw Exceptions.propagate(error);
 	        				   								}
 	        				   							}
 	        			   						  });
 	    }
-	        
+
+	    private void complete() {
+	    	update(State.COMPLETED);
+	    	onTerminated();
+	    }
+	    
+	    private void discard() {
+	    	update(State.DISCARDED);
+	    	onTerminated();
+	    }
+	    
 	    private Throwable unwrap(Throwable error) {
 	    	Throwable rootError = Exceptions.unwrap(error);
 			if (rootError instanceof ResponseProcessingException) {
@@ -179,7 +216,7 @@ class TransientSubmission implements Submission {
 			}
 			return rootError;
 	    }
-	    
+    
 	    private int toStatus(final Throwable error) {
 	        if (error == null) {
 	            return 200;
@@ -198,15 +235,16 @@ class TransientSubmission implements Submission {
 	        }
 	    }
 	    
+	    /**
+	     * copies the submission
+	     * 
+	     * @param numTrials       the current number of trial to use
+	     * @param dateLastTrial   the last trial date to use
+	     * @return the copied submission task
+	     */
 	    protected SubmissionTask copySubmissionTask(final int numTrials, final Instant dateLastTrial) {
 	    	return new TransientSubmissionTask(numTrials, dateLastTrial);
 	    }
-	
-	    public Submission getSubmission() {
-	    	return TransientSubmission.this;
-	    }
-	    
-	    protected void terminate() {  }
 	    
 	    private String subInfo() {
 	    	return "submission " + getId() + " (" + (numTrials + 1) + " of " + getProcessDelays().size() + ")";

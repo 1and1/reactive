@@ -33,22 +33,38 @@ import org.slf4j.LoggerFactory;
 import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
+/**
+ * Query executor
+ */
 class QueryExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(QueryExecutor.class);
 
 	private final Client httpClient;
 	private final ScheduledThreadPoolExecutor executor;
 	
-	public QueryExecutor(final Client httpClient, ScheduledThreadPoolExecutor executor) {
+	/**
+	 * @param httpClient  the http client
+	 * @param executor    the scheduled executor
+	 */
+	public QueryExecutor(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
 		this.httpClient = httpClient;
 		this.executor = executor;
 	}
      
+	/**
+	 * performs the query 
+	 * @param id         the query id to log
+	 * @param method     the method
+	 * @param target     the target uri
+	 * @param entity     the entity
+	 * @param delay      the delay 
+	 * @return the response body future
+	 */
 	public CompletableFuture<String> performHttpQueryAsync(final String id,
-													  final Method method, 
-			  										  final URI target, 
-			  										  final Entity<?> entity,
-			  										  final Duration delay) {
+													       final Method method, 
+													       final URI target, 
+													       final Entity<?> entity,
+													       final Duration delay) {
     	final CompletablePromise<String> completablePromise = new CompletablePromise<>();
     	executor.schedule(() -> performHttpQueryNowAsync(id, method, target, entity).whenComplete(completablePromise),
         			      delay.toMillis(), 
@@ -63,6 +79,7 @@ class QueryExecutor {
 													  		   final Entity<?> entity) {
         LOG.debug("performing " + id);
 		final InvocationPromise promise = new InvocationPromise();
+		
 		try {
 			final Builder builder = httpClient.target(target).request();
 			if (method == Method.POST) {

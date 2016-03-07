@@ -182,6 +182,8 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     }   
 
     
+    
+    
     /**
      * Represent the submission process 
      */
@@ -229,12 +231,19 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
      */
     public interface Metrics {
         
+    	/**
+    	 * @return num success
+    	 */
         Counter getNumSuccess();
 
+        /**
+         * @return num retries
+         */
         Counter getNumRetries();
 
+        /**
+         * @return num discarded
+         */
         Counter getNumDiscarded();
-
-        int getNumPending();
     }
 }

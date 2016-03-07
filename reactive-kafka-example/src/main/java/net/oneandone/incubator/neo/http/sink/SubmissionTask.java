@@ -22,11 +22,36 @@ import java.util.concurrent.CompletableFuture;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
+/**
+ * The submission task. A submission task represents a (re)try of the submission execution
+ *
+ */
 interface SubmissionTask {
 	
+	/**
+	 * @return the associated submission
+	 */
     Submission getSubmission();
 	
-	default void release() { }     
+    /**
+     * releases the task (e.g. releases the underlying file lock) for later processing
+     */
+	default void onReleased() { }     
 	
+	/**
+	 * terminates the task by destroying it
+	 */
+    default void onTerminated() {  }
+	
+	/**
+	 * processes the task asynchronously 
+	 * @param queryExecutor  the query executor
+	 * @return the succeeding retry task or empty
+	 */
     CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor);
+  
+    /**
+     * @return the number of trials
+     */
+    int getNumTrials();
 }

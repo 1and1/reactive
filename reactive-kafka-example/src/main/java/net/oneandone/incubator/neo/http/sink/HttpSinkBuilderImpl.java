@@ -39,6 +39,9 @@ import net.oneandone.incubator.neo.http.sink.PersistentSubmission.PersistentSubm
 import net.oneandone.incubator.neo.http.sink.PersistentSubmission.SubmissionDir;
 
 
+/**
+ * HttpSinklBuilder implementation
+ */
 final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 	private static final Logger LOG = LoggerFactory.getLogger(HttpSinkBuilderImpl.class);
 
@@ -51,7 +54,17 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private final ImmutableList<Duration> retryDelays;
     private final int numParallelWorkers;
 
-    
+ 
+    /**
+     * @param userClient         the user client or null
+     * @param target             the target uri
+     * @param method             the method to use
+     * @param bufferSize         the retry buffer size
+     * @param dir                the persistency dir  
+     * @param rejectStatusList   the reject status list
+     * @param retryDelays        the retry delays
+     * @param numParallelWorkers the num parallel workers
+     */
     HttpSinkBuilderImpl(final Client userClient, 
                         final URI target, 
                         final Method method, 
@@ -69,8 +82,6 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         this.retryDelays = retryDelays;
         this.numParallelWorkers = numParallelWorkers;
     }
-
-
 
     @Override
     public HttpSinkBuilder withClient(final Client client) {
@@ -213,7 +224,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         	
         	return submission.openAsync()  												                 	// create a new submission task
         					 .thenCompose(submissionTask -> processor.processTaskAsync(submissionTask))     // process them an
-        					 .thenApply(submissionTask -> submissionTask.getSubmission());
+        					 .thenApply(optionalRetryTask -> submission);
         }
     
         protected TransientSubmission newSubmission(final String id,
@@ -246,7 +257,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
         
         private void submitRetry(final SubmissionDir submissionDir, final File submissionFile) {
-        	PersistentSubmissionTask submissionTask = PersistentSubmission.load(submissionDir, submissionFile);
+        	final PersistentSubmissionTask submissionTask = PersistentSubmission.load(submissionDir, submissionFile);
         	LOG.debug("persistent submission file " + submissionTask.getFile().getAbsolutePath() + " found. rescheduling it"); 
         	processor.processRetryAsync(submissionTask);
         }

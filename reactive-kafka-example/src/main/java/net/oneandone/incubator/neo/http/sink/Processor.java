@@ -39,10 +39,13 @@ import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
+/**
+ * Submission task processor
+ */
 final class Processor implements Closeable, HttpSink.Metrics {
     private static final Logger LOG = LoggerFactory.getLogger(Processor.class);
     
-    private final Set<SubmissionTask> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<SubmissionTask, Boolean>());
+    private final SubmissionTaskMonitor taskMonitor = new SubmissionTaskMonitor();
     private final MetricRegistry metrics = new MetricRegistry();
     private final Counter success = metrics.counter("success");
     private final Counter retries = metrics.counter("retries");
@@ -54,7 +57,11 @@ final class Processor implements Closeable, HttpSink.Metrics {
     private final QueryExecutor queryExecutor;
     private final Optional<Client> clientToClose;
     
-    
+    /**
+     * @param userClient          the user client or null 
+     * @param numParallelWorkers  the num parallel workers
+     * @param maxQueueSize        the max queue size
+     */
     Processor(final Client userClient, final int numParallelWorkers, final int maxQueueSize) {
         this.maxQueueSize = maxQueueSize;
         this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
@@ -71,23 +78,7 @@ final class Processor implements Closeable, HttpSink.Metrics {
             this.clientToClose = Optional.empty();
         }
     }
-    
-    @Override
-    public void close() {
-    	runningSubmissions.forEach(submissionTask -> submissionTask.release()); // release pending submissions
-        clientToClose.ifPresent(client -> client.close());                      // close http client if default client 
-        executor.shutdown();													
-    }
 
-    /**
-     * @return the pending submissions
-     */
-    public ImmutableSet<Submission> getPendingSubmissions() {
-    	return runningSubmissions.stream()
-                                 .map(submission -> submission.getSubmission())
-                                 .collect(Immutables.toSet());
-    }
-    
     /**
      * @return true, if is open
      */
@@ -95,8 +86,28 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return isOpen.get();
     }
     
+    @Override
+    public void close() {
+    	taskMonitor.getPendingSubmissions().forEach(task -> task.onReleased()); // release pending submission tasks
+        clientToClose.ifPresent(client -> client.close());                   // close http client if default client 
+        executor.shutdown();													
+    }
+
+    /**
+     * @return the pending submissions
+     */
+    public ImmutableSet<Submission> getPendingSubmissions() {
+    	return taskMonitor.getPendingSubmissions().stream()
+                								  .map(submission -> submission.getSubmission())
+                								  .collect(Immutables.toSet());
+    }
+
+    /**
+     * @param submissionTask the submission task to process
+     * @return the submission future
+     */
     public CompletableFuture<SubmissionTask> processTaskAsync(final SubmissionTask submissionTask) {
-        if (getNumPending() >= maxQueueSize) {
+        if (taskMonitor.getNumPendingSubmissions() >= maxQueueSize) {
             throw new IllegalStateException("max queue size " + maxQueueSize + " exceeded");
         }
         
@@ -104,12 +115,19 @@ final class Processor implements Closeable, HttpSink.Metrics {
         return processSubmissionTaskAsync(submissionTask);
     }
 
-    public void processRetryAsync(final SubmissionTask submissionTask) {
+    /**
+     * @param submissionTask the submission retry task
+     */
+    void processRetryAsync(final SubmissionTask submissionTask) {
     	processSubmissionTaskAsync(submissionTask).whenComplete((sub, error) -> retries.inc());
     }
 
     private CompletableFuture<SubmissionTask> processSubmissionTaskAsync(final SubmissionTask submissionTask) {
-        return processSubmissionMonitoredAsync(submissionTask)
+        if (!isOpen()) {
+            throw new IllegalStateException("processor is already closed");
+        }
+        
+        return processTaskMonitoredAsync(submissionTask)
                              .exceptionally(error -> { 
                                                          discarded.inc();
                                                          throw Exceptions.propagate(error);
@@ -124,34 +142,22 @@ final class Processor implements Closeable, HttpSink.Metrics {
                                                               }); 
     }
     
-    private CompletableFuture<Optional<SubmissionTask>> processSubmissionMonitoredAsync(final SubmissionTask submissionTask) {
-        if (!isOpen()) {
-            throw new IllegalStateException("processor is already closed");
+    private CompletableFuture<Optional<SubmissionTask>> processTaskMonitoredAsync(final SubmissionTask submissionTask) {
+        taskMonitor.register(submissionTask);
+        try {
+	        return submissionTask.processAsync(queryExecutor)
+	                             .handle((optionalNextRetry, error) ->  {
+	                            	 										 taskMonitor.deregister(submissionTask);
+	                                                                         if (error == null) {
+	                                                                             return optionalNextRetry;
+	                                                                         } else {
+	                                                                             throw Exceptions.propagate(error);
+	                                                                         }
+	                                                                    });
+        } catch (RuntimeException rt) {
+        	taskMonitor.deregister(submissionTask);
+        	throw rt;
         }
-        
-        register(submissionTask);
-        return submissionTask.processAsync(queryExecutor)
-                             .handle((optionalNextRetry, error) ->  {
-                                                                         deregister(submissionTask, optionalNextRetry);
-                                                                         if (error == null) {
-                                                                             return optionalNextRetry;
-                                                                         } else {
-                                                                             throw Exceptions.propagate(error);
-                                                                         }
-                                                                    }); 
-    }
-    
-    private void register(final SubmissionTask submission) {
-        synchronized (this) {
-            runningSubmissions.add(submission);
-        }
-    }
-    
-    private <T> T deregister(final SubmissionTask submission, final T t) {
-        synchronized (this) {
-            runningSubmissions.remove(submission);
-        }
-        return t;
     }
     
     @Override
@@ -170,19 +176,34 @@ final class Processor implements Closeable, HttpSink.Metrics {
     }
     
     @Override
-    public int getNumPending() {
-        synchronized (this) {
-            return runningSubmissions.size();
-        }
-    }
-    
-    
-    @Override
     public String toString() {
-        return new StringBuilder().append("pending=" + getNumPending())
-                                  .append("success=" + getNumSuccess().getCount())
+        return new StringBuilder().append("success=" + getNumSuccess().getCount())
                                   .append("retries=" + getNumRetries().getCount())
                                   .append("discarded=" + getNumDiscarded().getCount())
                                   .toString();
     }
+    
+    
+    private final class SubmissionTaskMonitor {
+    	private final Set<SubmissionTask> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<SubmissionTask, Boolean>());
+        
+        private synchronized void register(final SubmissionTask submission) {
+        	runningSubmissions.add(submission);
+        }
+        
+        private synchronized void deregister(final SubmissionTask submission) {
+        	runningSubmissions.remove(submission);
+        }
+        
+        /**
+         * @return the pending submissions
+         */
+        public synchronized ImmutableSet<SubmissionTask> getPendingSubmissions() {
+        	return ImmutableSet.copyOf(runningSubmissions);
+        }
+        
+        private synchronized int getNumPendingSubmissions() {
+        	return runningSubmissions.size();
+        }
+    }   
 }

@@ -244,16 +244,16 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     
     
     final class PersistentHttpSink extends TransientHttpSink {
-    	private final PersistentSubmission.SubmissionsDir submissionsDir;
+    	private final PersistentSubmission.SubmissionsStore submissionsStore;
     	
         public PersistentHttpSink() {
             super();
-            this.submissionsDir = new PersistentSubmission.SubmissionsDir(dir, target, method);
+            this.submissionsStore = new PersistentSubmission.SubmissionsStore(dir, target, method);
 
             // process old submissions (if exists)
-            submissionsDir.scanUnprocessedSubmissionDirs()
-            			  .forEach(submissionDir -> submissionDir.getNewestSubmissionFile()
-            					  							     .ifPresent(file -> submitRetry(submissionDir, file)));
+            submissionsStore.scanUnprocessedSubmissionDirs()
+            			    .forEach(submissionDir -> submissionDir.getNewestSubmissionFile()
+            				  	  							       .ifPresent(file -> submitRetry(submissionDir, file)));
         }
         
         private void submitRetry(final SubmissionDir submissionDir, final File submissionFile) {
@@ -262,8 +262,8 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         	processor.processRetryAsync(submissionTask);
         }
         
-        public File getDir() {
-        	return submissionsDir.getDir();
+        public File getSubmissionStoreDir() {
+        	return submissionsStore.asFile();
         }
 
         protected TransientSubmission newSubmission(final String id,
@@ -272,7 +272,13 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
 	         	    								final Entity<?> entity, 
 	         	    								final ImmutableSet<Integer> rejectStatusList,
 	         	    								final ImmutableList<Duration> processDelays) {
-        	return new PersistentSubmission(id, target, method, entity, rejectStatusList, processDelays, submissionsDir);    	
+        	return new PersistentSubmission(id, 
+        								    target,
+        								    method, 
+        								    entity, 
+        								    rejectStatusList, 
+        								    processDelays, 
+        								    submissionsStore);    	
         }
     } 
 }

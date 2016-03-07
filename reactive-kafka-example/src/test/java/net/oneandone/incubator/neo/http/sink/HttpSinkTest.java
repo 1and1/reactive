@@ -175,7 +175,7 @@ public class HttpSinkTest {
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
-        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().getDir().exists());
+        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().asFile().exists());
         sink.close();
     }
   
@@ -291,7 +291,7 @@ public class HttpSinkTest {
         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
         Assert.assertEquals(1, sink.getMetrics().getNumSuccess().getCount());
         
-        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().getDir().exists());
+        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().asFile().exists());
         sink.close();
     }
 
@@ -320,7 +320,7 @@ public class HttpSinkTest {
         
         sink.close();
         
-        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().getDir().listFiles();
+        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().asFile().listFiles();
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
 
@@ -442,38 +442,6 @@ public class HttpSinkTest {
         Assert.assertEquals(0, getSinkSubmissionsDir(queryFile).listFiles().length);
     }
 
-    
-    @Test
-    public void testRescheduleFreshPersistentQueryShouldBeIgnored() throws Exception {
-        URI target = URI.create("http://localhost:1/rest/topics");
-        
-        // create query file to simulate former crash
-        File queryFile = newPersistentQuery(Files.createTempDir(), 
-                                            target, 
-                                            Entity.entity(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json"),
-                                            ImmutableList.of(Duration.ofMillis(100)),
-                                            Instant.now());
-        
-        HttpSink sink = HttpSink.target(target)
-                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
-                                .withPersistency(getGlobalSubmissionsDir(queryFile))
-                                .open();
-        
-        
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException ignore) { }
-        
-        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
-        Assert.assertEquals(0, sink.getMetrics().getNumRetries().getCount());
-        Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
-        
-        sink.close();
-        
-        Assert.assertEquals(1, getSinkSubmissionsDir(queryFile).listFiles().length);
-    }
-
-
     @Test
     public void testReschedulePersistentQueryWithStillRetryResult() throws Exception {
         URI target = URI.create(server.getBasepath() + "rest/topics?status=500");
@@ -509,7 +477,7 @@ public class HttpSinkTest {
         Assert.assertEquals(1, submissions.size());
         sink.close();
         
-        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().getDir().listFiles();
+        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().asFile().listFiles();
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
         
@@ -586,7 +554,7 @@ public class HttpSinkTest {
          
         sink.close();
         
-        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().getDir().listFiles();
+        File[] files = ((PersistentSubmission) submissions.iterator().next()).getSubmissionDir().asFile().listFiles();
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
         
@@ -632,7 +600,7 @@ public class HttpSinkTest {
         
         sink.close();
         
-        Assert.assertEquals(0, ((HttpSinkBuilderImpl.PersistentHttpSink) sink).getDir().listFiles().length);
+        Assert.assertEquals(0, ((HttpSinkBuilderImpl.PersistentHttpSink) sink).getSubmissionStoreDir().listFiles().length);
     }
 
     
@@ -743,7 +711,7 @@ public class HttpSinkTest {
  
     private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, Instant lastModified, int trials, Instant dateLastTrial) {
         try {
-        	PersistentSubmission.SubmissionsDir submissionsDir = new PersistentSubmission.SubmissionsDir(dir, uri, Method.POST);
+        	PersistentSubmission.SubmissionsStore submissionsDir = new PersistentSubmission.SubmissionsStore(dir, uri, Method.POST);
             PersistentSubmission persistentSubmission = new PersistentSubmission(UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
             PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.openAsync().get();
             task.onReleased();

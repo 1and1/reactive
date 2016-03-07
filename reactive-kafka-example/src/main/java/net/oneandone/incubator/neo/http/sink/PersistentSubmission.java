@@ -72,7 +72,7 @@ class PersistentSubmission extends TransientSubmission {
      * @param entity            the entity
      * @param rejectStatusList  the reject status list
      * @param processDelays     the process delays
-     * @param submissionsDir    the submissions dir 
+     * @param submissionsStore  the submissions store 
      */
     public PersistentSubmission(final String id,
     					  		final URI target,
@@ -80,8 +80,8 @@ class PersistentSubmission extends TransientSubmission {
     					  		final Entity<?> entity, 
     					  		final ImmutableSet<Integer> rejectStatusList,
     					  		final ImmutableList<Duration> processDelays,
-    					  		final SubmissionsDir submissionsDir) {
-    	this(id, target, method, entity, rejectStatusList, processDelays, submissionsDir.openSubmissionDir(id));           
+    					  		final SubmissionsStore submissionsStore) {
+    	this(id, target, method, entity, rejectStatusList, processDelays, submissionsStore.openSubmissionDir(id));           
     }
 
     /**
@@ -214,28 +214,31 @@ class PersistentSubmission extends TransientSubmission {
 	
 	
 	/**
-	 * THe directory used for storing the submissions 
+	 * The store used to persist submissions 
 	 */
-	static final class SubmissionsDir {
-		private final File submissionsDir;
+	static final class SubmissionsStore {
+		private final File submissionsStoreDir;
 		
 		/**
 		 * @param persistencyDir  the persistency dir 
 		 * @param target          the target uri
 		 * @param method          the method
 		 */
-		public SubmissionsDir(final File persistencyDir, final URI target, final Method method) {
-			submissionsDir = new File(persistencyDir, method + "_" + Base64.getEncoder().encodeToString(target.toString().getBytes(Charsets.UTF_8)).replace("=", ""));
-	    	if (!submissionsDir.exists()) {
-	    		submissionsDir.mkdirs();
+		public SubmissionsStore(final File persistencyDir, final URI target, final Method method) {
+			submissionsStoreDir = new File(persistencyDir, method + "_" + Base64.getEncoder()
+																			    .encodeToString(target.toString()
+																			    					  .getBytes(Charsets.UTF_8))
+																			    					   .replace("=", ""));
+	    	if (!submissionsStoreDir.exists()) {
+	    		submissionsStoreDir.mkdirs();
 	    	}           
 		}
 		
 		/**
 		 * @return the submissions dir
 		 */
-		public File getDir() {
-			return submissionsDir;
+		public File asFile() {
+			return submissionsStoreDir;
 		}
 		
 		/**
@@ -244,7 +247,7 @@ class PersistentSubmission extends TransientSubmission {
 		 * @return the opened submission dir 
 		 */
 		public SubmissionDir openSubmissionDir(String id) {
-			return new SubmissionDir(submissionsDir, "dir_" + id);
+			return new SubmissionDir(submissionsStoreDir, "dir_" + id);
 		}
 		
 		/**
@@ -252,10 +255,10 @@ class PersistentSubmission extends TransientSubmission {
 		 * @return the unprocessed submission dirs 
 		 */
 		public ImmutableList<SubmissionDir> scanUnprocessedSubmissionDirs() {
-	    	LOG.debug("scanning " + submissionsDir + " for unprocessed submission dirs");
+	    	LOG.debug("scanning " + submissionsStoreDir + " for unprocessed submission dirs");
 
 	    	final List<SubmissionDir> dirs = Lists.newArrayList();
-	    	for (File file : submissionsDir.listFiles()) {
+	    	for (File file : submissionsStoreDir.listFiles()) {
 	    		try {
 	    			dirs.add(new SubmissionDir(file));
 	    		} catch (RuntimeException e) { 
@@ -285,19 +288,19 @@ class PersistentSubmission extends TransientSubmission {
     	 * @param submissionsDir the parent dir
     	 * @param id             the submission id
     	 */
-    	public SubmissionDir(File submissionsDir, String id) {
-    		this(new File(submissionsDir, id));
+    	public SubmissionDir(File submissionsStoreDir, String id) {
+    		this(new File(submissionsStoreDir, id));
     	}
     		
 		private SubmissionDir(File submissionDir) {
+			this.deleteMarkerFile = new File(submissionDir, "submission" + DELETED_SUFFIX);
 			this.submissionDir = submissionDir;
     		if (!submissionDir.exists()) {
     			submissionDir.mkdirs();
     		}
     		
-    		this.deleteMarkerFile = new File(submissionDir, "submission" + DELETED_SUFFIX);
-
-    		// as long the submission dir is open it will be locked 
+    		// First, try to open the lock. 
+    		// As long the submission dir is open it will be locked 
     		this.lockfile = new File(submissionDir, LOGFILENAME);
     		try {
 	    		if (lockfile.createNewFile()) {
@@ -311,6 +314,7 @@ class PersistentSubmission extends TransientSubmission {
     			throw new RuntimeException(ioe);
     		}
     		
+    		// if submission is expired, submission dir will be deleted  
     		if (isExpired()) {
     			delete();
     			throw new RuntimeException("expired persistent submission " + getId() + " found. remove data files " + submissionDir.getAbsolutePath());
@@ -319,10 +323,14 @@ class PersistentSubmission extends TransientSubmission {
     		LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " opened and locked");
 		}
 		
+    	private String getId() {
+    		return submissionDir.getName();
+    	}
+		
 		/**
-		 * @return the submission dir for va dedicated submission
+		 * @return the submission dir for a dedicated submission
 		 */
-		public File getDir() {
+		public File asFile() {
 			return submissionDir;
 		}
 		
@@ -334,13 +342,13 @@ class PersistentSubmission extends TransientSubmission {
 	        try {
 	            FileOutputStream os = null;
 	            try {
-	                // write the new submission file
+	                // write the new submission file as e temp file
 	                os = new FileOutputStream(tempFile);
 	                
 	                chunk.writeTo(os, "submission state");
 	                os.close();
 	                
-	                // and commit it (this renaming approach avoids "half-written" files)
+	                // and commit it by renaming (this renaming approach avoids "half-written" files)
 	                final File submissionFile = new File(submissionDir, Instant.now().toEpochMilli() + SUBMISSION_SUFFIX);
 	                submissionFile.createNewFile();
 	                java.nio.file.Files.move(tempFile.toPath(), submissionFile.toPath(), StandardCopyOption.ATOMIC_MOVE);
@@ -368,15 +376,7 @@ class PersistentSubmission extends TransientSubmission {
 	            Closeables.closeQuietly(fis);
 	        }
 	    }
-		
-    	public void close() {
-    		try {
-    			fc.close();
-    			lockfile.delete();
-    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " unlocked and close");
-    		} catch (IOException ignore) { }
-    	}
-    	
+	
     	public boolean isExpired() {
 	        return deleteMarkerFile.exists();
     	}
@@ -395,22 +395,36 @@ class PersistentSubmission extends TransientSubmission {
 	            }
 	        }
 	        
+	        // if all files (without deleted marker) are deleted, the dir will be removed  
 	        if (filesDeleted) {
+	        	deleteMarkerFile.delete();  
 	        	close();
-	        	deleteMarkerFile.delete();
+	        	
 	        	if (submissionDir.delete()) {
 	    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " deleted");                            
 	        	}
 	        }        
     	}
     	
+    	void close() {
+    		try {
+    			fc.close();
+    			lockfile.delete();
+    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " unlocked and close");
+    		} catch (IOException ignore) { }
+    	}
+    	
     	public Optional<File> getNewestSubmissionFile() {
+    		// submission already deleted?
 	        if (deleteMarkerFile.exists()) {
 	            return Optional.empty();
+	            
+	        // ..no , still active 
 	        } else {
 	            Optional<File> submissionFile = Optional.empty();
 	            Instant newest = Instant.ofEpochMilli(0); 
 	            
+	            // find newest file
 	            for (File file : submissionDir.listFiles()) {
 	                final String name = file.getName(); 
 	                if (name.endsWith(SUBMISSION_SUFFIX)) {
@@ -425,10 +439,6 @@ class PersistentSubmission extends TransientSubmission {
 	            return submissionFile;
 	        }
     	} 
-    	
-    	private String getId() {
-    		return submissionDir.getName();
-    	}
     	
     	@Override
     	public String toString() {

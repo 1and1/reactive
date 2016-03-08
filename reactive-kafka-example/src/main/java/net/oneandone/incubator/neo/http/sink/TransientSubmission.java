@@ -202,8 +202,8 @@ class TransientSubmission implements Submission {
      * @param submissionTask the submission task to process
      * @return the submission future
      */
-    public CompletableFuture<SubmissionTask> processTaskAsync(final  QueryExecutor executor,
-    														  final SubmissionTask submissionTask) {
+    public CompletableFuture<TransientSubmissionTask> processTaskAsync(final  QueryExecutor executor,
+    														           final TransientSubmissionTask submissionTask) {
         LOG.debug("submitting " + submissionTask); 
         return processSubmissionTaskAsync(executor, submissionTask);
     }
@@ -212,16 +212,15 @@ class TransientSubmission implements Submission {
      * @param executor       the query executor
      * @param submissionTask the submission retry task
      */
-    void processRetryAsync(final QueryExecutor executor, final SubmissionTask submissionTask) {
+    void processRetryAsync(final QueryExecutor executor, final TransientSubmissionTask submissionTask) {
     	processSubmissionTaskAsync(executor, submissionTask)
     			.whenComplete((sub, error) -> submissionMonitor.onRetry(TransientSubmission.this));
     }
 
-    private CompletableFuture<SubmissionTask> processSubmissionTaskAsync(final QueryExecutor executor, final SubmissionTask submissionTask) {
+    private CompletableFuture<TransientSubmissionTask> processSubmissionTaskAsync(final QueryExecutor executor, 
+    																			  final TransientSubmissionTask submissionTask) {
         return submissionTask.processAsync(executor)
-                             .exceptionally(error -> { 
-                                                         throw Exceptions.propagate(error);
-                                                     })
+                             .exceptionally(error -> { throw Exceptions.propagate(error); })
                              .thenApply(optionalNextRetry ->  { 
                                                                  if (optionalNextRetry.isPresent()) {   
                                                                      processRetryAsync(executor, optionalNextRetry.get()); 
@@ -234,10 +233,11 @@ class TransientSubmission implements Submission {
 		return CompletableFuture.completedFuture(new TransientSubmissionTask(numTrials));
 	}
 	
+	
 	/**
 	 * Transient submission task
 	 */
-	protected class TransientSubmissionTask implements SubmissionTask {
+	protected class TransientSubmissionTask {
 	    private final int numTrials;
 	    private final Duration nextExecutionDelay;
 	    
@@ -256,22 +256,15 @@ class TransientSubmission implements Submission {
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
 	    }
 
-	    @Override
-	    public Submission getSubmission() {
-	    	return TransientSubmission.this;
-	    }
-	    
-	    @Override
-	    public int getNumTrials() {
-	    	return numTrials;
-	    }
-		
-	    @Override
-	    public CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor executor) {
+	    /**
+		 * processes the task asynchronously 
+		 * @param queryExecutor  the query executor
+		 * @return the succeeding retry task or empty
+		 */
+	    public CompletableFuture<Optional<TransientSubmissionTask>> processAsync(final QueryExecutor executor) {
 	    	if (isReleased.get()) {
 	    		throw new RunLevelException(subInfo() + " already released. Task will not been processed");
 	    	}
-	    	
 	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
 	        
 	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
@@ -281,14 +274,14 @@ class TransientSubmission implements Submission {
 	        				   							if (getRejectStatusList().contains(toStatus(error))) {
 	        				   								return onDiscardError(error, subInfo() + " failed with " + error.toString() + ". Non retryable status code. Discarding it");
 	        				   							} else {
-	        				   								Optional<SubmissionTask> nextRetry = nextRetry();
+	        				   								Optional<TransientSubmissionTask> nextRetry = nextRetry();
 	        				   								return (nextRetry.isPresent()) ? onRetryableError(nextRetry, subInfo() + " failed with " + toStatus(error) + ". Retries left")
 	        				   														       : onDiscardError(error, subInfo() + " failed with " + toStatus(error) + ". No retries left. Discarding it");
 	        				   							}
 	        			   						  });
 	    }
 	    
-	    private Optional<SubmissionTask> onSuccess(final String msg) {
+	    private Optional<TransientSubmissionTask> onSuccess(final String msg) {
 	    	lastTrials.add(Instant.now());
 	    	
 	    	Log.debug(msg);
@@ -298,10 +291,10 @@ class TransientSubmission implements Submission {
 	    	update(State.COMPLETED);
 	    	onTerminated();
 
-			return Optional.<SubmissionTask>empty();
+			return Optional.<TransientSubmissionTask>empty();
 	    }
 	    
-	    private Optional<SubmissionTask> onDiscardError(final Throwable error, final String msg) {
+	    private Optional<TransientSubmissionTask> onDiscardError(final Throwable error, final String msg) {
 	    	lastTrials.add(Instant.now());
 
 	    	actionLog.add("[" + Instant.now() + "] " + msg);
@@ -314,10 +307,19 @@ class TransientSubmission implements Submission {
 			throw Exceptions.propagate(error);
 	    }
 	    
-	    private Optional<SubmissionTask> onRetryableError(final Optional<SubmissionTask> nextRetry, final String msg) {
+		
+		/**
+		 * terminates the task by destroying it
+		 */
+	    protected void onTerminated() {  }
+	    
+	    private Optional<TransientSubmissionTask> onRetryableError(final Optional<TransientSubmissionTask> nextRetry, 
+	    														   final String msg) {
 	    	lastTrials.add(Instant.now());
+	    	
 	    	actionLog.add("[" + Instant.now() + "] " + msg);
 	    	Log.warn(msg);
+	    	
 	    	return nextRetry;
 	    }
 
@@ -338,7 +340,7 @@ class TransientSubmission implements Submission {
 	        }
 	    }
 	    
-	    private Optional<SubmissionTask> nextRetry() {
+	    private Optional<TransientSubmissionTask> nextRetry() {
 	        final int nextTrial = numTrials + 1;
 	        if (nextTrial < getProcessDelays().size()) {
 	            return Optional.of(newTask(numTrials + 1));

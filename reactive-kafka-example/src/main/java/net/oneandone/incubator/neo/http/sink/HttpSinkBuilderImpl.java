@@ -263,7 +263,6 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         	if (submissionMonitor.getNumPendingSubmissions() > bufferSize) {
         		throw new IllegalStateException("max buffer size " + bufferSize + " execeeded");
         	}
-        	
         	return submission.processAsync(queryExecutor);
         }
        

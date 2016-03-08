@@ -48,7 +48,7 @@ interface SubmissionTask {
 	 * @param queryExecutor  the query executor
 	 * @return the succeeding retry task or empty
 	 */
-    CompletableFuture<Optional<SubmissionTask>> processAsync(final QueryExecutor queryExecutor);
+    CompletableFuture<Optional<SubmissionTask>> processAsync(QueryExecutor executor);
   
     /**
      * @return the number of trials

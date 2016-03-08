@@ -15,11 +15,13 @@
  */
 package net.oneandone.incubator.neo.http.sink;
 
+import java.io.Closeable;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 
 import javax.ws.rs.client.Client;
@@ -33,22 +35,36 @@ import org.slf4j.LoggerFactory;
 import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
+
 /**
  * Query executor
  */
-class QueryExecutor {
+class QueryExecutor implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(QueryExecutor.class);
-
+    
 	private final Client httpClient;
 	private final ScheduledThreadPoolExecutor executor;
+	private final AtomicBoolean isOpen = new AtomicBoolean(true);
+	
 	
 	/**
-	 * @param httpClient  the http client
-	 * @param executor    the scheduled executor
+	 * @param httpClient          the http client
+	 * @param numParallelWorkers  the number of workers
 	 */
-	public QueryExecutor(final Client httpClient, final ScheduledThreadPoolExecutor executor) {
+	public QueryExecutor(final Client httpClient, final int numParallelWorkers) {
+        this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
 		this.httpClient = httpClient;
-		this.executor = executor;
+	}
+	
+	@Override
+	public void close()  {
+		if (isOpen.getAndSet(false)) {
+			executor.shutdown();
+		}
+	}
+	
+	public boolean isOpen() {
+		return isOpen.get();
 	}
      
 	/**
@@ -65,6 +81,10 @@ class QueryExecutor {
 													       final URI target, 
 													       final Entity<?> entity,
 													       final Duration delay) {
+		if (!isOpen()) {
+			throw new IllegalStateException("processor is already closed");
+		}
+		        		
     	final CompletablePromise<String> completablePromise = new CompletablePromise<>();
     	executor.schedule(() -> performHttpQueryNowAsync(id, method, target, entity).whenComplete(completablePromise),
         			      delay.toMillis(), 

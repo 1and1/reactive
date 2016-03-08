@@ -18,14 +18,14 @@ package net.oneandone.incubator.neo.http.sink;
 
 
 import java.io.File;
-
-
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -49,12 +49,13 @@ import org.junit.Test;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import com.unitedinternet.mam.incubator.hammer.http.sink.MamHttpSink;
 
-import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.incubator.neo.http.sink.HttpSink;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
@@ -200,6 +201,34 @@ public class HttpSinkTest {
          sink.close();
     }
 
+    
+    
+    @Test
+    public void testPersistentServerErrorRetriesExceeded() throws Exception {
+         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
+                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(150)))
+                                 .withPersistency(Files.createTempDir())
+                                 .open();
+         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+         Assert.assertEquals(Submission.State.PENDING, submission.getState());
+         Assert.assertEquals(submission, sink.getPendingSubmissions().iterator().next());
+        
+         try {
+             Thread.sleep(1000);
+         } catch (InterruptedException ignore) { }
+        
+         Assert.assertEquals(1, sink.getMetrics().getNumDiscarded().getCount());
+         Assert.assertEquals(2, sink.getMetrics().getNumRetries().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+         
+         Assert.assertNull(((PersistentSubmission) submission).getSubmissionDir().asFile().listFiles());
+        
+         sink.close();
+         
+         Assert.assertTrue(submission.toString().contains("/rest/topics?status=500 (DISCARDED)"));
+         Assert.assertTrue(submission.toString().contains("(3 of 3) failed with 500. No retries left. Discarding it"));
+    }
+
 
     @Test
     public void testRejectingError() throws Exception {
@@ -247,6 +276,40 @@ public class HttpSinkTest {
          
          
          sink.close();
+    }
+  
+    
+    
+    @Test
+    public void testPersistentServerErrorIncompletedRetries() throws Exception {
+         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")
+                                 .withRetryAfter(Duration.ofMillis(100), Duration.ofHours(2))
+                                 .withPersistency(Files.createTempDir())
+                                 .open();
+         Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+         Assert.assertEquals(Submission.State.PENDING, submission.getState());
+
+        
+         try {
+             Thread.sleep(1000);
+         } catch (InterruptedException ignore) { }
+        
+         Assert.assertEquals(1, sink.getPendingSubmissions().size());
+         Assert.assertEquals(1, sink.getMetrics().getNumRetries().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumSuccess().getCount());
+         Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+
+         sink.close();
+
+         File[] files = ((PersistentSubmission) submission).getSubmissionDir().asFile().listFiles();
+         List<File> fileList = Lists.newArrayList(files);
+         Collections.sort(fileList);
+         
+         Assert.assertEquals(3, fileList.size());
+         
+         Properties props = new Properties();
+         props.load(new FileInputStream(fileList.get(2)));
+         Assert.assertEquals(1, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
     }
   
     
@@ -324,8 +387,9 @@ public class HttpSinkTest {
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
 
-        String content = Joiner.on("\n").join(Files.readLines(fileList.get(2), Charsets.UTF_8));
-        Assert.assertTrue(content.trim().contains("numTrials=2"));  
+        Properties props = new Properties();
+        props.load(new FileInputStream(fileList.get(2)));
+        Assert.assertEquals(1, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
     }
 
     
@@ -402,7 +466,7 @@ public class HttpSinkTest {
         try {
             sink.accept(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
             Assert.fail("IllegalStateException exepcted");
-        } catch (IllegalStateException exepcted) { }
+        } catch (IllegalStateException exepected) { }
         
         sink.close();
     }
@@ -453,10 +517,11 @@ public class HttpSinkTest {
                                             ImmutableList.of(Duration.ofMillis(100), Duration.ofHours(10)),
                                             Instant.now().minus(Duration.ofMinutes(5)));
         
-        Assert.assertEquals(1, queryFile.getParentFile().listFiles().length);
-        String content = Joiner.on("\n").join(Files.readLines(queryFile, Charsets.UTF_8));
-        Assert.assertTrue(content.contains("retries=100&36000000"));
-        Assert.assertTrue(content.contains("numTrials=0"));
+        
+        Properties props = new Properties();
+        props.load(new FileInputStream(queryFile));
+        Assert.assertEquals("100&36000000", props.getProperty("retries"));
+        Assert.assertEquals("", props.getProperty("lastTrials"));
         
         
         HttpSink sink = HttpSink.target(target)
@@ -481,12 +546,14 @@ public class HttpSinkTest {
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
         
-        Assert.assertEquals(2, fileList.size());
-        content = Joiner.on("\n").join(Files.readLines(fileList.get(0), Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials=0"));
+        Assert.assertEquals(3, fileList.size());
+        Properties props1 = new Properties();
+        props1.load(new FileInputStream(fileList.get(1)));
+        Assert.assertEquals("", props1.getProperty("lastTrials"));
 
-        content = Joiner.on("\n").join(Files.readLines(fileList.get(1), Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials=1"));
+        Properties props2 = new Properties();
+        props2.load(new FileInputStream(fileList.get(2)));
+        Assert.assertEquals(1, Splitter.on('&').splitToList(props2.getProperty("lastTrials")).size());
     }
     
     
@@ -558,13 +625,15 @@ public class HttpSinkTest {
         List<File> fileList = Lists.newArrayList(files);
         Collections.sort(fileList);
         
-        Assert.assertEquals(2, fileList.size());
+        Assert.assertEquals(3, fileList.size());
         
-        content = Joiner.on("\n").join(Files.readLines(fileList.get(0), Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials=0"));
-        
-        content = Joiner.on("\n").join(Files.readLines(fileList.get(1), Charsets.UTF_8));
-        Assert.assertTrue(content.contains("numTrials=1"));
+        Properties props = new Properties();
+        props.load(new FileInputStream(fileList.get(1)));
+        Assert.assertEquals("", props.getProperty("lastTrials"));
+
+        Properties props2 = new Properties();
+        props2.load(new FileInputStream(fileList.get(2)));
+        Assert.assertEquals(1, Splitter.on('&').splitToList(props2.getProperty("lastTrials")).size());
         
         sink2.close();
     }
@@ -711,9 +780,10 @@ public class HttpSinkTest {
  
     private static File newPersistentQuery(File dir, URI uri, Entity<?> entity, ImmutableList<Duration> delays, Instant lastModified, int trials, Instant dateLastTrial) {
         try {
+        	SubmissionMonitor monitor = new SubmissionMonitor();
         	PersistentSubmission.SubmissionsStore submissionsDir = new PersistentSubmission.SubmissionsStore(dir, uri, Method.POST);
-            PersistentSubmission persistentSubmission = new PersistentSubmission(UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
-            PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.openAsync().get();
+            PersistentSubmission persistentSubmission = new PersistentSubmission(monitor, UUID.randomUUID().toString(), uri, Method.POST, entity, ImmutableSet.of(404), delays, submissionsDir);    
+            PersistentSubmissionTask task = (PersistentSubmissionTask) persistentSubmission.newTaskAsync(0).get();
             task.onReleased();
             
             File submissionFile = task.getFile();

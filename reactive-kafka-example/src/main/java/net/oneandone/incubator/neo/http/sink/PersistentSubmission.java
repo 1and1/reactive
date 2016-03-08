@@ -16,6 +16,8 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.ByteArrayOutputStream;
+
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -57,6 +59,7 @@ import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 
 
+
 /**
  * Persistent submission task which lives in main memory and on disc
  */
@@ -64,8 +67,9 @@ class PersistentSubmission extends TransientSubmission {
     private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);
 
     private final SubmissionDir submissionDir;
-	
+
     /**
+     * @param submissionMonitor the submission monitor
      * @param id                the id 
      * @param target            the target uri
      * @param method            the method
@@ -74,33 +78,84 @@ class PersistentSubmission extends TransientSubmission {
      * @param processDelays     the process delays
      * @param submissionsStore  the submissions store 
      */
-    public PersistentSubmission(final String id,
+    public PersistentSubmission(final SubmissionMonitor submissionMonitor,
+		    			        final String id,
     					  		final URI target,
     					  		final Method method,
     					  		final Entity<?> entity, 
     					  		final ImmutableSet<Integer> rejectStatusList,
     					  		final ImmutableList<Duration> processDelays,
     					  		final SubmissionsStore submissionsStore) {
-    	this(id, target, method, entity, rejectStatusList, processDelays, submissionsStore.openSubmissionDir(id));           
+    	this(submissionMonitor,
+    	     id, 
+    	     target,
+    	     method, 
+    	     entity,
+    	     rejectStatusList, 
+    	     processDelays, 
+    	     ImmutableList.of(),
+    	     ImmutableList.of(),
+    	     submissionsStore);
     }
-
+    
+	
     /**
+     * @param submissionMonitor the submission monitor
      * @param id                the id 
      * @param target            the target uri
      * @param method            the method
      * @param entity            the entity
      * @param rejectStatusList  the reject status list
      * @param processDelays     the process delays
+     * @param lastTrials        the date of the last trials
+     * @param actionLog         the action log 
+     * @param submissionsStore  the submissions store 
+     */
+    private PersistentSubmission(final SubmissionMonitor submissionMonitor,
+		     			         final String id,
+    					  		 final URI target,
+    					  		 final Method method,
+    					  		 final Entity<?> entity, 
+    					  		 final ImmutableSet<Integer> rejectStatusList,
+    					  		 final ImmutableList<Duration> processDelays,
+    					  		 final ImmutableList<Instant> lastTrials,
+    					  		 final ImmutableList<String> actionLog,
+    					  		 final SubmissionsStore submissionsStore) {
+    	this(submissionMonitor,
+    		 id,
+    		 target, 
+    		 method,
+    		 entity,
+    		 rejectStatusList, 
+    		 processDelays,
+    		 lastTrials,
+    		 actionLog,
+    		 submissionsStore.openSubmissionDir(id));           
+    }
+
+    /**
+     * @param submissionMonitor the submission monitor
+     * @param id                the id 
+     * @param target            the target uri
+     * @param method            the method
+     * @param entity            the entity
+     * @param rejectStatusList  the reject status list
+     * @param processDelays     the process delays
+     * @param lastTrials        the date of the last trials
+     * @param actionLog         the action log  
      * @param submissionDir     the submission dir 
      */
-    public PersistentSubmission(final String id,
-	  							final URI target,
-	  							final Method method,
-	  							final Entity<?> entity, 
-	  							final ImmutableSet<Integer> rejectStatusList,
-	  							final ImmutableList<Duration> processDelays,
-	  							final SubmissionDir submissionDir) {
-    	super(id, target, method, entity, rejectStatusList, processDelays);
+    private PersistentSubmission(final SubmissionMonitor submissionMonitor,
+		      				     final String id,
+		      				     final URI target,
+		      				     final Method method,
+		      				     final Entity<?> entity, 
+		      				     final ImmutableSet<Integer> rejectStatusList,
+		      				     final ImmutableList<Duration> processDelays,
+		      				     final ImmutableList<Instant> lastTrials,
+		      				     final ImmutableList<String> actionLog,
+		      				     final SubmissionDir submissionDir) {
+    	super(submissionMonitor, id, target, method, entity, rejectStatusList, processDelays, lastTrials, actionLog);
     	this.submissionDir = submissionDir;
     }
     
@@ -110,30 +165,39 @@ class PersistentSubmission extends TransientSubmission {
     public SubmissionDir getSubmissionDir() {
     	return submissionDir;
     }
+
+    @Override
+    void onReleased() {
+    	submissionDir.close();
+    }
     
     @Override
-    CompletableFuture<SubmissionTask> openAsync() {
-    	return CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask()); 
-    }
-   
+    protected CompletableFuture<TransientSubmissionTask> newTaskAsync(final int numTrials) {
+    	return CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask(numTrials));
+	}
+    
     /**
      * loads a persistent task from disc 
-     * @param submissionDir   the submission dir 
-     * @param submissionFile  the submission task file
-     * @return the persistent submission task
+     * 
+     * @param submissionMonitor the submission monitor
+     * @param submissionDir     the submission dir 
+     * @param submissionFile    the submission task file
+     * @return the persistent submission
      */
-    static final PersistentSubmissionTask load(final SubmissionDir submissionDir, final File submissionFile) {
+    static final PersistentSubmission load(final SubmissionMonitor submissionMonitor,
+		    						       final SubmissionDir submissionDir, 
+		    							   final File submissionFile) {
     	final Chunk chunk = submissionDir.loadFromDisc(submissionFile);
-        final PersistentSubmission submission =  new PersistentSubmission(chunk.read("id"), 
-        																  chunk.readURI("target"),
-        																  chunk.readMethod("method"),
-        																  chunk.readEntity("data"),
-        																  chunk.readIntegerSet("rejectStatusList"),
-			   											  	              chunk.readDurationList("retries"),
-				   													  	  submissionDir);
-        return submission.new PersistentSubmissionTask(chunk.readInteger("numTrials"),
-        											   chunk.readInstant("dataLastTrial"),
-        											   submissionFile);
+        return new PersistentSubmission(submissionMonitor, 
+        		  			            chunk.read("id"), 
+        		  			            chunk.readURI("target"),
+        		  			            chunk.readMethod("method"),
+        		  			            chunk.readEntity("data"),
+        		  			            chunk.readIntegerSet("rejectStatusList"),
+        		  			            chunk.readDurationList("retries"),
+        		  			            chunk.readInstantList("lastTrials"),
+        		  			            chunk.readTextList("actionLog"),
+        		  			            submissionDir);
     }
     
 	
@@ -142,37 +206,28 @@ class PersistentSubmission extends TransientSubmission {
      */
 	final class PersistentSubmissionTask extends TransientSubmissionTask {
 	    private final File submissionFile;
-	    private final Instant dateLastTrial;
 	    
 	    /**
-	     * constructor 
-	     */
-	    private PersistentSubmissionTask() {
-	    	this(0,                                     // no trials performed yet
-		    	 Instant.now());                        // last trial time is now (time starting point is now)
-	    }
-
-	    /**
 	     * constructor
-	     * @param numRetries    the current num of retry 
-	     * @param dataLastTrial the data of the last rety  
+	     * @param numTrials    the current num of retry 
 	     */
-	    private PersistentSubmissionTask(final int numRetries, final Instant dataLastTrial) {
-	        super(numRetries, dataLastTrial);
-	        this.dateLastTrial = dataLastTrial;
+	    private PersistentSubmissionTask(final int numTrials) {
+	    	super(numTrials);
 	        this.submissionFile = saveOnDisc();  // saves the task on disc by creating it
 	    }
 	    
 	    /**
 	     * constructor
-	     * @param numRetries     the current num of retry 
-	     * @param dataLastTrial  the data of the last rety  
+	     * @param numTrials      the current num of retry 
 	     * @param submissionFile the submission task file
 	     */
-	    private PersistentSubmissionTask(final int numRetries, final Instant dateLastTrial, final File submissionFile) {
-	        super(numRetries, dateLastTrial);
-	        this.dateLastTrial = dateLastTrial;
+	    private PersistentSubmissionTask(final int numTrials, final File submissionFile) {
+	    	super(numTrials);
 	        this.submissionFile = submissionFile;
+	    }
+	    
+	    protected TransientSubmissionTask newTask(final int numTrials) {
+	    	return new PersistentSubmissionTask(numTrials);
 	    }
 	    
 	    private final File saveOnDisc() {
@@ -181,10 +236,10 @@ class PersistentSubmission extends TransientSubmission {
 	    								         .with("method", getMethod())
 	    								         .with("target", getTarget())
 	    								         .with("data", getEntity())
-	    								         .with("retries", getProcessDelays())
-	    								         .with("numTrials", getNumTrials())
-	    								         .with("dataLastTrial", dateLastTrial)
-	    								         .with("rejectStatusList", getRejectStatusList()));
+	    								         .withDurationList("retries", getProcessDelays())
+	    								         .withInstantList("lastTrials", getLastTrials())
+	    								         .withTextList("actionLog", getActionLog())
+	    								         .withIntegerList("rejectStatusList", getRejectStatusList()));
 	    }    
 	    
 	    /**
@@ -198,17 +253,6 @@ class PersistentSubmission extends TransientSubmission {
 	    public void onTerminated() {
 	    	super.onTerminated();
 	    	submissionDir.delete();
-	    }
-	    
-	    @Override
-	    public void onReleased() {
-	    	super.onReleased();
-	    	submissionDir.close();
-	    }
-	 
-	    @Override
-	    protected SubmissionTask copySubmissionTask(final int numTrials, final Instant dateLastTrial) {
-	        return new PersistentSubmissionTask(numTrials,  dateLastTrial);
 	    }
 	}
 	
@@ -474,22 +518,22 @@ class PersistentSubmission extends TransientSubmission {
 			return new Chunk(Immutables.join(data, name, value));
 		}
 		
-		public Chunk with(String name, Integer value) {
-			return with(name, Integer.toString(value));
-		}
-		
-		public Chunk with(String name, Instant value) {
-			return with(name, value.toString());
-		}
-		
-		public Chunk with(String name, ImmutableList<Duration> value) {
+		public Chunk withDurationList(String name, ImmutableList<Duration> value) {
 			return with(name, Joiner.on("&")
 					   			    .join(value.stream()
 					   			    .map(duration -> duration.toMillis())
 					   			    .collect(Immutables.toList())));
 		}
 		
-		public Chunk with(String name, ImmutableSet<Integer> value) {
+		public Chunk withInstantList(String name, ImmutableList<Instant> value) {
+			return with(name, Joiner.on("&").join(value));
+		}
+
+		public Chunk withTextList(String name, ImmutableList<String> value) {
+			return with(name, Joiner.on(" & ").join(value));
+		}
+
+		public Chunk withIntegerList(String name, ImmutableSet<Integer> value) {
 			return with(name, Joiner.on("&").join(value));
 		}
 		
@@ -509,13 +553,6 @@ class PersistentSubmission extends TransientSubmission {
 			return (String) data.get(name);
 		}
 
-		public Integer readInteger(String name) {
-			return Integer.parseInt(read(name));
-		}
-		
-		public Instant readInstant(String name) {
-			return Instant.parse(read(name));
-		}
 		public URI readURI(String name) {
 			return URI.create(read(name));
 		}
@@ -539,8 +576,30 @@ class PersistentSubmission extends TransientSubmission {
 											  			.collect(Immutables.toList());
 		}
 		
+		public ImmutableList<Instant> readInstantList(String name) {
+			String row = read(name);
+			return Strings.isNullOrEmpty(row) ? ImmutableList.<Instant>of()  
+											  : Splitter.on("&")
+											  			.trimResults()	
+											  			.splitToList(row)
+											  			.stream()
+											  			.map(value -> Instant.parse(value))
+											  			.collect(Immutables.toList());
+		}
+		
+		public ImmutableList<String> readTextList(String name) {
+			String row = read(name);
+			return Strings.isNullOrEmpty(row) ? ImmutableList.<String>of()  
+											  : Splitter.on("&")
+											  			.trimResults()	
+											  			.splitToList(row)
+											  			.stream()
+											  			.map(value -> value)
+											  			.collect(Immutables.toList());
+		}
+		
 		public ImmutableSet<Integer> readIntegerSet(String name) {
-			return Splitter.on("&")
+			return Splitter.on(" & ")
 						   .trimResults()
 						   .splitToList(read(name))
 						   .stream()

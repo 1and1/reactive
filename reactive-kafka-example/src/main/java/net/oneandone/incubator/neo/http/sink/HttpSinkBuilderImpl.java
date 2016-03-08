@@ -19,10 +19,13 @@ import java.io.File;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 
@@ -35,7 +38,6 @@ import com.google.common.collect.ImmutableSet;
 
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
-import net.oneandone.incubator.neo.http.sink.PersistentSubmission.PersistentSubmissionTask;
 import net.oneandone.incubator.neo.http.sink.PersistentSubmission.SubmissionDir;
 
 
@@ -191,57 +193,96 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     
     
     private class TransientHttpSink implements HttpSink {
-        final Processor processor = new Processor(userClient, numParallelWorkers, bufferSize);
+        private final AtomicBoolean isOpen = new AtomicBoolean(true);
+        private final Optional<Client> clientToClose;
+        protected final QueryExecutor queryExecutor;
+        protected final SubmissionMonitor submissionMonitor = new SubmissionMonitor();
+        
+        
+        public TransientHttpSink() {
+             // using default client?
+             if (userClient == null) {
+                 final Client defaultClient = ClientBuilder.newClient();
+             	this.queryExecutor = new QueryExecutor(defaultClient, numParallelWorkers);
+                 this.clientToClose = Optional.of(defaultClient);
+                 
+             // .. no client is given by user 
+             } else {
+             	this.queryExecutor = new QueryExecutor(userClient, numParallelWorkers);
+                 this.clientToClose = Optional.empty();
+             }
+		}
+
+        @Override
+        public Metrics getMetrics() {
+        	return submissionMonitor;
+        }
         
         @Override
         public boolean isOpen() {
-            return processor.isOpen();
+            return isOpen.get();
         }
         
         @Override
         public void close() {
-            processor.close();
-        }
+        	submissionMonitor.getPendingSubmissions().forEach(submission -> ((TransientSubmission) submission).release()); // release pending submissions
+            clientToClose.ifPresent(client -> client.close());                                                             // close http client if default client 
+            queryExecutor.close();													
+        } 
         
         @Override
         public ImmutableSet<Submission> getPendingSubmissions() {
-            return processor.getPendingSubmissions();
+        	return submissionMonitor.getPendingSubmissions();
         }
         
         @Override
-        public Metrics getMetrics() {
-            return processor;
+        public String toString() {
+            return new StringBuilder().append(method + " " + target + "\r\n")
+            						  .append("success=" + getMetrics().getNumSuccess().getCount())
+                                      .append("retries=" + getMetrics().getNumRetries().getCount())
+                                      .append("discarded=" + getMetrics().getNumDiscarded().getCount())
+                                      .toString();
         }
         
         @Override
         public CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType) {
-        	final TransientSubmission submission = newSubmission(UUID.randomUUID().toString(),
-        													     target, 
-        													     method,
-        													     Entity.entity(entity, mediaType), 
-        													     rejectStatusList,
-        													     Immutables.join(Duration.ofMillis(0), retryDelays)); // add first trial (which is not a retry)
-        	
-        	return submission.openAsync()  												                 	// create a new submission task
-        					 .thenCompose(submissionTask -> processor.processTaskAsync(submissionTask))     // process them an
-        					 .thenApply(optionalRetryTask -> submission);
+        	return submitAsync(newSubmission(UUID.randomUUID().toString(),
+        									 target, 
+        									 method,
+        									 Entity.entity(entity, mediaType), 
+        									 rejectStatusList,
+        									 Immutables.join(Duration.ofMillis(0), retryDelays)));  // add first trial (which is not a retry)
         }
-    
+        
+        /**
+         * submits the submission
+         * @param submission the submission to submit
+         * @return the submission future
+         */
+        protected CompletableFuture<Submission> submitAsync(final TransientSubmission submission) {
+        	if (submissionMonitor.getNumPendingSubmissions() > bufferSize) {
+        		throw new IllegalStateException("max buffer size " + bufferSize + " execeeded");
+        	}
+        	
+        	return submission.processAsync(queryExecutor);
+        }
+       
         protected TransientSubmission newSubmission(final String id,
 				   					         	    final URI target,
 				   					         	    final Method method,
 				   					         	    final Entity<?> entity, 
 				   					         	    final ImmutableSet<Integer> rejectStatusList,
 				   					         	    final ImmutableList<Duration> processDelays) {
-        	return new TransientSubmission(id, target, method, entity, rejectStatusList, processDelays);    	
+        	return new TransientSubmission(submissionMonitor, 
+        								   id,
+        								   target, 
+        								   method,
+        								   entity, 
+        								   rejectStatusList,
+        								   processDelays);    	
         }
-        
-        @Override
-        public String toString() {
-            return method + " " + target + "\r\n" + getMetrics();
-        }
-    }
-    
+    }      
+     
     
     final class PersistentHttpSink extends TransientHttpSink {
     	private final PersistentSubmission.SubmissionsStore submissionsStore;
@@ -257,27 +298,30 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
         
         private void submitRetry(final SubmissionDir submissionDir, final File submissionFile) {
-        	final PersistentSubmissionTask submissionTask = PersistentSubmission.load(submissionDir, submissionFile);
-        	LOG.debug("persistent submission file " + submissionTask.getFile().getAbsolutePath() + " found. rescheduling it"); 
-        	processor.processRetryAsync(submissionTask);
+        	final PersistentSubmission submission = PersistentSubmission.load(submissionMonitor, submissionDir, submissionFile);
+        	LOG.warn("pending persistent submission file " + submissionFile + " found. rescheduling it");
+        	submissionMonitor.onRetry(submission);
+        	submitAsync(submission);
         }
         
         public File getSubmissionStoreDir() {
         	return submissionsStore.asFile();
         }
 
+        @Override
         protected TransientSubmission newSubmission(final String id,
 	         	    								final URI target,
 	         	    								final Method method,
 	         	    								final Entity<?> entity, 
 	         	    								final ImmutableSet<Integer> rejectStatusList,
 	         	    								final ImmutableList<Duration> processDelays) {
-        	return new PersistentSubmission(id, 
+        	return new PersistentSubmission(submissionMonitor, 
+        									id, 
         								    target,
         								    method, 
         								    entity, 
         								    rejectStatusList, 
-        								    processDelays, 
+        								    processDelays,
         								    submissionsStore);    	
         }
     } 

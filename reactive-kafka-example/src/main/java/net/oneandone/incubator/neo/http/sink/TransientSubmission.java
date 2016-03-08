@@ -157,10 +157,6 @@ class TransientSubmission implements Submission {
     	return stateRef.get();
     }
     
-    void update(State newState) {
-    	stateRef.set(newState);
-    }
-    
     ImmutableList<Instant> getLastTrials() {
     	return ImmutableList.copyOf(lastTrials);
     }
@@ -244,7 +240,6 @@ class TransientSubmission implements Submission {
 	    /**
 	     * constructor
 	     * @param numTrials      the current trial number
-	     * @param dateLastTrial  the data last trial
 	     */
 	    TransientSubmissionTask(int numTrials) {
 	        this.numTrials = numTrials;
@@ -254,6 +249,20 @@ class TransientSubmission implements Submission {
 	        		                                                      : Duration.between(lastTrials.get(lastTrials.size() -1), Instant.now());
 	        final Duration correctedDelay = nextDelay.minus(elapsedSinceLastRetry);
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
+	    }
+	    
+		/**
+		 * termination call back method to perform cleanup tasks
+		 * @param isSuccess  true, is processing was successfully
+		 */
+	    protected void onTerminated(final boolean isSuccess) { 
+	    	if (isSuccess) {
+	    		stateRef.set(State.COMPLETED);
+		    	submissionMonitor.onSuccess(TransientSubmission.this);
+	    	} else {
+	    		stateRef.set(State.DISCARDED);
+		    	submissionMonitor.onDiscarded(TransientSubmission.this);
+	    	}
 	    }
 
 	    /**
@@ -268,61 +277,50 @@ class TransientSubmission implements Submission {
 	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
 	        
 	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
-	        			   .thenApply(httpBody -> onSuccess(subInfo() + " executed successfully"))  // success
-	        			   .exceptionally(error -> {	// error
-	        				   							error = unwrap(error);
-	        				   							if (getRejectStatusList().contains(toStatus(error))) {
-	        				   								return onDiscardError(error, subInfo() + " failed with " + error.toString() + ". Non retryable status code. Discarding it");
-	        				   							} else {
-	        				   								Optional<TransientSubmissionTask> nextRetry = nextRetry();
-	        				   								return (nextRetry.isPresent()) ? onRetryableError(nextRetry, subInfo() + " failed with " + toStatus(error) + ". Retries left")
-	        				   														       : onDiscardError(error, subInfo() + " failed with " + toStatus(error) + ". No retries left. Discarding it");
-	        				   							}
-	        			   						  });
+	        			   .thenApply(httpBody -> onSuccess())  
+	        			   .exceptionally(error -> onError(unwrap(error)));
 	    }
 	    
-	    private Optional<TransientSubmissionTask> onSuccess(final String msg) {
+	    private Optional<TransientSubmissionTask> onSuccess() {
 	    	lastTrials.add(Instant.now());
-	    	
-	    	Log.debug(msg);
-	    	actionLog.add("[" + Instant.now() + "] " + msg);
-
-	    	submissionMonitor.onSuccess(TransientSubmission.this);
-	    	update(State.COMPLETED);
-	    	onTerminated();
-
+	    	logSuccess("executed successfully");
+	    	onTerminated(true);
 			return Optional.<TransientSubmissionTask>empty();
 	    }
 	    
-	    private Optional<TransientSubmissionTask> onDiscardError(final Throwable error, final String msg) {
-	    	lastTrials.add(Instant.now());
-
-	    	actionLog.add("[" + Instant.now() + "] " + msg);
-	    	Log.warn(msg);
-
-	    	submissionMonitor.onDiscarded(TransientSubmission.this);
-	    	update(State.DISCARDED);
-	    	onTerminated();
-
-			throw Exceptions.propagate(error);
+	    void logSuccess(String msg) {
+	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
+	    	Log.debug(subInfo() + " " + msg);
 	    }
 	    
-		
-		/**
-		 * terminates the task by destroying it
-		 */
-	    protected void onTerminated() {  }
+	    void logError(String msg) {
+			actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
+	    	Log.warn(subInfo() + " " + msg);
+	    }
 	    
-	    private Optional<TransientSubmissionTask> onRetryableError(final Optional<TransientSubmissionTask> nextRetry, 
-	    														   final String msg) {
+
+	    
+	    private Optional<TransientSubmissionTask> onError(final Throwable error) {
 	    	lastTrials.add(Instant.now());
 	    	
-	    	actionLog.add("[" + Instant.now() + "] " + msg);
-	    	Log.warn(msg);
-	    	
-	    	return nextRetry;
+			if (getRejectStatusList().contains(toStatus(error))) {
+				logError("failed with " + error.getMessage() + ". Non retryable status code. Discarding it");
+		    	onTerminated(false);
+				throw Exceptions.propagate(error);
+				
+			} else {
+				Optional<TransientSubmissionTask> nextRetry = nextRetry();
+				if (nextRetry.isPresent()) {
+					logError("failed with " + error.getMessage() + ". Retries left");
+			    	return nextRetry;
+				} else {
+					logError("failed with " + error.getMessage() + ". No retries left. Discarding it");
+			    	onTerminated(false);
+					throw Exceptions.propagate(error);
+				}
+			}
 	    }
-
+	    
 	    private Throwable unwrap(Throwable error) {
 	    	Throwable rootError = Exceptions.unwrap(error);
 			if (rootError instanceof ResponseProcessingException) {

@@ -199,7 +199,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         protected final SubmissionMonitor submissionMonitor = new SubmissionMonitor();
         
         
-        public TransientHttpSink() {
+        TransientHttpSink() {
              // using default client?
              if (userClient == null) {
                  final Client defaultClient = ClientBuilder.newClient();
@@ -212,11 +212,14 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                  this.clientToClose = Optional.empty();
              }
 		}
-
+        
         @Override
-        public Metrics getMetrics() {
-        	return submissionMonitor;
-        }
+        public void close() {
+            queryExecutor.close();													
+        	submissionMonitor.getPendingSubmissions()
+        					 .forEach(submission -> submission.release()); // release pending submissions
+            clientToClose.ifPresent(client -> client.close());                                     
+        } 
         
         @Override
         public boolean isOpen() {
@@ -224,15 +227,16 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         }
         
         @Override
-        public void close() {
-        	submissionMonitor.getPendingSubmissions().forEach(submission -> ((TransientSubmission) submission).release()); // release pending submissions
-            clientToClose.ifPresent(client -> client.close());                                                             // close http client if default client 
-            queryExecutor.close();													
-        } 
+        public Metrics getMetrics() {
+        	return submissionMonitor;
+        }
         
         @Override
         public ImmutableSet<Submission> getPendingSubmissions() {
-        	return submissionMonitor.getPendingSubmissions();
+        	return submissionMonitor.getPendingSubmissions()
+        							.stream()
+        							.map(submission -> (Submission) submission)
+        							.collect(Immutables.toSet());
         }
         
         @Override
@@ -243,17 +247,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                       .append("discarded=" + getMetrics().getNumDiscarded().getCount())
                                       .toString();
         }
-        
-        @Override
-        public CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType) {
-        	return submitAsync(newSubmission(UUID.randomUUID().toString(),
-        									 target, 
-        									 method,
-        									 Entity.entity(entity, mediaType), 
-        									 rejectStatusList,
-        									 Immutables.join(Duration.ofMillis(0), retryDelays)));  // add first trial (which is not a retry)
-        }
-        
+      
         /**
          * submits the submission
          * @param submission the submission to submit
@@ -265,7 +259,27 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         	}
         	return submission.processAsync(queryExecutor);
         }
-       
+        
+        @Override
+        public CompletableFuture<Submission> submitAsync(final Object entity, final MediaType mediaType) {
+        	return submitAsync(newSubmission(UUID.randomUUID().toString(),
+        									 target, 
+        									 method,
+        									 Entity.entity(entity, mediaType), 
+        									 rejectStatusList,
+        									 Immutables.join(Duration.ofMillis(0), retryDelays)));  // add first trial (which is not a retry)
+        }
+      
+        /**
+         * creates a new submission
+         * @param id                 the id
+         * @param target             the target uri
+         * @param method          	 the method
+         * @param entity			 the entity 
+         * @param rejectStatusList	 the reject status list 
+         * @param processDelays      the process delays
+         * @return
+         */
         protected TransientSubmission newSubmission(final String id,
 				   					         	    final URI target,
 				   					         	    final Method method,
@@ -303,6 +317,9 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         	submitAsync(submission);
         }
         
+        /**
+         * @return the submission store directory
+         */
         public File getSubmissionStoreDir() {
         	return submissionsStore.asFile();
         }

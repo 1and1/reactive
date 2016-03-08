@@ -22,11 +22,10 @@ import java.util.WeakHashMap;
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.ImmutableSet;
-import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
 
 /**
- * HttpSinklBuilder implementation
+ * SubmissionMonitor
  */
 final class SubmissionMonitor implements HttpSink.Metrics {
     private final MetricRegistry metrics = new MetricRegistry();
@@ -34,15 +33,15 @@ final class SubmissionMonitor implements HttpSink.Metrics {
     private final Counter retries = metrics.counter("retries");
     private final Counter discarded = metrics.counter("discarded");
 
-	private final Set<Submission> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<Submission, Boolean>());
+	private final Set<TransientSubmission> runningSubmissions = Collections.newSetFromMap(new WeakHashMap<TransientSubmission, Boolean>());
 
-	public void register(final Submission submission) {
+	public void register(final TransientSubmission submission) {
 		synchronized (this) {
 			runningSubmissions.add(submission);
 		}
 	}
 	
-	public void deregister(final Submission submission) {
+	public void deregister(final TransientSubmission submission) {
 		synchronized (this) {
 			runningSubmissions.remove(submission);
 		}
@@ -51,7 +50,7 @@ final class SubmissionMonitor implements HttpSink.Metrics {
 	/**
 	 * @return the pending submissions
 	 */
-	public ImmutableSet<Submission> getPendingSubmissions() {
+	public ImmutableSet<TransientSubmission> getPendingSubmissions() {
 		synchronized (this) {
 			return ImmutableSet.copyOf(runningSubmissions);
 		}
@@ -66,7 +65,7 @@ final class SubmissionMonitor implements HttpSink.Metrics {
 		}
 	}
 	
-	void onDiscarded(final Submission submission) {
+	void onDiscarded(final TransientSubmission submission) {
 		discarded.inc();
 		deregister(submission);
 	}
@@ -76,7 +75,7 @@ final class SubmissionMonitor implements HttpSink.Metrics {
 		return discarded;
 	}
 
-	void onRetry(final Submission submission) {
+	void onRetry(final TransientSubmission submission) {
 		retries.inc();
 	}
 
@@ -85,7 +84,7 @@ final class SubmissionMonitor implements HttpSink.Metrics {
 		return retries;
 	}
 
-	void onSuccess(final Submission submission) {
+	void onSuccess(final TransientSubmission submission) {
 		success.inc();
 		deregister(submission);
 	}

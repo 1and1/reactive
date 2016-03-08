@@ -226,7 +226,7 @@ public class HttpSinkTest {
          sink.close();
          
          Assert.assertTrue(submission.toString().contains("/rest/topics?status=500 (DISCARDED)"));
-         Assert.assertTrue(submission.toString().contains("(3 of 3) failed with 500. No retries left. Discarding it"));
+         Assert.assertTrue(submission.toString().contains("(3 of 3) failed with HTTP 500 Internal Server Error. No retries left. Discarding it"));
     }
 
 
@@ -309,7 +309,7 @@ public class HttpSinkTest {
          
          Properties props = new Properties();
          props.load(new FileInputStream(fileList.get(2)));
-         Assert.assertEquals(1, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
+         Assert.assertEquals(2, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
     }
   
     
@@ -389,7 +389,7 @@ public class HttpSinkTest {
 
         Properties props = new Properties();
         props.load(new FileInputStream(fileList.get(2)));
-        Assert.assertEquals(1, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
+        Assert.assertEquals(2, Splitter.on('&').splitToList(props.getProperty("lastTrials")).size());
     }
 
     

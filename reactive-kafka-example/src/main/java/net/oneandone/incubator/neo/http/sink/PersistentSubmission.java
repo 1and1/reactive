@@ -250,8 +250,8 @@ class PersistentSubmission extends TransientSubmission {
 	    }
 	    
 	    @Override
-	    public void onTerminated() {
-	    	super.onTerminated();
+	    protected void onTerminated(final boolean isSuccess) {
+	    	super.onTerminated(isSuccess);
 	    	submissionDir.delete();
 	    }
 	}

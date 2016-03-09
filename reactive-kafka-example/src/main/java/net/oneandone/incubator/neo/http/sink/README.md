@@ -76,7 +76,25 @@ sink.submit(new CustomerChangedEvent(id),
 //...
 ```
 
-To limit the max queue size of the pending submissions the max buffer size can be reduced by performing `withPersistency(...)` (default is unlimited). In this case the `submit` method will be rejected, if the max buffer size is execeeded.    
+The  `withPersistency(...)` accepts a boolean value also. If true, the user home dir will be used to store the pending submission to the disc,  
+```
+HttpSink sink = HttpSink.target(myUri)
+                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
+                        .withPersistency(true)
+                        .open();
+
+// ...
+sink.submit(new CustomerChangedEvent(id),
+            "application/vnd.example.event.customerdatachanged+json");
+
+
+//...
+```
+
+
+
+
+To limit the max queue size of the pending submissions the max buffer size can be reduced by performing `withRetryBufferSize(...)` (default is unlimited). In this case the `submit` method will be rejected, if the max buffer size is execeeded.    
 
 ```
 HttpSink sink = HttpSink.target(myUri)
@@ -150,7 +168,7 @@ public class MyExampleService implements Closeable {
 		
       this.httpSink = HttpSink.target(sinkUri)
                               .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30))
-                              .withPersistency(new File(System.getProperty("user.home"), MyExampleService.class.getCanonicalName().replace(".", "_"))) 
+                              .withPersistency(true)) 
                               .withRetryBufferSize(10000)    
                               .open();
    }
@@ -161,8 +179,7 @@ public class MyExampleService implements Closeable {
    }
 	
    public void myBusinessMethod() {
-      // ...
-      
+      // ...      
 		
       httpSink.submitAsync(myMessage, MediaType.APPLICATION_JSON); 
    }

@@ -190,6 +190,20 @@ public class HttpSinkTest {
         sink.close();
     }
   
+    @Test
+    public void testPersistentDefaultDirSuccess() throws Exception {
+        HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(110)))
+                                .withPersistency(true)
+                                .open();
+        Submission submission = sink.submit(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
+        
+        Assert.assertFalse(((PersistentSubmission) submission).getSubmissionDir().asFile().exists());
+        sink.close();
+    }
+  
+    
     
     @Test
     public void testServerErrorRetriesExceeded() throws Exception {
@@ -260,8 +274,7 @@ public class HttpSinkTest {
         
          sink.close();
     }
-    
-
+   
     @Test
     public void testServerErrorIncompletedRetries() throws Exception {
          HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?status=500")

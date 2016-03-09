@@ -40,7 +40,7 @@ public class MyExampleService implements Closeable {
 		
 	  	this.httpSink = HttpSink.target(sinkUri)
 	  						    .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30))
-	  							.withPersistency(new File(System.getProperty("user.home"), MyExampleService.class.getCanonicalName().replace(".", "_"))) 
+	  							.withPersistency(true) 
 	  							.withRetryBufferSize(20000)    
 	  							.open();
 	}

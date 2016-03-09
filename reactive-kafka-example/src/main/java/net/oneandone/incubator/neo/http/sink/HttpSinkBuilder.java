@@ -60,11 +60,17 @@ public interface HttpSinkBuilder {
     HttpSinkBuilder withRetryBufferSize(int maxBufferedSubmissions);
     
     /**
-     * @param dir the directory where the retry jobs will be stored. If null,
+     * @param dir the directory where the pending submission to retry will be stored. If null,
      *            the retry jobs will be stored in-memory (default is {@link HttpSink#DEFAULT_PERSISTENCY_DIR})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withPersistency(File dir);
+
+    /**
+     * @param isPersistent true, if the sink is persistent. Per default pending submission to retry will be stored int othe user home dir 
+     * @return a new instance of the http sink
+     */
+    HttpSinkBuilder withPersistency(boolean isPersistent);
     
     /**
      * 

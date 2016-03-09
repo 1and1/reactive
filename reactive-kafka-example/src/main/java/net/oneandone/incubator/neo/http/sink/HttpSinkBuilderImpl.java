@@ -144,6 +144,19 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
                                        this.rejectStatusList,
                                        this.retryDelays);
     }
+    
+    @Override
+    public HttpSinkBuilder withPersistency(boolean isPersistent) {
+    	return new HttpSinkBuilderImpl(this.userClient, 
+    								   this.target, 
+    								   this.method, 
+    								   this.maxBufferedSubmissions, 
+    								   isPersistent ? new File(System.getProperty("user.home"), 
+    										   				   this.getClass().getCanonicalName().replace(".", "_"))
+    										   	    : null,
+    								   this.rejectStatusList,
+    								   this.retryDelays);
+    }
 
     @Override
     public HttpSinkBuilder withRejectOnStatus(final ImmutableSet<Integer> rejectStatusList) {

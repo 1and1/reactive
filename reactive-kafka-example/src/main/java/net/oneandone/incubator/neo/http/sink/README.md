@@ -118,7 +118,7 @@ HttpSink sink = HttpSink.target(myUri)
                         .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
 					    .withPersistency(myWorkingDir)
                         .withRetryBufferSize(10000)  //max 10000 pending
-                        .withRejectOnStatus(400, 403, 405, 406, 408, 409, 410, 413, 414, 415, 416, 417) jobs
+                        .withRejectOnStatus(400, 403, 405, 406, 408, 409, 410, 413, 414, 415, 416, 417)  
                         .open();
 
 // ...
@@ -155,7 +155,7 @@ In the example below the http sink will be opened by instantiating the example s
 
 The httpsink is bound on the lifycycle of the example service. If the example service is closed, the httpsink will also be closed. 
 
-To submit messages the example service uses the `submitAsync` method to avoid blocking behavior by submitting the message. The `submitAsync` returns immediately independent if the message is already sent or not. Send errors will be ignored on application level, implicitly. Here, the business rule allows that message will be discarded under some rare error circumstances. However, in cases of temporary errors the chance is very high that the message will be sent successfully. Base on the persistent configuration and retry sequence erroneous submissions will be stored on disc and be retried later.
+To submit messages the example service uses the `submitAsync` method to avoid blocking behavior by submitting the message. The `submitAsync` returns immediately independent if the message is already sent or not. Send errors will be ignored on application level, implicitly. Here, the business rule allows that message will be discarded under some rare error circumstances. However, in cases of temporary errors the chance is very high that the message will be sent successfully. Base on the activated persistency and the retry sequence erroneous submissions will be stored on disc and be retried later.
 
   
 ```  
@@ -181,7 +181,7 @@ public class MyExampleService implements Closeable {
    public void myBusinessMethod() {
       // ...      
 		
-      httpSink.submitAsync(myMessage, MediaType.APPLICATION_JSON); 
+      httpSink.submitAsync(myEvent, MediaType.APPLICATION_JSON); 
    }
 }
 ```  

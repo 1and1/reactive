@@ -18,9 +18,10 @@ package net.oneandone.incubator.neo.http.sink;
 import java.net.URI;
 
 
+
+
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,8 +39,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
-import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
-import net.oneandone.incubator.neo.http.sink.QueryExecutor.QueryResponse;
+import net.oneandone.incubator.neo.http.sink.HttpQueryExecutor.QueryResponse;
+
 
 
 /**
@@ -56,6 +57,7 @@ class TransientSubmission implements Submission {
     private final ImmutableSet<Integer> rejectStatusList;
     private final ImmutableList<Duration> processDelays;
     private final Method method;
+    private final TransientSubmissionTask initialTask;
 
     // state
     private final AtomicReference<State> stateRef = new AtomicReference<>(State.PENDING);
@@ -120,6 +122,8 @@ class TransientSubmission implements Submission {
     	this.method = method;
     	this.lastTrials = Lists.newCopyOnWriteArrayList(lastTrials);
     	this.actionLog = Lists.newCopyOnWriteArrayList(actionLog);
+    	
+    	this.initialTask = new TransientSubmissionTask(lastTrials.size());
     	submissionMonitor.register(this);
     }
         
@@ -170,6 +174,18 @@ class TransientSubmission implements Submission {
 		return id + " - " + method + " " + target + " (" + stateRef.get() + ")\r\nlog:\r\n" + Joiner.on("\r\n").join(actionLog);
 	}
 
+	/**
+	 * processes the submission
+	 * @param executor   the query executor
+	 * @return the submission future
+	 */
+	public CompletableFuture<Submission> processAsync(final HttpQueryExecutor executor) {
+		return initialTask.processAsync(executor);
+    }    
+
+    /**
+     * releases the submission (unlocks underlying resources)
+     */
 	void release() {
 		if (!isReleased.getAndSet(true)) {
 			submissionMonitor.deregister(this);
@@ -177,24 +193,10 @@ class TransientSubmission implements Submission {
 		}
 	}
 	
-	void onReleased() { }
-	
 	/**
-	 * processes the submission
-	 * @param executor   the query executor
-	 * @return the submission future
+	 * released callback 
 	 */
-	public CompletableFuture<Submission> processAsync(final QueryExecutor executor) {
-		return newTaskAsync(lastTrials.size()).thenCompose(submissionTask -> submissionTask.processAsync(executor));	
-    }    
-
-    /**
-     * @param numTrials  the num trials
-     * @return the new task
-     */
-    protected CompletableFuture<TransientSubmissionTask> newTaskAsync(final int numTrials) {
-		return CompletableFuture.completedFuture(new TransientSubmissionTask(numTrials));
-	}
+	protected void onReleased() { }
 	
 	
 	/**
@@ -222,7 +224,7 @@ class TransientSubmission implements Submission {
 		 * @param queryExecutor  the query executor
 		 * @return the submission future
 		 */
-	    public CompletableFuture<Submission> processAsync(final QueryExecutor executor) {
+	    public CompletableFuture<Submission> processAsync(final HttpQueryExecutor executor) {
 	    	if (isReleased.get()) {
 	    		throw new RunLevelException(subInfo() + " is already released. Task will not been processed");
 	    	}
@@ -242,44 +244,33 @@ class TransientSubmission implements Submission {
 	        			   						  });
 	    }
 	    
-	    protected void onSuccess(final String msg) { 
-	    	stateRef.set(State.COMPLETED);
-	    	submissionMonitor.onSuccess(TransientSubmission.this);
-	    	
+	    protected void onSuccess(final String msg) {
 	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
 	    	LOG.debug(subInfo() + " " + msg);
+
+	    	stateRef.set(State.COMPLETED);
+	    	submissionMonitor.onSuccess(TransientSubmission.this);
 	    }
 
-	    protected boolean onRetry(final QueryResponse response, final QueryExecutor executor) {
-	    	Optional<TransientSubmissionTask> nextRetry = nextRetry();
-	    	// retries left?
-	    	if (nextRetry.isPresent()) {
-		    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " failed with " + response + ". Retries left");
-		    	LOG.warn(subInfo() + " failed with " + response + ". Retries left");
-		    	nextRetry.get()
-		    			 .processAsync(executor)
-		    			 .whenComplete((sub, ex) -> submissionMonitor.onRetry(TransientSubmission.this));
-		    	return true;
-	    	} else {
-	    		return false;
-	    	}
-	    }
-
-	    protected RuntimeException onDiscard(final String msg, final QueryResponse response) { 
-	    	stateRef.set(State.DISCARDED);
-	    	submissionMonitor.onDiscarded(TransientSubmission.this);
+	    protected RuntimeException onDiscard(final String msg, final QueryResponse response) {
 	    	final String fullMsg = "failed with " + response + ". " + msg + ". Discarding it";
 	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + fullMsg);
 	    	LOG.warn(subInfo() + " " + fullMsg);
+
+	    	stateRef.set(State.DISCARDED);
+	    	submissionMonitor.onDiscarded(TransientSubmission.this);
 	    	return response.getError();
 	    }
 	    
-	    private Optional<TransientSubmissionTask> nextRetry() {
-	        final int nextTrial = numTrials + 1;
-	        if (nextTrial < getProcessDelays().size()) {
-	            return Optional.of(newTask(numTrials + 1));
+	    private boolean onRetry(final QueryResponse response, final HttpQueryExecutor executor) {
+	        if ((numTrials + 1) < getProcessDelays().size()) {
+		    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " failed with " + response + ". Retries left");
+		    	LOG.warn(subInfo() + " failed with " + response + ". Retries left");
+		    	newTask(numTrials + 1).processAsync(executor)    // initiate retry in an async way 
+		    			 			  .whenComplete((sub, ex) -> submissionMonitor.onRetry(TransientSubmission.this));
+		    	return true;
 	        } else {
-	            return Optional.empty();
+	            return false;
 	        }
 	    }
 	    

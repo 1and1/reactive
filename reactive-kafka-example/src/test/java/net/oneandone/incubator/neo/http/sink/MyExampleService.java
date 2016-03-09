@@ -19,8 +19,6 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.io.Closeable;
 
-import java.io.File;
-
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;

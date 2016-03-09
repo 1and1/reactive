@@ -16,6 +16,7 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.Closeable;
+
 import java.io.File;
 import java.net.URI;
 import java.time.Duration;
@@ -23,7 +24,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 
-import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 
 import com.codahale.metrics.Counter;
@@ -180,50 +180,6 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     }   
 
     
-    
-    
-    /**
-     * Represent the submission process 
-     */
-    public interface Submission {
-        
-        /**
-         * submission state
-         */
-        public enum State { PENDING, COMPLETED, DISCARDED } 
-        
-        /**
-         * @return the state 
-         */
-        State getState();
-        
-
-        /**
-         * @return the id
-         */
-        String getId();
-
-		/**
-		 * @return the method
-		 */
-		Method getMethod();
-        
-        /**
-         * @return the target
-         */
-		URI getTarget();
-
-		/**
-		 * @return the entity
-		 */
-		Entity<?> getEntity();
-
-		/**
-		 * @return the reject status list
-		 */
-		ImmutableSet<Integer> getRejectStatusList();
-    }
-
     /**
      * The metrics
      */

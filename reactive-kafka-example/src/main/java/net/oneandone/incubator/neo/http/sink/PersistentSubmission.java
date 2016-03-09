@@ -17,6 +17,8 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.io.ByteArrayOutputStream;
 
+
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -56,7 +58,7 @@ import com.google.common.io.Closeables;
 import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
-import net.oneandone.incubator.neo.http.sink.QueryExecutor.QueryResponse;
+import net.oneandone.incubator.neo.http.sink.HttpQueryExecutor.QueryResponse;
 
 
 
@@ -67,7 +69,9 @@ class PersistentSubmission extends TransientSubmission {
     private static final Logger LOG = LoggerFactory.getLogger(PersistentSubmission.class);
 
     private final SubmissionDir submissionDir;
+    private final CompletableFuture<PersistentSubmissionTask> initialTaskFuture;
 
+    
     /**
      * @param submissionMonitor the submission monitor
      * @param id                the id 
@@ -157,6 +161,7 @@ class PersistentSubmission extends TransientSubmission {
 		      				     final SubmissionDir submissionDir) {
     	super(submissionMonitor, id, target, method, entity, rejectStatusList, processDelays, lastTrials, actionLog);
     	this.submissionDir = submissionDir;
+    	this.initialTaskFuture = CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask(getLastTrials().size()));
     }
     
     /**
@@ -167,14 +172,15 @@ class PersistentSubmission extends TransientSubmission {
     }
 
     @Override
-    void onReleased() {
+    protected void onReleased() {
     	submissionDir.close();
     }
     
-    @Override
-    protected CompletableFuture<TransientSubmissionTask> newTaskAsync(final int numTrials) {
-    	return CompletableFuture.supplyAsync(() -> new PersistentSubmissionTask(numTrials));
-	}
+
+	@Override
+	public CompletableFuture<Submission> processAsync(final HttpQueryExecutor executor) {
+		return initialTaskFuture.thenCompose(task -> task.processAsync(executor));
+    }    
     
     /**
      * loads a persistent task from disc 
@@ -341,7 +347,7 @@ class PersistentSubmission extends TransientSubmission {
     	public SubmissionDir(File submissionsStoreDir, String id) {
     		this(new File(submissionsStoreDir, id));
     	}
-    		
+    	
 		private SubmissionDir(File submissionDir) {
 			this.deleteMarkerFile = new File(submissionDir, "submission" + DELETED_SUFFIX);
 			this.submissionDir = submissionDir;

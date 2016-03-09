@@ -186,7 +186,7 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private class TransientHttpSink implements HttpSink {
         private final AtomicBoolean isOpen = new AtomicBoolean(true);
         private final Optional<Client> clientToClose;
-        protected final QueryExecutor queryExecutor;
+        protected final HttpQueryExecutor queryExecutor;
         protected final SubmissionMonitor submissionMonitor = new SubmissionMonitor();
         
         
@@ -195,12 +195,12 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
              if (userClient == null) {
                  final Client defaultClient = ClientBuilder.newClient();
                  
-             	 this.queryExecutor = new QueryExecutor(defaultClient);
+             	 this.queryExecutor = new HttpQueryExecutor(defaultClient);
                  this.clientToClose = Optional.of(defaultClient);
                  
              // .. no client is given by user 
              } else {
-             	this.queryExecutor = new QueryExecutor(userClient);
+             	this.queryExecutor = new HttpQueryExecutor(userClient);
                  this.clientToClose = Optional.empty();
              }
 		}

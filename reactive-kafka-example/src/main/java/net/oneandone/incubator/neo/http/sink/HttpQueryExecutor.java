@@ -43,8 +43,8 @@ import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 /**
  * Query executor
  */
-class QueryExecutor implements Closeable {
-    private static final Logger LOG = LoggerFactory.getLogger(QueryExecutor.class);
+class HttpQueryExecutor implements Closeable {
+    private static final Logger LOG = LoggerFactory.getLogger(HttpQueryExecutor.class);
     
 	private final Client httpClient;
 	private final ScheduledThreadPoolExecutor executor;
@@ -55,7 +55,7 @@ class QueryExecutor implements Closeable {
 	 * @param httpClient          the http client
 	 * @param numParallelWorkers  the number of workers
 	 */
-	public QueryExecutor(final Client httpClient) {
+	public HttpQueryExecutor(final Client httpClient) {
         this.executor = new ScheduledThreadPoolExecutor(2);
 		this.httpClient = httpClient;
 	}
@@ -150,9 +150,9 @@ class QueryExecutor implements Closeable {
      * QueryResponse
      */
     public static final class QueryResponse {
-    	private Duration elapsedTime;
-    	private RuntimeException error;
-    	private String content;
+    	private final Duration elapsedTime;
+    	private final RuntimeException error;
+    	private final String content;
     	
     	private QueryResponse(final Duration elapsedTime, final String content, final RuntimeException error) {
     		this.elapsedTime = elapsedTime;

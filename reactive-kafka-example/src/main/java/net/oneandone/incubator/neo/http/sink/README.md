@@ -168,7 +168,7 @@ public class MyExampleService implements Closeable {
 		
       this.httpSink = HttpSink.target(sinkUri)
                               .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30))
-                              .withPersistency(true)) 
+                              .withPersistency(true) 
                               .withRetryBufferSize(10000)    
                               .open();
    }

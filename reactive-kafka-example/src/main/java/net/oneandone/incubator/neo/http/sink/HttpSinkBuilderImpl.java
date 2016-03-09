@@ -50,39 +50,35 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
     private final URI target;
     private final Client userClient;
     private final Method method;
-    private final int bufferSize;
+    private final int maxBufferedSubmissions;
     private final File dir;
     private final ImmutableSet<Integer> rejectStatusList;
     private final ImmutableList<Duration> retryDelays;
-    private final int numParallelWorkers;
 
  
     /**
      * @param userClient         the user client or null
      * @param target             the target uri
      * @param method             the method to use
-     * @param bufferSize         the retry buffer size
+     * @param maxBufferedSubmissions         the retry buffer size
      * @param dir                the persistency dir  
      * @param rejectStatusList   the reject status list
      * @param retryDelays        the retry delays
-     * @param numParallelWorkers the num parallel workers
      */
     HttpSinkBuilderImpl(final Client userClient, 
                         final URI target, 
                         final Method method, 
-                        final int bufferSize, 
+                        final int maxBufferedSubmissions, 
                         final File dir, 
                         final ImmutableSet<Integer> rejectStatusList,
-                        final ImmutableList<Duration> retryDelays, 
-                        final int numParallelWorkers) {
+                        final ImmutableList<Duration> retryDelays) {
         this.userClient = userClient;
         this.target = target;
         this.method = method;
-        this.bufferSize = bufferSize;
+        this.maxBufferedSubmissions = maxBufferedSubmissions;
         this.dir = dir;
         this.rejectStatusList = rejectStatusList;
         this.retryDelays = retryDelays;
-        this.numParallelWorkers = numParallelWorkers;
     }
 
     @Override
@@ -91,11 +87,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         return new HttpSinkBuilderImpl(client, 
                                        this.target, 
                                        this.method, 
-                                       this.bufferSize, 
+                                       this.maxBufferedSubmissions, 
                                        this.dir, 
                                        this.rejectStatusList,
-                                       this.retryDelays, 
-                                       this.numParallelWorkers);
+                                       this.retryDelays);
     }
 
     @Override
@@ -103,11 +98,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         Preconditions.checkNotNull(method);
         return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, method, 
-                                       this.bufferSize, 
+                                       this.maxBufferedSubmissions, 
                                        this.dir,
                                        this.rejectStatusList,
-                                       this.retryDelays,
-                                       this.numParallelWorkers);
+                                       this.retryDelays);
     }
 
     @Override
@@ -116,11 +110,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method,
-                                       this.bufferSize, 
+                                       this.maxBufferedSubmissions, 
                                        this.dir, 
                                        this.rejectStatusList,
-                                       retryPauses,
-                                       this.numParallelWorkers);
+                                       retryPauses);
     }
     
     @Override
@@ -128,29 +121,16 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         Preconditions.checkNotNull(retryPauses);
         return withRetryAfter(ImmutableList.copyOf(retryPauses));
     }
-    
-    @Override
-    public HttpSinkBuilder withRetryParallelity(final int numParallelWorkers) {
-        return new HttpSinkBuilderImpl(this.userClient,
-                                       this.target, 
-                                       this.method, 
-                                       this.bufferSize,
-                                       this.dir,
-                                       this.rejectStatusList,
-                                       this.retryDelays,
-                                       numParallelWorkers);
-    }
 
     @Override
-    public HttpSinkBuilder withRetryBufferSize(final int bufferSize) {
+    public HttpSinkBuilder withRetryBufferSize(final int maxBufferedSubmissions) {
         return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
-                                       bufferSize, 
+                                       maxBufferedSubmissions, 
                                        this.dir,
                                        this.rejectStatusList,
-                                       this.retryDelays,
-                                       this.numParallelWorkers);
+                                       this.retryDelays);
     }
 
     @Override
@@ -159,11 +139,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
-                                       this.bufferSize, 
+                                       this.maxBufferedSubmissions, 
                                        dir,
                                        this.rejectStatusList,
-                                       this.retryDelays, 
-                                       this.numParallelWorkers);
+                                       this.retryDelays);
     }
 
     @Override
@@ -172,11 +151,10 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
         return new HttpSinkBuilderImpl(this.userClient, 
                                        this.target, 
                                        this.method, 
-                                       this.bufferSize, 
+                                       this.maxBufferedSubmissions, 
                                        this.dir,
                                        rejectStatusList,
-                                       this.retryDelays, 
-                                       this.numParallelWorkers);
+                                       this.retryDelays);
     }
     
     @Override
@@ -203,12 +181,13 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
              // using default client?
              if (userClient == null) {
                  final Client defaultClient = ClientBuilder.newClient();
-             	this.queryExecutor = new QueryExecutor(defaultClient, numParallelWorkers);
+                 
+             	 this.queryExecutor = new QueryExecutor(defaultClient);
                  this.clientToClose = Optional.of(defaultClient);
                  
              // .. no client is given by user 
              } else {
-             	this.queryExecutor = new QueryExecutor(userClient, numParallelWorkers);
+             	this.queryExecutor = new QueryExecutor(userClient);
                  this.clientToClose = Optional.empty();
              }
 		}
@@ -254,8 +233,8 @@ final class HttpSinkBuilderImpl implements HttpSinkBuilder {
          * @return the submission future
          */
         protected CompletableFuture<Submission> submitAsync(final TransientSubmission submission) {
-        	if (submissionMonitor.getNumPendingSubmissions() > bufferSize) {
-        		throw new IllegalStateException("max buffer size " + bufferSize + " execeeded");
+        	if (submissionMonitor.getNumPendingSubmissions() > maxBufferedSubmissions) {
+        		throw new IllegalStateException("max buffer size " + maxBufferedSubmissions + " execeeded");
         	}
         	return submission.processAsync(queryExecutor);
         }

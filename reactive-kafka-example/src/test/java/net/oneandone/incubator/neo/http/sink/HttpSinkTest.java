@@ -18,6 +18,7 @@ package net.oneandone.incubator.neo.http.sink;
 
 
 import java.io.File;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -41,6 +42,8 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.xml.bind.annotation.XmlRootElement;
 
+import org.glassfish.jersey.client.ClientConfig;
+import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.client.JerseyClientBuilder;
 import org.junit.After;
 import org.junit.Assert;
@@ -95,7 +98,8 @@ public class HttpSinkTest {
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
             if (req.getParameter("delayMillis") != null) {
                 try {
-                    Thread.sleep(Long.parseLong(req.getParameter("delayMillis")));
+                	long millis = Long.parseLong(req.getParameter("delayMillis"));
+                    Thread.sleep(millis);
                 } catch (InterruptedException ignore) { }
             }
             
@@ -119,7 +123,6 @@ public class HttpSinkTest {
     
     @Test
     public void testWithClient() throws Exception {
-        
         Client client = JerseyClientBuilder.createClient();
         
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics")
@@ -148,9 +151,14 @@ public class HttpSinkTest {
   
     @Test
     public void testSuccesAsync() throws Exception {
+    	ClientConfig configuration = new ClientConfig();
+    	configuration.property(ClientProperties.CONNECT_TIMEOUT, 5000);
+    	configuration.property(ClientProperties.READ_TIMEOUT, 5000);
+        Client client = JerseyClientBuilder.createClient(configuration);
         
         HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?delayMillis=300")
                                 .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(100)))
+                                .withClient(client)
                                 .open();
         CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
         Assert.assertFalse(submission.isDone());
@@ -162,7 +170,7 @@ public class HttpSinkTest {
         Assert.assertTrue(submission.isDone());
         Assert.assertEquals(Submission.State.COMPLETED, submission.get().getState());
         
-        
+        client.close();
         sink.close();
     }
   
@@ -225,8 +233,11 @@ public class HttpSinkTest {
         
          sink.close();
          
+         System.out.println(submission);
+         
          Assert.assertTrue(submission.toString().contains("/rest/topics?status=500 (DISCARDED)"));
-         Assert.assertTrue(submission.toString().contains("(3 of 3) failed with HTTP 500 Internal Server Error. No retries left. Discarding it"));
+         Assert.assertTrue(submission.toString().contains("(3 of 3) failed with HTTP 500"));
+         Assert.assertTrue(submission.toString().contains("No retries left. Discarding it"));
     }
 
 
@@ -721,6 +732,31 @@ public class HttpSinkTest {
         Assert.assertEquals(0, getSinkSubmissionsDir(queryFile).listFiles().length);
     }
 
+    @Test
+    public void testPersistentParallelitySuccess() throws Exception {
+    	HttpSink sink = HttpSink.target(server.getBasepath() + "rest/topics?delayMillis=1500")
+                                .withRetryAfter(ImmutableList.of(Duration.ofMillis(100), Duration.ofMillis(110)))
+                                .withPersistency(Files.createTempDir())
+                                .withRetryBufferSize(20000)
+                                .open();
+    	
+        int num = 20;
+        for (int i = 0; i < num; i++) {
+        	sink.submitAsync(new CustomerChangedEvent(44545453), "application/vnd.example.event.customerdatachanged+json");
+        }
+
+        try {
+        	Thread.sleep(2000);
+        } catch (InterruptedException ignore) { }
+        
+        Assert.assertEquals(num, sink.getMetrics().getNumSuccess().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumDiscarded().getCount());
+        Assert.assertEquals(0, sink.getMetrics().getNumRetries().getCount());
+
+        sink.close();
+    }
+  
+    
 
     @XmlRootElement 
     public static class CustomerChangedEvent {

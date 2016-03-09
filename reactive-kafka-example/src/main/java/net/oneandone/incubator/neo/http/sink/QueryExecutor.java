@@ -16,17 +16,21 @@
 package net.oneandone.incubator.neo.http.sink;
 
 import java.io.Closeable;
+
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.InvocationCallback;
+import javax.ws.rs.client.ResponseProcessingException;
 import javax.ws.rs.client.Invocation.Builder;
 
 import org.slf4j.Logger;
@@ -51,8 +55,8 @@ class QueryExecutor implements Closeable {
 	 * @param httpClient          the http client
 	 * @param numParallelWorkers  the number of workers
 	 */
-	public QueryExecutor(final Client httpClient, final int numParallelWorkers) {
-        this.executor = new ScheduledThreadPoolExecutor(numParallelWorkers);
+	public QueryExecutor(final Client httpClient) {
+        this.executor = new ScheduledThreadPoolExecutor(2);
 		this.httpClient = httpClient;
 	}
 	
@@ -76,16 +80,16 @@ class QueryExecutor implements Closeable {
 	 * @param delay      the delay 
 	 * @return the response body future
 	 */
-	public CompletableFuture<String> performHttpQueryAsync(final String id,
-													       final Method method, 
-													       final URI target, 
-													       final Entity<?> entity,
-													       final Duration delay) {
+	public CompletableFuture<QueryResponse> performHttpQueryAsync(final String id,
+																  final Method method, 
+																  final URI target, 
+																  final Entity<?> entity,
+																  final Duration delay) {
 		if (!isOpen()) {
 			throw new IllegalStateException("processor is already closed");
 		}
 		        		
-    	final CompletablePromise<String> completablePromise = new CompletablePromise<>();
+    	final CompletablePromise<QueryResponse> completablePromise = new CompletablePromise<>();
     	executor.schedule(() -> performHttpQueryNowAsync(id, method, target, entity).whenComplete(completablePromise),
         			      delay.toMillis(), 
         			      TimeUnit.MILLISECONDS);
@@ -93,10 +97,10 @@ class QueryExecutor implements Closeable {
 
 	}
 	
-	private CompletableFuture<String> performHttpQueryNowAsync(final String id,
-															   final Method method, 
-													  		   final URI target, 
-													  		   final Entity<?> entity) {
+	private CompletableFuture<QueryResponse> performHttpQueryNowAsync(final String id,
+																	  final Method method, 
+																	  final URI target, 
+																	  final Entity<?> entity) {
         LOG.debug("performing " + id);
 		final InvocationPromise promise = new InvocationPromise();
 		
@@ -114,16 +118,17 @@ class QueryExecutor implements Closeable {
 		return promise;
 	}
 
-	private static final class InvocationPromise extends CompletableFuture<String> implements InvocationCallback<String> {
-            
+	private static final class InvocationPromise extends CompletableFuture<QueryResponse> implements InvocationCallback<String> {
+        private final Instant startTime = Instant.now();
+        
 		@Override
 		public void failed(final Throwable ex) {
-			completeExceptionally(Exceptions.propagate(ex));
+			complete(new QueryResponse(Duration.between(startTime, Instant.now()), ex));
 		}
 
 		@Override
 		public void completed(String content) {
-			complete(content);
+			complete(new QueryResponse(Duration.between(startTime, Instant.now()), content));
 		}
 	}
 	
@@ -139,4 +144,78 @@ class QueryExecutor implements Closeable {
 			}
 		}
 	}
+    
+    
+    /**
+     * QueryResponse
+     */
+    public static final class QueryResponse {
+    	private Duration elapsedTime;
+    	private RuntimeException error;
+    	private String content;
+    	
+    	private QueryResponse(final Duration elapsedTime, final String content, final RuntimeException error) {
+    		this.elapsedTime = elapsedTime;
+    		this.error = error;
+    		this.content = content;
+		}
+    	
+    	QueryResponse(final Duration elapsedTime, final Throwable error) {
+    		this(elapsedTime, null, unwrap(error));
+		}
+
+    	QueryResponse(final Duration elapsedTime, final String content) {
+			this(elapsedTime, content, null);
+		}
+
+    	/**
+    	 * @return the elapsed time
+    	 */
+    	public Duration getElapsedTime() {
+			return elapsedTime;
+		}
+    	
+    	/**
+    	 * @return true, if is success
+    	 */
+    	public boolean isSuccess() {
+    		return (getStatus() / 100) == 2;
+    	}
+    	
+    	/**
+    	 * @return the status code
+    	 */
+		public int getStatus() {
+			return (content == null) ? toStatus(error) : 200;
+		}
+
+		/**
+		 * @return the error or null
+		 */
+    	public RuntimeException getError() {
+    		return error;
+    	}
+    	
+    	@Override
+    	public String toString() {
+    		return ((content == null) ? error.getMessage() : "success") + " (elapsed: " + ((double) elapsedTime.toMillis() / 1000) + " sec)";
+    	}
+    	
+	  	private static RuntimeException unwrap(Throwable error) {
+    		Throwable rootError = Exceptions.unwrap(error);
+    		if (rootError instanceof ResponseProcessingException) {
+    			rootError = ((ResponseProcessingException) rootError).getCause();
+    		}
+    		return Exceptions.propagate(rootError);
+    	}
+	  	
+	    private static int toStatus(final Throwable error) {
+	        if (error == null) {
+	            return 200;
+	        } else {
+	            return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
+	                                                              : 500;
+	        }
+	    }
+    }
 }

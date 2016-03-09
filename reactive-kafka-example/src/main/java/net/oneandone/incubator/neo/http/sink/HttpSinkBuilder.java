@@ -54,16 +54,10 @@ public interface HttpSinkBuilder {
     HttpSinkBuilder withRetryAfter(Duration... retryPauses);
     
     /**
-     * @param numParallelWorkers the parallelity by performing retries (default is {@link HttpSink#DEFAULT_PARALLELITY})
+     * @param maxBufferedSubmissions the retry buffer size. If the size is exceeded, new retry jobs will be discarded (default is {@link HttpSink#DEFAULT_BUFFERSIZE})
      * @return a new instance of the http sink
      */
-    HttpSinkBuilder withRetryParallelity(int numParallelWorkers);
-    
-    /**
-     * @param bufferSize the retry buffer size. If the size is exceeded, new retry jobs will be discarded (default is {@link HttpSink#DEFAULT_BUFFERSIZE})
-     * @return a new instance of the http sink
-     */
-    HttpSinkBuilder withRetryBufferSize(int bufferSize);
+    HttpSinkBuilder withRetryBufferSize(int maxBufferedSubmissions);
     
     /**
      * @param dir the directory where the retry jobs will be stored. If null,

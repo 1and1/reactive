@@ -41,7 +41,6 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
     public static int DEFAULT_BUFFERSIZE = Integer.MAX_VALUE;
     public static File DEFAULT_PERSISTENCY_DIR = null;
     public static ImmutableList<Duration> DEFAULT_RETRY_PAUSES = ImmutableList.of();
-    public static int DEFAULT_PARALLELITY = 1;
     public static ImmutableSet<Integer> DEFAULT_REJECTSTATUS_LIST = ImmutableSet.of(400, 
     																				403, 
     																				405, 
@@ -177,8 +176,7 @@ public interface HttpSink extends BiConsumer<Object, MediaType>, Closeable {
                                        DEFAULT_BUFFERSIZE,
                                        DEFAULT_PERSISTENCY_DIR,
                                        DEFAULT_REJECTSTATUS_LIST,
-                                       DEFAULT_RETRY_PAUSES,
-                                       DEFAULT_PARALLELITY);
+                                       DEFAULT_RETRY_PAUSES);
     }   
 
     

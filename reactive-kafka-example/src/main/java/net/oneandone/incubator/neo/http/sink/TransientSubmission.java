@@ -17,8 +17,6 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.net.URI;
 
-
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -27,12 +25,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.client.Entity;
-import javax.ws.rs.client.ResponseProcessingException;
 
 import org.glassfish.hk2.runlevel.RunLevelException;
-import org.mortbay.log.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,7 +36,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
-import net.oneandone.incubator.neo.exception.Exceptions;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Submission;
 
@@ -189,43 +183,14 @@ class TransientSubmission implements Submission {
 	 * @return the submission future
 	 */
 	public CompletableFuture<Submission> processAsync(final QueryExecutor executor) {
-		return newTaskAsync(lastTrials.size()).thenCompose(submissionTask -> processTaskAsync(executor, submissionTask))    
-				 	         				  .thenApply(optionalRetryTask -> TransientSubmission.this);	
+		return newTaskAsync(lastTrials.size()).thenCompose(submissionTask -> submissionTask.processAsync(executor));	
     }    
-	
-    /**
-     * @param executor       the query executor
-     * @param submissionTask the submission task to process
-     * @return the submission future
-     */
-    public CompletableFuture<TransientSubmissionTask> processTaskAsync(final  QueryExecutor executor,
-    														           final TransientSubmissionTask submissionTask) {
-        LOG.debug("submitting " + submissionTask); 
-        return processSubmissionTaskAsync(executor, submissionTask);
-    }
 
     /**
-     * @param executor       the query executor
-     * @param submissionTask the submission retry task
+     * @param numTrials  the num trials
+     * @return the new task
      */
-    void processRetryAsync(final QueryExecutor executor, final TransientSubmissionTask submissionTask) {
-    	processSubmissionTaskAsync(executor, submissionTask)
-    			.whenComplete((sub, error) -> submissionMonitor.onRetry(TransientSubmission.this));
-    }
-
-    private CompletableFuture<TransientSubmissionTask> processSubmissionTaskAsync(final QueryExecutor executor, 
-    																			  final TransientSubmissionTask submissionTask) {
-        return submissionTask.processAsync(executor)
-                             .exceptionally(error -> { throw Exceptions.propagate(error); })
-                             .thenApply(optionalNextRetry ->  { 
-                                                                 if (optionalNextRetry.isPresent()) {   
-                                                                     processRetryAsync(executor, optionalNextRetry.get()); 
-                                                                 } 
-                                                                 return submissionTask;
-                                                              }); 
-    }
-
-	protected CompletableFuture<TransientSubmissionTask> newTaskAsync(final int numTrials) {
+    protected CompletableFuture<TransientSubmissionTask> newTaskAsync(final int numTrials) {
 		return CompletableFuture.completedFuture(new TransientSubmissionTask(numTrials));
 	}
 	
@@ -251,91 +216,62 @@ class TransientSubmission implements Submission {
 	        this.nextExecutionDelay = correctedDelay.isNegative() ? Duration.ZERO : correctedDelay;
 	    }
 	    
-		/**
-		 * termination call back method to perform cleanup tasks
-		 * @param isSuccess  true, is processing was successfully
-		 */
-	    protected void onTerminated(final boolean isSuccess) { 
-	    	if (isSuccess) {
-	    		stateRef.set(State.COMPLETED);
-		    	submissionMonitor.onSuccess(TransientSubmission.this);
-	    	} else {
-	    		stateRef.set(State.DISCARDED);
-		    	submissionMonitor.onDiscarded(TransientSubmission.this);
-	    	}
-	    }
-
 	    /**
 		 * processes the task asynchronously 
 		 * @param queryExecutor  the query executor
-		 * @return the succeeding retry task or empty
+		 * @return the submission future
 		 */
-	    public CompletableFuture<Optional<TransientSubmissionTask>> processAsync(final QueryExecutor executor) {
+	    public CompletableFuture<Submission> processAsync(final QueryExecutor executor) {
 	    	if (isReleased.get()) {
 	    		throw new RunLevelException(subInfo() + " already released. Task will not been processed");
 	    	}
-	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
-	        
-	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
-	        			   .thenApply(httpBody -> onSuccess())  
-	        			   .exceptionally(error -> onError(unwrap(error)));
-	    }
-	    
-	    private Optional<TransientSubmissionTask> onSuccess() {
-	    	lastTrials.add(Instant.now());
-	    	logSuccess("executed successfully");
-	    	onTerminated(true);
-			return Optional.<TransientSubmissionTask>empty();
-	    }
-	    
-	    void logSuccess(String msg) {
-	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
-	    	Log.debug(subInfo() + " " + msg);
-	    }
-	    
-	    void logError(String msg) {
-			actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
-	    	Log.warn(subInfo() + " " + msg);
-	    }
-	    
-
-	    
-	    private Optional<TransientSubmissionTask> onError(final Throwable error) {
-	    	lastTrials.add(Instant.now());
 	    	
-			if (getRejectStatusList().contains(toStatus(error))) {
-				logError("failed with " + error.getMessage() + ". Non retryable status code. Discarding it");
-		    	onTerminated(false);
-				throw Exceptions.propagate(error);
-				
-			} else {
-				Optional<TransientSubmissionTask> nextRetry = nextRetry();
-				if (nextRetry.isPresent()) {
-					logError("failed with " + error.getMessage() + ". Retries left");
-			    	return nextRetry;
-				} else {
-					logError("failed with " + error.getMessage() + ". No retries left. Discarding it");
-			    	onTerminated(false);
-					throw Exceptions.propagate(error);
-				}
-			}
+	    	LOG.debug(subInfo() + " will be executed in " + nextExecutionDelay);
+	        return executor.performHttpQueryAsync(subInfo(), getMethod(), getTarget(), getEntity(), nextExecutionDelay)
+	        			   .thenApply(response -> {
+	        				   						lastTrials.add(Instant.now());
+  								
+	        				   						// success
+	        				   						if (response.isSuccess()) {
+	        				   							onSuccess("executed " + response);
+	        				   								
+	        				   						// no retryable error 
+	        				   						} else if (getRejectStatusList().contains(response.getStatus())) {
+	        				   							onDiscard("failed with " + response + ". Non retryable status code. Discarding it");
+	        				   							throw response.getError();
+	        				   									
+	        				   						} else {
+	        				   							Optional<TransientSubmissionTask> nextRetry = nextRetry();
+	        				   							// retries left?
+	        				   							if (nextRetry.isPresent()) {
+	        				   								actionLog.add("[" + Instant.now() + "] " + subInfo() + " failed with " + response + ". Retries left");
+	        				   								LOG.warn(subInfo() + " failed with " + response + ". Retries left");
+	        				   								nextRetry.get()
+	        				   										 .processAsync(executor)
+	        				   										 .whenComplete((sub, ex) -> submissionMonitor.onRetry(TransientSubmission.this));
+	        				   							} else {
+	        				   								onDiscard("failed with " + response + ". No retries left. Discarding it");
+	        				   								throw response.getError();
+	        				   							}
+	        				   						}
+	        				   							
+	        				   						return TransientSubmission.this;
+	        			   						  });
 	    }
 	    
-	    private Throwable unwrap(Throwable error) {
-	    	Throwable rootError = Exceptions.unwrap(error);
-			if (rootError instanceof ResponseProcessingException) {
-				rootError = ((ResponseProcessingException) rootError).getCause();
-			}
-			return rootError;
+	    protected void onSuccess(final String msg) { 
+	    	stateRef.set(State.COMPLETED);
+	    	submissionMonitor.onSuccess(TransientSubmission.this);
+	    	
+	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
+	    	LOG.debug(subInfo() + " " + msg);
 	    }
-    
-	    private int toStatus(final Throwable error) {
-	        if (error == null) {
-	            return 200;
-	        } else {
-	            return (error instanceof WebApplicationException) ? ((WebApplicationException) error).getResponse().getStatus() 
-	                                                              : 500;
-	        }
+
+	    protected void onDiscard(final String msg) { 
+	    	stateRef.set(State.DISCARDED);
+	    	submissionMonitor.onDiscarded(TransientSubmission.this);
+	    	actionLog.add("[" + Instant.now() + "] " + subInfo() + " " + msg);
+	    	LOG.warn(subInfo() + " " + msg);
 	    }
 	    
 	    private Optional<TransientSubmissionTask> nextRetry() {

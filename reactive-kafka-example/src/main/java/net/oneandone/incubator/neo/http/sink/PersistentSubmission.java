@@ -17,7 +17,6 @@ package net.oneandone.incubator.neo.http.sink;
 
 import java.io.ByteArrayOutputStream;
 
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -250,8 +249,14 @@ class PersistentSubmission extends TransientSubmission {
 	    }
 	    
 	    @Override
-	    protected void onTerminated(final boolean isSuccess) {
-	    	super.onTerminated(isSuccess);
+	    protected void onSuccess(final String msg) {
+	    	super.onSuccess(msg);
+	    	submissionDir.delete();
+	    }
+	    
+	    @Override
+	    protected void onDiscard(final String msg) { 
+	    	super.onDiscard(msg);
 	    	submissionDir.delete();
 	    }
 	}

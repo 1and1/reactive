@@ -257,14 +257,15 @@ class PersistentSubmission extends TransientSubmission {
 	    
 	    @Override
 	    protected void onSuccess(final String msg) {
-	    	submissionDir.delete();
 	    	super.onSuccess(msg);
+	    	submissionDir.delete();
 	    }
 	    
 	    @Override
 	    protected RuntimeException onDiscard(String msg, QueryResponse response) {
+	    	final RuntimeException error = super.onDiscard(msg, response);
 	    	submissionDir.delete();
-	    	return super.onDiscard(msg, response);
+	    	return error; 
 	    }
 	}
 	

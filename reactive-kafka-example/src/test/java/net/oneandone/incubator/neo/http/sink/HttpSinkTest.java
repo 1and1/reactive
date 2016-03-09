@@ -772,6 +772,10 @@ public class HttpSinkTest {
     	MyExampleService exampleService = new MyExampleService(URI.create(server.getBasepath() + "rest/topics"));
     	exampleService.myBusinessMethod();
 
+    	try {
+    		Thread.sleep(1000);
+    	} catch (InterruptedException ignore) { }
+    	
     	exampleService.close();
     }
   

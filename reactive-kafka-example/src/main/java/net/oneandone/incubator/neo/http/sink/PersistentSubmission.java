@@ -319,7 +319,7 @@ class PersistentSubmission extends TransientSubmission {
 	    		try {
 	    			dirs.add(new SubmissionDir(file));
 	    		} catch (RuntimeException e) { 
-	    			LOG.debug("persistent submission dir " + file + " can not be opened (may be locked or corrupt)");
+	    			LOG.info("persistent submission dir " + file + " can not be opened (may be locked or corrupt)");
 	    		}
 	    	}
 	    	
@@ -365,7 +365,7 @@ class PersistentSubmission extends TransientSubmission {
 			    	fc.lock();
 			    	fc.write(ByteBuffer.wrap("locked".getBytes(Charsets.UTF_8)));
 	    		} else {
-	    			throw new RuntimeException("lockfile " + lockfile.getAbsolutePath() + " already exists");
+	    			throw new RuntimeException("submission dir lockfile " + lockfile.getAbsolutePath() + " already exists");
 	    		}
     		} catch (IOException ioe) {
     			throw new RuntimeException(ioe);
@@ -374,10 +374,10 @@ class PersistentSubmission extends TransientSubmission {
     		// if submission is expired, submission dir will be deleted  
     		if (isExpired()) {
     			delete();
-    			throw new RuntimeException("expired persistent submission " + getId() + " found. remove data files " + submissionDir.getAbsolutePath());
+    			throw new RuntimeException("expired submission dir " + getId() + " found " + submissionDir.getAbsolutePath());
     		}
     		
-    		LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " opened and locked");
+    		LOG.debug("submission dir " + submissionDir.getAbsolutePath() + " opened and locked");
 		}
 		
     	private String getId() {
@@ -408,15 +408,16 @@ class PersistentSubmission extends TransientSubmission {
 	                // and commit it by renaming (this renaming approach avoids "half-written" files)
 	                final File submissionFile = new File(submissionDir, Instant.now().toEpochMilli() + SUBMISSION_SUFFIX);
 	                submissionFile.createNewFile();
+	                
 	                java.nio.file.Files.move(tempFile.toPath(), submissionFile.toPath(), StandardCopyOption.ATOMIC_MOVE);
-	                LOG.debug("persistent submission file " + submissionFile.getAbsolutePath() + " saved on disc");
+	                LOG.debug("submission task file " + submissionFile.getAbsolutePath() + " saved on disc");
 	                
 	                return submissionFile;
 	            } finally {
 	                Closeables.close(os, true);  // close os in any case
 	            }
 	        } catch (final IOException ioe) {
-	            LOG.debug("saving persistent submission " + getId() + " failed", ioe);
+	            LOG.debug("saving submission " + getId() + " failed", ioe);
 	            throw new RuntimeException(ioe);
 	        }
 	    }    
@@ -427,7 +428,7 @@ class PersistentSubmission extends TransientSubmission {
 	            fis = new FileInputStream(submissionFile);
 	            return Chunk.newChunk(fis);
 	        } catch (final IOException ioe) {
-	            LOG.debug("loading persistent submission file " + submissionFile.getAbsolutePath() + " failed", ioe);
+	            LOG.debug("loading submission task file " + submissionFile.getAbsolutePath() + " failed", ioe);
 	            throw new RuntimeException(ioe);
 	        } finally {
 	            Closeables.closeQuietly(fis);
@@ -458,7 +459,7 @@ class PersistentSubmission extends TransientSubmission {
 	        	close();
 	        	
 	        	if (submissionDir.delete()) {
-	    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " deleted");                            
+	    			LOG.debug("submission dir " + submissionDir.getAbsolutePath() + " removed");                            
 	        	}
 	        }        
     	}
@@ -467,7 +468,7 @@ class PersistentSubmission extends TransientSubmission {
     		try {
     			fc.close();
     			lockfile.delete();
-    			LOG.debug("persistent submission dir " + submissionDir.getAbsolutePath() + " unlocked and close");
+    			LOG.debug("submission dir " + submissionDir.getAbsolutePath() + " unlocked and close");
     		} catch (IOException ignore) { }
     	}
     	

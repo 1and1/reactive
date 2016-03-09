@@ -133,9 +133,11 @@ In most cases the `submitAsync` approach is preferred as shown above by setting 
 
 Production-ready example 
 ----------------------
-In the example below the http sink will be opened by instantiating the example service. The  `withRetryAfter(...)`  method is used to define the retry sequence. To store pending submissions a sub directory of the user home dir is used. It is expected that the service will always run in the context of the same user. Furthermore the buffer for pending submissions is limited to 10000. If the size is exceeded, new submissions will be discarded. 
-The httpsink is bound to the lifycycle of the example service. If the example service is closed, the httpsink will be closed, too. 
-To submit messages the example service uses the `submitAsync` method to avoid blocking behavior by submitting the message. The `submitAsync` returns immediately independent if the message is already sent or not. Send errors will be ignored implicitly. Here, the business rule allows that message will be discarded under some error circumstances. However, in cases of temporary errors the chance is very high that the message will be sent successfully. Base on the persistent configuration and retry sequence erroneous submissions will be stored on disc and be retried later.
+In the example below the http sink will be opened by instantiating the example service. The  `withRetryAfter(...)`  method is used to define the retry sequence. To store pending submissions a sub directory of the user home dir is used. It is expected that the service will always run in the context of the same user. Furthermore the buffer for pending submissions is limited to 10000. If this size is exceeded, new submissions will be discarded. 
+
+The httpsink is bound on the lifycycle of the example service. If the example service is closed, the httpsink will also be closed. 
+
+To submit messages the example service uses the `submitAsync` method to avoid blocking behavior by submitting the message. The `submitAsync` returns immediately independent if the message is already sent or not. Send errors will be ignored on application level, implicitly. Here, the business rule allows that message will be discarded under some rare error circumstances. However, in cases of temporary errors the chance is very high that the message will be sent successfully. Base on the persistent configuration and retry sequence erroneous submissions will be stored on disc and be retried later.
 
   
 ```  

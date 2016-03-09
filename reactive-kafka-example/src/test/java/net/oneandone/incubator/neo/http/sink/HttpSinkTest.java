@@ -145,6 +145,8 @@ public class HttpSinkTest {
         Submission submission = sink.submit(new CustomerChangedEvent(44545453), MediaType.valueOf("application/vnd.example.event.customerdatachanged+json"));
         Assert.assertEquals(Submission.State.COMPLETED, submission.getState());
         
+        Assert.assertTrue(submission.toString().contains("(1 of 3) executed with success "));
+        
         sink.close();
     }
   
@@ -756,7 +758,14 @@ public class HttpSinkTest {
         sink.close();
     }
   
-    
+    @Test
+    public void testExample() throws Exception {
+    	MyExampleService exampleService = new MyExampleService(URI.create(server.getBasepath() + "rest/topics"));
+    	exampleService.myBusinessMethod();
+
+    	exampleService.close();
+    }
+  
 
     @XmlRootElement 
     public static class CustomerChangedEvent {

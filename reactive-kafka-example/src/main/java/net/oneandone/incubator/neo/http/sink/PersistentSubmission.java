@@ -56,6 +56,7 @@ import com.google.common.io.Closeables;
 import jersey.repackaged.com.google.common.collect.Lists;
 import net.oneandone.incubator.neo.collect.Immutables;
 import net.oneandone.incubator.neo.http.sink.HttpSink.Method;
+import net.oneandone.incubator.neo.http.sink.QueryExecutor.QueryResponse;
 
 
 
@@ -250,14 +251,14 @@ class PersistentSubmission extends TransientSubmission {
 	    
 	    @Override
 	    protected void onSuccess(final String msg) {
-	    	super.onSuccess(msg);
 	    	submissionDir.delete();
+	    	super.onSuccess(msg);
 	    }
 	    
 	    @Override
-	    protected void onDiscard(final String msg) { 
-	    	super.onDiscard(msg);
+	    protected RuntimeException onDiscard(String msg, QueryResponse response) {
 	    	submissionDir.delete();
+	    	return super.onDiscard(msg, response);
 	    }
 	}
 	

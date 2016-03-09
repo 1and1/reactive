@@ -49,7 +49,7 @@ Event though some dedicated HTTP methods such as `PUT` are idemepotent the HttpS
 ```
 HttpSink sink = HttpSink.target(myUri)
                         .withMethod(Method.PUT)
-						.withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5))
+						.withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
                         .open();
 
 // ...
@@ -64,7 +64,7 @@ By default the submissions will be buffered in-memory. All these submissions wil
 
 ```
 HttpSink sink = HttpSink.target(myUri)
-                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5))
+                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
 					    .withPersistency(mySubmissionDir)
                         .open();
 
@@ -80,7 +80,7 @@ To limit the max queue size of the pending submissions the max buffer size can b
 
 ```
 HttpSink sink = HttpSink.target(myUri)
-                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5))
+                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
 					    .withPersistency(myWorkingDir)
                         .withRetryBufferSize(10000)  //max 10000 pending jobs
                         .open();
@@ -97,7 +97,7 @@ Furthermore the `submit` method will also be rejected, if some dedicated error c
 
 ```
 HttpSink sink = HttpSink.target(myUri)
-                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofMillis(30), Duration.ofMinutes(5))
+                        .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5))
 					    .withPersistency(myWorkingDir)
                         .withRetryBufferSize(10000)  //max 10000 pending
                         .withRejectOnStatus(400, 403, 405, 406, 408, 409, 410, 413, 414, 415, 416, 417) jobs
@@ -111,7 +111,7 @@ sink.submit(new CustomerChangedEvent(id),
 //...
 ```
 
-By calling the `submit` method first it will be tried to perform the submission. The submit methods returns either the call is sucessfully or it is failed for the *first* time. By calling the `submitAsync` the call returns immediately without waiting for the response. In this case a `CompletableFuture` is returned.
+By calling the `submit` method first it will be tried to perform the submission. The submit methods returns either the call is successfully or it is failed for the *first* time. By calling the `submitAsync` the call returns immediately without waiting for the response. In this case a `CompletableFuture` is returned.
 
 ```
 HttpSink sink = HttpSink.target(myUri)
@@ -129,3 +129,41 @@ CompletableFuture<Submission> submission = sink.submitAsync(new CustomerChangedE
 ```
 
 In most cases the `submitAsync` approach is preferred as shown above by setting the retry sequence `withRetryAfter` and a store directory `withPersistency`. This allows you to submit an event message in a resilient way without blocking the main program flow. 
+
+
+Production-ready example 
+----------------------
+In the example below the http sink will be opened by instantiating the example service. The  `withRetryAfter(...)`  method is used to define the retry sequence. To store pending submissions a sub directory of the user home dir is used. It is expected that the service will always run in the context of the same user. Furthermore the buffer for pending submissions is limited to 10000. If the size is exceeded, new submissions will be discarded. 
+The httpsink is bound to the lifycycle of the example service. If the example service is closed, the httpsink will be closed, too. 
+To submit messages the example service uses the `submitAsync` method to avoid blocking behavior by submitting the message. The `submitAsync` returns immediately independent if the message is already sent or not. Send errors will be ignored implicitly. Here, the business rule allows that message will be discarded under some error circumstances. However, in cases of temporary errors the chance is very high that the message will be sent successfully. Base on the persistent configuration and retry sequence erroneous submissions will be stored on disc and be retried later.
+
+  
+```  
+public class MyExampleService implements Closeable {
+   private final HttpSink httpSink;
+   // ...
+	
+   public MyExampleService(final URI sinkUri) {
+      //...
+		
+      this.httpSink = HttpSink.target(sinkUri)
+                              .withRetryAfter(Duration.ofSeconds(2), Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMinutes(30))
+                              .withPersistency(new File(System.getProperty("user.home"), MyExampleService.class.getCanonicalName().replace(".", "_"))) 
+                              .withRetryBufferSize(10000)    
+                              .open();
+   }
+	
+   @Override
+   public void close() {
+      httpSink.close();
+   }
+	
+   public void myBusinessMethod() {
+      // ...
+      
+		
+      httpSink.submitAsync(myMessage, MediaType.APPLICATION_JSON); 
+   }
+}
+```  
+	

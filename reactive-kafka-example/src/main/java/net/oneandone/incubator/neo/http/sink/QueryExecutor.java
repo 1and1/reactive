@@ -198,7 +198,7 @@ class QueryExecutor implements Closeable {
     	
     	@Override
     	public String toString() {
-    		return ((content == null) ? error.getMessage() : "success") + " (elapsed: " + ((double) elapsedTime.toMillis() / 1000) + " sec)";
+    		return ((error == null) ? "success" : error.getMessage()) + " (elapsed: " + ((double) elapsedTime.toMillis() / 1000) + " sec)";
     	}
     	
 	  	private static RuntimeException unwrap(Throwable error) {

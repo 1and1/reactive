@@ -54,7 +54,7 @@ public interface HttpSinkBuilder {
     HttpSinkBuilder withRetryAfter(Duration... retryPauses);
     
     /**
-     * @param maxBufferedSubmissions the retry buffer size. If the size is exceeded, new retry jobs will be discarded (default is {@link HttpSink#DEFAULT_BUFFERSIZE})
+     * @param maxBufferedSubmissions the retry buffer size. If the size is exceeded, new submissions will be discarded (default is {@link HttpSink#DEFAULT_BUFFERSIZE})
      * @return a new instance of the http sink
      */
     HttpSinkBuilder withRetryBufferSize(int maxBufferedSubmissions);

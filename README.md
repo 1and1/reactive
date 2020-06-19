@@ -1,5 +1,7 @@
 [![Build Status](https://travis-ci.org/1and1/reactive.svg)](https://travis-ci.org/1and1/reactive)
 
+DEPRECATED. Please no longer use this project
+
 # reactive-http
 ``` java
 <dependency>
